@@ -67,13 +67,40 @@ fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !void {
     }
 }
 
+const SyncRecord = struct {
+    src: []const u8,
+    dest: []const u8,
+    timestamp: i64,
+};
+
+fn recordLastSync(file: Dotfile) !void {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const sync_path = try std.fmt.bufPrint(&buf, "{s}.sync.zon", .{file.dest});
+    const f = try std.fs.createFileAbsolute(sync_path, .{ .read = false, .truncate = true });
+    defer f.close();
+
+    const record = SyncRecord{
+        .src = file.src,
+        .dest = file.dest,
+        .timestamp = std.time.timestamp(),
+    };
+
+    var writer = f.writer();
+    try writer.print(
+        "SyncRecord{{\n" ++
+            "    .src = \"{s}\",\n" ++
+            "    .dest = \"{s}\",\n" ++
+            "    .synced = {d},\n" ++
+            "}}\n",
+        .{ record.src, record.dest, record.timestamp },
+    );
+}
+
 fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
-    // Load template
     const template_file = try std.fs.cwd().openFile(file.src, .{});
     defer template_file.close();
-    const template_content = try template_file.readToEndAlloc(allocator, 1024);
 
-    // Replacements
+    const template_content = try template_file.readToEndAlloc(allocator, 1024);
     const replacements = [_]Replacement{
         .{ .key = "name", .value = "test NAME" },
         .{ .key = "option", .value = "test VALUE" },
@@ -90,6 +117,7 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
 
     defer output_file.close();
     try output_file.writeAll(result);
+    try recordLastSync(file);
 }
 
 fn applyTemplate(
