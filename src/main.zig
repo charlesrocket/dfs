@@ -70,7 +70,7 @@ fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !void {
 const SyncRecord = struct {
     src: []const u8,
     dest: []const u8,
-    timestamp: i64,
+    synced: i64,
 };
 
 fn recordLastSync(file: Dotfile) !void {
@@ -82,17 +82,21 @@ fn recordLastSync(file: Dotfile) !void {
     const record = SyncRecord{
         .src = file.src,
         .dest = file.dest,
-        .timestamp = std.time.timestamp(),
+        .synced = std.time.timestamp(),
     };
 
     var writer = f.writer();
     try writer.print(
-        "SyncRecord{{\n" ++
+        ".{{\n" ++
             "    .src = \"{s}\",\n" ++
             "    .dest = \"{s}\",\n" ++
             "    .synced = {d},\n" ++
             "}}\n",
-        .{ record.src, record.dest, record.timestamp },
+        .{
+            record.src,
+            record.dest,
+            record.synced,
+        },
     );
 }
 
@@ -106,8 +110,45 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
         .{ .key = "option", .value = "test VALUE" },
     };
 
+    const record_file_path = try std.fmt.allocPrint(
+        allocator,
+        "{s}.sync.zon",
+        .{file.dest},
+    );
+
+    defer allocator.free(record_file_path);
+
+    const record_file = std.fs.cwd().openFile(record_file_path, .{}) catch {
+        return error.NoSyncFile;
+    };
+    defer record_file.close();
+
+    const record_content_t = try record_file.readToEndAlloc(allocator, 1024);
+
+    var record_content = std.ArrayList(u8).init(allocator);
+    defer record_content.deinit();
+
+    for (record_content_t) |c| {
+        try record_content.append(c);
+    }
+
+    // null-terminated
+    try record_content.append(0);
+
+    const input = record_content.items[0 .. record_content.items.len - 1 :0];
+    const sync_record = try std.zon.parse.fromSlice(
+        SyncRecord,
+        allocator,
+        input,
+        null,
+        .{},
+    );
+
+    std.debug.print("{d}\n", .{sync_record.synced});
+
     const result = try applyTemplate(allocator, template_content, &replacements);
     const dir_path = std.fs.path.dirname(file.dest) orelse return error.InvalidPath;
+
     try createDirRecursively(allocator, dir_path);
 
     const output_file = try std.fs.createFileAbsolute(file.dest, .{
@@ -115,8 +156,9 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
         .truncate = true,
     });
 
-    defer output_file.close();
     try output_file.writeAll(result);
+    defer output_file.close();
+
     try recordLastSync(file);
 }
 
