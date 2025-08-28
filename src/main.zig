@@ -12,6 +12,12 @@ const Dotfile = struct {
     }
 };
 
+const Meta = struct {
+    src: []const u8,
+    dest: []const u8,
+    synced: i64,
+};
+
 const Replacement = struct {
     key: []const u8,
     value: []const u8,
@@ -67,19 +73,13 @@ fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !void {
     }
 }
 
-const SyncRecord = struct {
-    src: []const u8,
-    dest: []const u8,
-    synced: i64,
-};
-
 fn recordLastSync(file: Dotfile) !void {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     const sync_path = try std.fmt.bufPrint(&buf, "{s}.sync.zon", .{file.dest});
     const f = try std.fs.createFileAbsolute(sync_path, .{ .read = false, .truncate = true });
     defer f.close();
 
-    const record = SyncRecord{
+    const record = Meta{
         .src = file.src,
         .dest = file.dest,
         .synced = std.time.timestamp(),
@@ -110,6 +110,7 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
         .{ .key = "option", .value = "test VALUE" },
     };
 
+    var meta_present = true;
     const record_file_path = try std.fmt.allocPrint(
         allocator,
         "{s}.sync.zon",
@@ -118,39 +119,52 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
 
     defer allocator.free(record_file_path);
 
-    const record_file = std.fs.cwd().openFile(record_file_path, .{}) catch {
-        return error.NoSyncFile;
-    };
-    defer record_file.close();
-
-    const record_content_t = try record_file.readToEndAlloc(allocator, 1024);
-
-    var record_content = std.ArrayList(u8).init(allocator);
-    defer record_content.deinit();
-
-    for (record_content_t) |c| {
-        try record_content.append(c);
-    }
-
-    // null-terminated
-    try record_content.append(0);
-
-    const input = record_content.items[0 .. record_content.items.len - 1 :0];
-    const sync_record = try std.zon.parse.fromSlice(
-        SyncRecord,
-        allocator,
-        input,
-        null,
-        .{},
-    );
-
-    std.debug.print("{d}\n", .{sync_record.synced});
-
-    const result = try applyTemplate(allocator, template_content, &replacements);
     const dir_path = std.fs.path.dirname(file.dest) orelse return error.InvalidPath;
 
     try createDirRecursively(allocator, dir_path);
 
+    const record_file = std.fs.cwd().openFile(record_file_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => blk: {
+            meta_present = false;
+            _ = try std.fs.createFileAbsolute(
+                record_file_path,
+                .{ .read = false, .truncate = true },
+            );
+
+            break :blk std.fs.cwd().openFile(record_file_path, .{}) catch unreachable;
+        },
+
+        else => return err,
+    };
+
+    defer record_file.close();
+
+    if (meta_present) {
+        const record_content_t = try record_file.readToEndAlloc(allocator, 1024);
+
+        var record_content = std.ArrayList(u8).init(allocator);
+        defer record_content.deinit();
+
+        for (record_content_t) |c| {
+            try record_content.append(c);
+        }
+
+        // null-terminated
+        try record_content.append(0);
+
+        const input = record_content.items[0 .. record_content.items.len - 1 :0];
+        const sync_record = try std.zon.parse.fromSlice(
+            Meta,
+            allocator,
+            input,
+            null,
+            .{},
+        );
+
+        std.debug.print("{d}\n", .{sync_record.synced});
+    }
+
+    const result = try applyTemplate(allocator, template_content, &replacements);
     const output_file = try std.fs.createFileAbsolute(file.dest, .{
         .read = false,
         .truncate = true,
