@@ -111,49 +111,48 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
     };
 
     var meta_present = true;
-    const record_file_path = try std.fmt.allocPrint(
+    const meta_file_path = try std.fmt.allocPrint(
         allocator,
         "{s}.sync.zon",
         .{file.dest},
     );
 
-    defer allocator.free(record_file_path);
+    defer allocator.free(meta_file_path);
 
     const dir_path = std.fs.path.dirname(file.dest) orelse return error.InvalidPath;
 
     try createDirRecursively(allocator, dir_path);
 
-    const record_file = std.fs.cwd().openFile(record_file_path, .{}) catch |err| switch (err) {
+    const meta_file = std.fs.cwd().openFile(meta_file_path, .{}) catch |err| switch (err) {
         error.FileNotFound => blk: {
             meta_present = false;
             _ = try std.fs.createFileAbsolute(
-                record_file_path,
+                meta_file_path,
                 .{ .read = false, .truncate = true },
             );
 
-            break :blk std.fs.cwd().openFile(record_file_path, .{}) catch unreachable;
+            break :blk std.fs.cwd().openFile(meta_file_path, .{}) catch unreachable;
         },
 
         else => return err,
     };
 
-    defer record_file.close();
+    defer meta_file.close();
 
     if (meta_present) {
-        const record_content_t = try record_file.readToEndAlloc(allocator, 1024);
+        const meta_content_t = try meta_file.readToEndAlloc(allocator, 1024);
+        var meta_content = std.ArrayList(u8).init(allocator);
+        defer meta_content.deinit();
 
-        var record_content = std.ArrayList(u8).init(allocator);
-        defer record_content.deinit();
-
-        for (record_content_t) |c| {
-            try record_content.append(c);
+        for (meta_content_t) |c| {
+            try meta_content.append(c);
         }
 
         // null-terminated
-        try record_content.append(0);
+        try meta_content.append(0);
 
-        const input = record_content.items[0 .. record_content.items.len - 1 :0];
-        const sync_record = try std.zon.parse.fromSlice(
+        const input = meta_content.items[0 .. meta_content.items.len - 1 :0];
+        const meta = try std.zon.parse.fromSlice(
             Meta,
             allocator,
             input,
@@ -161,8 +160,12 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
             .{},
         );
 
-        std.debug.print("{d}\n", .{sync_record.synced});
+        std.debug.print("{d}\n", .{meta.synced});
     }
+
+    const last_modified = try lastMod(file.dest);
+
+    std.debug.print("{d}\n", .{last_modified});
 
     const result = try applyTemplate(allocator, template_content, &replacements);
     const output_file = try std.fs.createFileAbsolute(file.dest, .{
@@ -174,6 +177,20 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
     defer output_file.close();
 
     try recordLastSync(file);
+}
+
+fn lastMod(file: []const u8) !i128 {
+    const path = std.fs.path.dirname(file);
+    const dir = try std.fs.cwd().openDir(path.?, .{});
+    const stat = try dir.statFile(file);
+
+    // compress the integer
+    const result = @divFloor(
+        @as(u64, @intCast(stat.mtime)),
+        1000000000,
+    );
+
+    return result;
 }
 
 fn applyTemplate(
