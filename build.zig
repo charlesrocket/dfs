@@ -15,7 +15,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-
     const exe = b.addExecutable(.{
         .name = "dfs",
         .root_module = exe_mod,
@@ -87,6 +86,11 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    const clean_step = b.step("clean", "Clean up project directory");
+    clean_step.dependOn(&b.addRemoveDirTree(b.path("meta")).step);
+    clean_step.dependOn(&b.addRemoveDirTree(b.path("zig-out")).step);
+    clean_step.dependOn(&b.addRemoveDirTree(b.path(".zig-cache")).step);
 }
 
 fn version(b: *std.Build) []const u8 {
