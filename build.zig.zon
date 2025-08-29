@@ -1,16 +1,25 @@
 .{
     .name = .dfs,
     .version = "0.0.0",
-    .fingerprint = 0x4a345649c75573c7,
+    .fingerprint = 0x4a3456490a45420d,
     .minimum_zig_version = "0.14.0",
+
     .dependencies = .{
+        .cova = .{
+            .url = "https://github.com/00JCIV00/cova/archive/4c56696fba4505a739c15223fc52985832051351.zip",
+            .hash = "cova-0.10.1-AAAAAPqeBAAThnQ-eGLXG9tyPsBRehaw8ySs8nEPwMUy",
+        },
+        .ghext = .{
+            .url = "https://github.com/charlesrocket/ghext/archive/refs/tags/0.7.3.tar.gz",
+            .hash = "ghext-0.7.3-dKaQNz1QAACVOGFjt6xRQR2hwo4u3Wa-hYXdl_hYSVn2",
+        },
     },
 
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
-        //"LICENSE",
-        //"README.md",
+        "LICENSE",
+        "README.md",
     },
 }
