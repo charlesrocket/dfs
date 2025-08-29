@@ -87,6 +87,19 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
 
+    const merge_step = b.addSystemCommand(&.{ "kcov", "--merge" });
+    merge_step.addDirectoryArg(b.path("coverage"));
+    merge_step.addDirectoryArg(b.path("kcov-unit"));
+    merge_step.addDirectoryArg(b.path("kcov-int"));
+
+    const kcov_unit = b.addSystemCommand(&.{ "kcov", "--include-path=src" });
+    kcov_unit.addDirectoryArg(b.path("kcov-unit"));
+    kcov_unit.addArtifactArg(lib_unit_tests);
+    merge_step.step.dependOn(&kcov_unit.step);
+
+    const coverage_step = b.step("coverage", "Generate test coverage (kcov)");
+    coverage_step.dependOn(&merge_step.step);
+
     const clean_step = b.step("clean", "Clean up project directory");
     clean_step.dependOn(&b.addRemoveDirTree(b.path("meta")).step);
     clean_step.dependOn(&b.addRemoveDirTree(b.path("zig-out")).step);
