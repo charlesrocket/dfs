@@ -17,6 +17,59 @@ const Dotfile = struct {
     }
 };
 
+const Config = struct {
+    source: []const u8,
+    destination: []const u8,
+
+    fn new(
+        allocator: std.mem.Allocator,
+        source: []const u8,
+        destination: ?[]const u8,
+    ) !Config {
+        const path = if (destination == null)
+            try std.process.getEnvVarOwned(allocator, "HOME")
+        else
+            destination.?;
+
+        return .{
+            .source = source,
+            .destination = path,
+        };
+    }
+
+    fn write(self: *Config, allocator: std.mem.Allocator) !void {
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        const xdg_conf = try std.process.getEnvVarOwned(allocator, "XDG_CONFIG_HOME");
+        const path = try std.fmt.bufPrint(&buf, "{s}", .{xdg_conf});
+        const file = try std.fmt.allocPrint(
+            allocator,
+            "{s}/dfs.zon",
+            .{path},
+        );
+
+        try createDirRecursively(allocator, path);
+
+        const f = try std.fs.createFileAbsolute(
+            file,
+            .{ .read = false, .truncate = true },
+        );
+
+        defer f.close();
+
+        var writer = f.writer();
+        try writer.print(
+            ".{{\n" ++
+                "    .source= \"{s}\",\n" ++
+                "    .destination = \"{s}\",\n" ++
+                "}}\n",
+            .{
+                self.source,
+                self.destination,
+            },
+        );
+    }
+};
+
 const Meta = struct {
     src: []const u8,
     dest: []const u8,
@@ -324,6 +377,9 @@ pub fn main() !void {
             try processFile(allocator, file);
         }
     }
+
+    //var config = try Config.new(allocator, dotfiles, destination);
+    //try config.write(allocator);
 }
 
 const std = @import("std");
