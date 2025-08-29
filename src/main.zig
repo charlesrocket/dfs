@@ -100,6 +100,20 @@ fn recordLastSync(file: Dotfile) !void {
     );
 }
 
+fn lastMod(file: []const u8) ?u64 {
+    const path = std.fs.path.dirname(file);
+    const dir = std.fs.cwd().openDir(path.?, .{}) catch return null;
+    const stat = dir.statFile(file) catch return null;
+
+    // compress the integer
+    const result = @divFloor(
+        @as(u64, @intCast(stat.mtime)),
+        1000000000,
+    );
+
+    return result;
+}
+
 fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
     const template_file = try std.fs.cwd().openFile(file.src, .{});
     defer template_file.close();
@@ -110,6 +124,7 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
         .{ .key = "option", .value = "test VALUE" },
     };
 
+    var last_sync: usize = 0;
     var meta_present = true;
     const meta_file_path = try std.fmt.allocPrint(
         allocator,
@@ -160,12 +175,30 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
             .{},
         );
 
-        std.debug.print("{d}\n", .{meta.synced});
+        last_sync = @intCast(meta.synced);
     }
 
-    const last_modified = try lastMod(file.dest);
+    const last_modified = lastMod(file.dest) orelse 0;
 
-    std.debug.print("{d}\n", .{last_modified});
+    if (last_sync < last_modified) {
+        const rendered_file = try std.fs.cwd().openFile(file.dest, .{});
+        defer rendered_file.close();
+
+        const rendered_content = try rendered_file.readToEndAlloc(allocator, 1024);
+        defer allocator.free(rendered_content);
+
+        const new_template = try reverseTemplate(allocator, rendered_content, &replacements);
+
+        const updated_template = try std.fs.createFileAbsolute(file.src, .{
+            .read = false,
+            .truncate = true,
+        });
+
+        defer updated_template.close();
+        try updated_template.writeAll(new_template);
+
+        std.debug.print("updated: {s}\n", .{file.src});
+    }
 
     const result = try applyTemplate(allocator, template_content, &replacements);
     const output_file = try std.fs.createFileAbsolute(file.dest, .{
@@ -179,18 +212,36 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
     try recordLastSync(file);
 }
 
-fn lastMod(file: []const u8) !i128 {
-    const path = std.fs.path.dirname(file);
-    const dir = try std.fs.cwd().openDir(path.?, .{});
-    const stat = try dir.statFile(file);
+fn reverseTemplate(
+    allocator: std.mem.Allocator,
+    rendered: []const u8,
+    replacements: []const Replacement,
+) ![]u8 {
+    var stream = std.ArrayList(u8).init(allocator);
+    defer stream.deinit();
 
-    // compress the integer
-    const result = @divFloor(
-        @as(u64, @intCast(stat.mtime)),
-        1000000000,
-    );
+    var i: usize = 0;
+    while (i < rendered.len) {
+        var matched = false;
+        for (replacements) |rep| {
+            if (std.mem.startsWith(u8, rendered[i..], rep.value)) {
+                try stream.appendSlice("{{");
+                try stream.appendSlice(rep.key);
+                try stream.appendSlice("}}");
+                i += rep.value.len;
+                matched = true;
 
-    return result;
+                break;
+            }
+        }
+
+        if (!matched) {
+            try stream.append(rendered[i]);
+            i += 1;
+        }
+    }
+
+    return stream.toOwnedSlice();
 }
 
 fn applyTemplate(
