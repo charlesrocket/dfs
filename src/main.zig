@@ -1,3 +1,8 @@
+pub const CommandT = cli.CommandT;
+pub const setup_cmd = cli.setup_cmd;
+
+const VERSION = build_options.version;
+
 const Dotfile = struct {
     dest: []const u8,
     src: []const u8,
@@ -262,25 +267,69 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer _ = arena.deinit();
 
-    const dotfiles = "/home/charlie/src/dotfiles/";
     const allocator = arena.allocator();
+    const stdout = std.io.getStdOut().writer();
+
+    const main_cmd = try setup_cmd.init(allocator, .{});
+    defer main_cmd.deinit();
+
+    var usage_help_called = false;
+    var args_iter = try cova.ArgIteratorGeneric.init(allocator);
+    defer args_iter.deinit();
+
+    cova.parseArgs(
+        &args_iter,
+        CommandT,
+        main_cmd,
+        stdout,
+        .{ .err_reaction = .Usage },
+    ) catch |err|
+        switch (err) {
+            error.UsageHelpCalled => {
+                usage_help_called = true;
+            },
+            else => return err,
+        };
+
+    const opts = try main_cmd.getOpts(.{});
+
+    if (opts.get("destination")) |dest| {
+        _ = dest;
+    }
+
+    if (main_cmd.checkFlag("version")) {
+        try stdout.print(
+            "{s}{s}{s}",
+            .{ "dfs version ", VERSION, "\n" },
+        );
+
+        std.posix.exit(0);
+    }
+
+    const dotfiles = "/home/charlie/src/dotfiles/";
     const destination = "/home/charlie/test/"; //try std.process.getEnvVarOwned(allocator, "HOME");
     //defer allocator.free(destination);
 
-    var files = std.ArrayListUnmanaged(Dotfile).empty;
-    //defer files.deinit(allocator);
+    if (main_cmd.checkFlag("version")) {
+        var files = std.ArrayListUnmanaged(Dotfile).empty;
+        //defer files.deinit(allocator);
 
-    try walk(&files, allocator, dotfiles, destination);
+        try walk(&files, allocator, dotfiles, destination);
 
-    const owned_files = try files.toOwnedSlice(allocator);
+        const owned_files = try files.toOwnedSlice(allocator);
 
-    for (owned_files) |file| {
-        //std.debug.print("{s}\n", .{file.src});
-        //std.debug.print("{s}\n\n", .{file.dest});
-        try processFile(allocator, file);
+        for (owned_files) |file| {
+            //std.debug.print("{s}\n", .{file.src});
+            //std.debug.print("{s}\n\n", .{file.dest});
+            try processFile(allocator, file);
+        }
     }
 }
 
 const std = @import("std");
 const lib = @import("libdfs");
 const posix = std.posix;
+const build_options = @import("build_options");
+
+const cova = @import("cova");
+const cli = @import("cli.zig");
