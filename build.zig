@@ -40,7 +40,7 @@ pub fn build(b: *std.Build) void {
             .kinds = &.{.all},
             .version = version(b),
             .help_docs_config = .{
-                .section = '6',
+                .section = '1',
             },
             .tab_complete_config = .{
                 .include_opts = true,
