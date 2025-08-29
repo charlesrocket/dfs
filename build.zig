@@ -16,11 +16,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe_mod.addImport("dfs_lib", lib_mod);
+    exe_mod.addImport("libdfs", lib_mod);
 
     const lib = b.addLibrary(.{
         .linkage = .static,
-        .name = "libdfs",
+        .name = "dfs_lib",
         .root_module = lib_mod,
     });
 
