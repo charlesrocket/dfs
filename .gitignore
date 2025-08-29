@@ -1,0 +1,9 @@
+/release/
+/debug/
+/build/
+/build-*/
+/docgen_tmp/
+/meta/
+
+.zig-cache/
+zig-out/
