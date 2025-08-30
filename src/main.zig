@@ -287,6 +287,7 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
         try recordLastSync(file);
     } else {
         std.debug.print("FILE: updated: {s}\n", .{file.dest});
+        // TODO do not output binary file data
         std.debug.print("FILE: new render data:\n{s}\n", .{result});
     }
 }
@@ -443,6 +444,7 @@ pub fn main() !void {
         var dry_run = false;
         if ((try sync_cmd.getOpts(.{})).get("dry")) |dry_opt| {
             if (dry_opt.val.isSet()) {
+                std.debug.print("DRY RUN\n", .{});
                 dry_run = true;
             }
         }
