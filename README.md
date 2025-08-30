@@ -9,8 +9,8 @@ zig build
 ```
 
 ## Roadmap
-[x] Template engine
-[x] Reverse translator
-[ ] Conditionals
-[ ] Colors
-[x] Dry run
+* [x] Template engine
+* [x] Reverse translator
+* [ ] Conditionals
+* [ ] Colors
+* [x] Dry run
