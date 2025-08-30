@@ -58,7 +58,6 @@ pub fn build(b: *std.Build) void {
     build_options.addOption([]const u8, "version", version(b));
 
     b.installArtifact(lib);
-
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
