@@ -185,7 +185,6 @@ fn lastMod(file: []const u8) ?u64 {
 }
 
 fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void {
-    _ = dry_run;
     const template_file = try std.fs.cwd().openFile(file.src, .{});
     defer template_file.close();
 
@@ -260,27 +259,36 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
 
         const new_template = try lib.reverseTemplate(allocator, rendered_content, &replacements);
 
-        const updated_template = try std.fs.createFileAbsolute(file.src, .{
+        if (!dry_run) {
+            const updated_template = try std.fs.createFileAbsolute(file.src, .{
+                .read = false,
+                .truncate = true,
+            });
+
+            defer updated_template.close();
+            try updated_template.writeAll(new_template);
+        } else {
+            std.debug.print("FILE: updated: {s}\n", .{file.src});
+            std.debug.print("FILE: new template data:\n{s}\n", .{new_template});
+        }
+    }
+
+    const result = try lib.applyTemplate(allocator, template_content, &replacements);
+
+    if (!dry_run) {
+        const output_file = try std.fs.createFileAbsolute(file.dest, .{
             .read = false,
             .truncate = true,
         });
 
-        defer updated_template.close();
-        try updated_template.writeAll(new_template);
+        try output_file.writeAll(result);
+        defer output_file.close();
 
-        std.debug.print("updated: {s}\n", .{file.src});
+        try recordLastSync(file);
+    } else {
+        std.debug.print("FILE: updated: {s}\n", .{file.dest});
+        std.debug.print("FILE: new render data:\n{s}\n", .{result});
     }
-
-    const result = try lib.applyTemplate(allocator, template_content, &replacements);
-    const output_file = try std.fs.createFileAbsolute(file.dest, .{
-        .read = false,
-        .truncate = true,
-    });
-
-    try output_file.writeAll(result);
-    defer output_file.close();
-
-    try recordLastSync(file);
 }
 
 fn walk(
@@ -431,6 +439,7 @@ pub fn main() !void {
     }
 
     if (main_cmd.matchSubCmd("sync")) |sync_cmd| {
+        // TODO add colors to the (dry-run) output
         var dry_run = false;
         if ((try sync_cmd.getOpts(.{})).get("dry")) |dry_opt| {
             if (dry_opt.val.isSet()) {
