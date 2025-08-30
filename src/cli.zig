@@ -71,7 +71,7 @@ pub const setup_cmd: CommandT = .{
     .examples = &.{
         "dfs",
     },
-    .sub_cmds_mandatory = false,
+    .sub_cmds_mandatory = true,
     .sub_cmds = &.{
         .{
             .name = "version",
@@ -80,9 +80,37 @@ pub const setup_cmd: CommandT = .{
         .{
             .name = "sync",
             .description = "Run synchronization.",
+            .opts = &.{
+                .{
+                    .name = "dry",
+                    .description = "Preview changes without writing any files.",
+                    .long_name = "dry",
+                },
+            },
         },
     },
-    .opts = &.{},
+    .opts = &.{
+        .{
+            .name = "source",
+            .description = "Override the source directory.",
+            .short_name = 's',
+            .long_name = "source",
+            .val = ValueT.ofType([]const u8, .{
+                .name = "string",
+                .alias_child_type = "path",
+            }),
+        },
+        .{
+            .name = "destination",
+            .description = "Override the destination directory.",
+            .short_name = 'd',
+            .long_name = "destination",
+            .val = ValueT.ofType([]const u8, .{
+                .name = "string",
+                .alias_child_type = "path",
+            }),
+        },
+    },
 };
 
 fn genVals(T: type, default: ?usize) []const u8 {

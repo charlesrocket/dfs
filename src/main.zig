@@ -38,10 +38,8 @@ const Config = struct {
     }
 
     fn write(self: *Config, allocator: std.mem.Allocator) !void {
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const xdg_conf = try std.process.getEnvVarOwned(allocator, "XDG_CONFIG_HOME");
-        const path = try std.fmt.bufPrint(&buf, "{s}", .{xdg_conf});
-        const file = try std.fmt.allocPrint(
+        const path = try configPath(allocator);
+        const config = try std.fmt.allocPrint(
             allocator,
             "{s}/dfs.zon",
             .{path},
@@ -50,7 +48,7 @@ const Config = struct {
         try createDirRecursively(allocator, path);
 
         const f = try std.fs.createFileAbsolute(
-            file,
+            config,
             .{ .read = false, .truncate = true },
         );
 
@@ -95,6 +93,25 @@ fn isIgnored(value: []const u8) bool {
     }
 
     return false;
+}
+
+fn configPath(allocator: std.mem.Allocator) ![]const u8 {
+    var path = std.ArrayList(u8).init(allocator);
+
+    // TODO handle missing env var
+    const xdg_conf = try std.process.getEnvVarOwned(
+        allocator,
+        "XDG_CONFIG_HOME",
+    );
+
+    const config_home = try std.fmt.allocPrint(
+        allocator,
+        "{s}",
+        .{xdg_conf},
+    );
+
+    try path.appendSlice(config_home);
+    return path.toOwnedSlice();
 }
 
 fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !void {
@@ -167,7 +184,8 @@ fn lastMod(file: []const u8) ?u64 {
     return result;
 }
 
-fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
+fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void {
+    _ = dry_run;
     const template_file = try std.fs.cwd().openFile(file.src, .{});
     defer template_file.close();
 
@@ -268,11 +286,16 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile) !void {
 fn walk(
     arr: *std.ArrayListUnmanaged(Dotfile),
     allocator: std.mem.Allocator,
-    path: []const u8,
-    dest: []const u8,
+    config: Config,
 ) !void {
     // with base path reference
-    try walkDir(arr, allocator, path, path, dest);
+    try walkDir(
+        arr,
+        allocator,
+        config.source,
+        config.source,
+        config.destination,
+    );
 }
 
 fn walkDir(
@@ -346,10 +369,6 @@ pub fn main() !void {
 
     const opts = try main_cmd.getOpts(.{});
 
-    if (opts.get("destination")) |dest| {
-        _ = dest;
-    }
-
     if (main_cmd.checkFlag("version")) {
         try stdout.print(
             "{s}{s}{s}",
@@ -359,27 +378,77 @@ pub fn main() !void {
         std.posix.exit(0);
     }
 
-    const dotfiles = "/home/charlie/src/dotfiles/";
-    const destination = "/home/charlie/test/"; //try std.process.getEnvVarOwned(allocator, "HOME");
-    //defer allocator.free(destination);
+    const conf_home = try configPath(allocator);
+    const config_path = try std.fmt.allocPrint(
+        allocator,
+        "{s}/dfs.zon",
+        .{conf_home},
+    );
 
-    if (main_cmd.checkFlag("version")) {
+    const config_file = std.fs.cwd().openFile(config_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => blk: {
+            const path = try configPath(allocator);
+
+            _ = try createDirRecursively(allocator, path);
+            _ = try std.fs.createFileAbsolute(
+                config_path,
+                .{ .read = false, .truncate = true },
+            );
+
+            break :blk std.fs.cwd().openFile(config_path, .{}) catch unreachable;
+        },
+
+        else => return err,
+    };
+
+    defer config_file.close();
+
+    const config_content_t = try config_file.readToEndAlloc(allocator, 1024);
+    var config_content = std.ArrayList(u8).init(allocator);
+    defer config_content.deinit();
+
+    for (config_content_t) |c| {
+        try config_content.append(c);
+    }
+
+    try config_content.append(0);
+
+    const config_data = config_content.items[0 .. config_content.items.len - 1 :0];
+    var config = try std.zon.parse.fromSlice(
+        Config,
+        allocator,
+        config_data,
+        null,
+        .{},
+    );
+
+    if (opts.get("destination")) |dest| {
+        config.destination = try dest.val.getAs([]const u8);
+    }
+
+    if (opts.get("source")) |src| {
+        config.source = try src.val.getAs([]const u8);
+    }
+
+    if (main_cmd.matchSubCmd("sync")) |sync_cmd| {
+        var dry_run = false;
+        if ((try sync_cmd.getOpts(.{})).get("dry")) |dry_opt| {
+            if (dry_opt.val.isSet()) {
+                dry_run = true;
+            }
+        }
+
         var files = std.ArrayListUnmanaged(Dotfile).empty;
         //defer files.deinit(allocator);
 
-        try walk(&files, allocator, dotfiles, destination);
+        try walk(&files, allocator, config);
 
         const owned_files = try files.toOwnedSlice(allocator);
 
         for (owned_files) |file| {
-            //std.debug.print("{s}\n", .{file.src});
-            //std.debug.print("{s}\n\n", .{file.dest});
-            try processFile(allocator, file);
+            try processFile(allocator, file, dry_run);
         }
     }
-
-    //var config = try Config.new(allocator, dotfiles, destination);
-    //try config.write(allocator);
 }
 
 const std = @import("std");
