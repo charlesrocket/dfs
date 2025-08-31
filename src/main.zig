@@ -95,6 +95,26 @@ fn isIgnored(value: []const u8) bool {
     return false;
 }
 
+fn isText(data: []const u8) bool {
+    if (std.unicode.utf8ValidateSlice(data)) {
+        return true;
+    }
+
+    // ASCII heuristic
+    var non_text_count: usize = 0;
+    for (data) |c| {
+        // common text whitespace
+        if (c == '\n' or c == '\r' or c == '\t') continue;
+        // printable range
+        if (c >= 0x20 and c <= 0x7E) continue;
+
+        non_text_count += 1;
+    }
+
+    // treat as binary if the threshold is reached
+    return (non_text_count * 100 / data.len) < 10;
+}
+
 fn configPath(allocator: std.mem.Allocator) ![]const u8 {
     var path = std.ArrayList(u8).init(allocator);
 
@@ -287,8 +307,11 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
         try recordLastSync(file);
     } else {
         std.debug.print("FILE: updated: {s}\n", .{file.dest});
-        // TODO do not output binary file data
-        std.debug.print("FILE: new render data:\n{s}\n", .{result});
+
+        if (isText(result))
+            std.debug.print("FILE: new render data:\n{s}\n", .{result})
+        else
+            std.debug.print("FILE: new render data: binary\n", .{});
     }
 }
 
