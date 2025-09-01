@@ -78,6 +78,10 @@ pub const setup_cmd: CommandT = .{
             .description = "Show the 'dfs' version.",
         },
         .{
+            .name = "init",
+            .description = "Initialize the configuration.",
+        },
+        .{
             .name = "sync",
             .description = "Run synchronization.",
             .opts = &.{

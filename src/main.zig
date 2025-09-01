@@ -85,6 +85,61 @@ const ignore_list = [_][]const u8{
     ".git",
 };
 
+const UserInput = enum {
+    Url,
+    Source,
+    Destination,
+};
+
+fn getUserInput(allocator: std.mem.Allocator, input: UserInput) !std.ArrayList(u8) {
+    const stdin = std.io.getStdIn().reader();
+    const stdout = std.io.getStdOut().writer();
+
+    var buf: [2048]u8 = undefined;
+    var list = std.ArrayList(u8).init(allocator);
+
+    try stdout.print("Enter {s}: ", .{switch (input) {
+        .Url => "repository URL",
+        .Source => "repository destination",
+        .Destination => "configuration destination",
+    }});
+
+    if (try stdin.readUntilDelimiterOrEof(buf[0..], '\n')) |user_input| {
+        for (user_input) |c| {
+            try list.append(c);
+        }
+
+        return list;
+    } else {
+        return error.Foo;
+    }
+}
+
+fn init(allocator: std.mem.Allocator) !void {
+    var repo_usr = try getUserInput(allocator, Input.Url);
+    var src_usr = try getUserInput(allocator, Input.Source);
+    var dest_usr = try getUserInput(allocator, Input.Destination);
+
+    const repo = try repo_usr.toOwnedSlice();
+    const src = try src_usr.toOwnedSlice();
+    const dest = try dest_usr.toOwnedSlice();
+
+    var config = try Config.new(allocator, src, dest);
+    const command = [_][]const u8{
+        "git",
+        "clone",
+        repo,
+        src,
+    };
+
+    var proc = std.process.Child.init(&command, allocator);
+
+    try proc.spawn();
+    _ = try proc.wait();
+    try config.write(allocator);
+    std.posix.exit(0);
+}
+
 fn isIgnored(value: []const u8) bool {
     for (ignore_list) |el| {
         if (std.mem.eql(u8, el, value)) {
@@ -208,7 +263,7 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
     const template_file = try std.fs.cwd().openFile(file.src, .{});
     defer template_file.close();
 
-    const template_content = try template_file.readToEndAlloc(allocator, 1024);
+    const template_content = try template_file.readToEndAlloc(allocator, 2048 * 1024);
     const replacements = [_]lib.Replacement{
         .{ .key = "name", .value = "test NAME" },
         .{ .key = "option", .value = "test VALUE" },
@@ -410,6 +465,10 @@ pub fn main() !void {
         std.posix.exit(0);
     }
 
+    if (main_cmd.checkSubCmd("init")) {
+        try init(allocator);
+    }
+
     const conf_home = try configPath(allocator);
     const config_path = try std.fmt.allocPrint(
         allocator,
@@ -417,21 +476,14 @@ pub fn main() !void {
         .{conf_home},
     );
 
-    const config_file = std.fs.cwd().openFile(config_path, .{}) catch |err| switch (err) {
-        error.FileNotFound => blk: {
-            const path = try configPath(allocator);
-
-            _ = try createDirRecursively(allocator, path);
-            _ = try std.fs.createFileAbsolute(
-                config_path,
-                .{ .read = false, .truncate = true },
-            );
-
-            break :blk std.fs.cwd().openFile(config_path, .{}) catch unreachable;
-        },
-
-        else => return err,
-    };
+    const config_file = std.fs.cwd().openFile(config_path, .{}) catch |err|
+        switch (err) {
+            error.FileNotFound => {
+                std.debug.print("Config not found!\nRun `dfs init`.", .{});
+                std.posix.exit(1);
+            },
+            else => return err,
+        };
 
     defer config_file.close();
 
