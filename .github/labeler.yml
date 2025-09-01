@@ -8,6 +8,10 @@ build:
 - changed-files:
   - any-glob-to-any-file: ['build.zig.zon', 'build.zig']
 
+engine:
+- changed-files:
+  - any-glob-to-any-file: 'src/root.zig'
+
 test:
 - changed-files:
   - any-glob-to-any-file: 'test/**/*'
