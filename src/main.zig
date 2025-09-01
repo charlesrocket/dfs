@@ -116,9 +116,9 @@ fn getUserInput(allocator: std.mem.Allocator, input: UserInput) !std.ArrayList(u
 }
 
 fn init(allocator: std.mem.Allocator) !void {
-    var repo_usr = try getUserInput(allocator, Input.Url);
-    var src_usr = try getUserInput(allocator, Input.Source);
-    var dest_usr = try getUserInput(allocator, Input.Destination);
+    var repo_usr = try getUserInput(allocator, UserInput.Url);
+    var src_usr = try getUserInput(allocator, UserInput.Source);
+    var dest_usr = try getUserInput(allocator, UserInput.Destination);
 
     const repo = try repo_usr.toOwnedSlice();
     const src = try src_usr.toOwnedSlice();
