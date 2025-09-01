@@ -16,9 +16,9 @@ pub fn reverseTemplate(
         var matched = false;
         for (replacements) |rep| {
             if (std.mem.startsWith(u8, rendered[i..], rep.value)) {
-                try stream.appendSlice("{{");
+                try stream.appendSlice("{>");
                 try stream.appendSlice(rep.key);
-                try stream.appendSlice("}}");
+                try stream.appendSlice("<}");
                 i += rep.value.len;
                 matched = true;
 
@@ -45,9 +45,9 @@ pub fn applyTemplate(
 
     var i: usize = 0;
     while (i < template.len) {
-        if (std.mem.startsWith(u8, template[i..], "{{")) {
+        if (std.mem.startsWith(u8, template[i..], "{>")) {
             const start = i + 2;
-            const end = std.mem.indexOf(u8, template[start..], "}}") orelse {
+            const end = std.mem.indexOf(u8, template[start..], "<}") orelse {
                 return error.InvalidTemplate;
             };
 
