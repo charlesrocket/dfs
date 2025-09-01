@@ -263,7 +263,8 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
     const template_file = try std.fs.cwd().openFile(file.src, .{});
     defer template_file.close();
 
-    const template_content = try template_file.readToEndAlloc(allocator, 2048 * 1024);
+    // TODO adjust buffer limit
+    const template_content = try template_file.readToEndAlloc(allocator, 2048 * 2048);
     const replacements = [_]lib.Replacement{
         .{ .key = "name", .value = "test NAME" },
         .{ .key = "option", .value = "test VALUE" },
