@@ -12,5 +12,7 @@ zig build
 * [x] Template engine
 * [x] Reverse translator
 * [x] Conditionals
+* [ ] Machine meta (only `SYSTEM.os` at the moment)
+* [ ] Upstream pulls
 * [ ] Colors
 * [x] Dry run
