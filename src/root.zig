@@ -55,7 +55,11 @@ pub fn applyTemplate(
             var scan = i;
 
             while (true) {
-                const next_open_opt = std.mem.indexOf(u8, template[scan..], "{>");
+                const next_open_opt = std.mem.indexOf(
+                    u8,
+                    template[scan..],
+                    "{>",
+                );
                 const next_open = if (next_open_opt) |v|
                     scan + v
                 else
@@ -63,12 +67,12 @@ pub fn applyTemplate(
 
                 var body = template[i..next_open];
 
-                // Trim leading newline after tag
+                // trim leading newline after tag
                 if (body.len > 0 and (body[0] == '\n' or body[0] == '\r')) {
                     body = body[1..];
                 }
 
-                // Determine if branch is active
+                // determine if branch is active
                 var active: bool = false;
                 if (std.mem.startsWith(u8, tag_trim, "if ")) {
                     active = evalCondition(tag_trim[3..]) and !branch_taken;
@@ -216,7 +220,11 @@ pub fn reverseTemplate(
         } else {
             // literal text outside template tags
             const next_tag_opt = std.mem.indexOf(u8, template[i..], "{>");
-            const literal_end = if (next_tag_opt) |off| i + off else template.len;
+            const literal_end = if (next_tag_opt) |off|
+                i + off
+            else
+                template.len;
+
             const literal_len = literal_end - i;
 
             if (r + literal_len <= rendered.len) {
