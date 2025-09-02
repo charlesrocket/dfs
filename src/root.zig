@@ -60,6 +60,7 @@ pub fn applyTemplate(
                     template[scan..],
                     "{>",
                 );
+
                 const next_open = if (next_open_opt) |v|
                     scan + v
                 else
