@@ -265,10 +265,28 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
 
     // TODO adjust buffer limit
     const template_content = try template_file.readToEndAlloc(allocator, 2048 * 2048);
-    const replacements = [_]lib.Replacement{
-        .{ .key = "name", .value = "test NAME" },
-        .{ .key = "option", .value = "test VALUE" },
-    };
+    const is_text = isText(template_content);
+
+    if (!is_text) {
+        if (dry_run) {
+            std.debug.print("FILE: copy binary {s} -> {s}\n", .{ file.src, file.dest });
+        } else {
+            // ensure destination directory exists
+            const dir_path = std.fs.path.dirname(file.dest) orelse return error.InvalidPath;
+            try createDirRecursively(allocator, dir_path);
+
+            const dest_file = try std.fs.createFileAbsolute(file.dest, .{
+                .read = false,
+                .truncate = true,
+            });
+            defer dest_file.close();
+
+            try dest_file.writeAll(template_content);
+            try recordLastSync(file);
+        }
+
+        return;
+    }
 
     var last_sync: usize = 0;
     var meta_present = true;
@@ -333,7 +351,7 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
         const rendered_content = try rendered_file.readToEndAlloc(allocator, 1024);
         defer allocator.free(rendered_content);
 
-        const new_template = try lib.reverseTemplate(allocator, rendered_content, &replacements);
+        const new_template = try lib.reverseTemplate(allocator, rendered_content, template_content);
 
         if (!dry_run) {
             const updated_template = try std.fs.createFileAbsolute(file.src, .{
@@ -349,7 +367,7 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
         }
     }
 
-    const result = try lib.applyTemplate(allocator, template_content, &replacements);
+    const result = try lib.applyTemplate(allocator, template_content);
 
     if (!dry_run) {
         const output_file = try std.fs.createFileAbsolute(file.dest, .{
@@ -364,7 +382,7 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
     } else {
         std.debug.print("FILE: updated: {s}\n", .{file.dest});
 
-        if (isText(result))
+        if (is_text)
             std.debug.print("FILE: new render data:\n{s}\n", .{result})
         else
             std.debug.print("FILE: new render data: binary\n", .{});
