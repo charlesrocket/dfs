@@ -11,6 +11,6 @@ zig build
 ## Roadmap
 * [x] Template engine
 * [x] Reverse translator
-* [ ] Conditionals
+* [x] Conditionals
 * [ ] Colors
 * [x] Dry run
