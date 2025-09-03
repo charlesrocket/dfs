@@ -68,7 +68,7 @@ pub fn applyTemplate(
 
                 var body = template[i..next_open];
 
-                // trim leading newline after tag
+                // trim exactly one leading newline after any control tag
                 if (body.len > 0 and (body[0] == '\n' or body[0] == '\r')) {
                     body = body[1..];
                 }
@@ -145,6 +145,11 @@ pub fn reverseTemplate(
 
             i = start + rel_end + 2;
 
+            // reset branch_taken at the start of each if-block
+            if (std.mem.startsWith(u8, tag_trim, "if ")) {
+                branch_taken = false;
+            }
+
             // copy tag literally
             try out.appendSlice("{>");
             try out.appendSlice(tag_slice);
@@ -159,19 +164,17 @@ pub fn reverseTemplate(
                 if (std.mem.startsWith(u8, template[body_end..], "{>")) {
                     const s = body_end + 2;
                     const e = std.mem.indexOf(u8, template[s..], "<}") orelse
-                        template.len;
+                        return error.InvalidTemplate;
 
                     const inner_tag = trimTag(template[s .. s + e]);
 
-                    if (std.mem.startsWith(u8, inner_tag, "if ")) depth += 1;
-                    if (std.mem.eql(u8, inner_tag, "end")) {
+                    if (std.mem.startsWith(u8, inner_tag, "if ")) {
+                        depth += 1;
+                    } else if (std.mem.eql(u8, inner_tag, "end")) {
                         if (depth == 0) break;
                         depth -= 1;
-                    }
-
-                    if ((std.mem.startsWith(u8, inner_tag, "elif ") or
-                        std.mem.eql(u8, inner_tag, "else")) and
-                        depth == 0)
+                    } else if ((std.mem.startsWith(u8, inner_tag, "elif ") or
+                        std.mem.eql(u8, inner_tag, "else")) and depth == 0)
                     {
                         break;
                     }
@@ -197,29 +200,109 @@ pub fn reverseTemplate(
             if (active) {
                 branch_taken = true;
 
-                // preserve leading newline(s) after the tag from template
-                var body_offset: usize = 0;
-                while (body_offset < body.len and (body[body_offset] == '\n' or
-                    body[body_offset] == '\r'))
-                {
-                    try out.append(body[body_offset]);
-                    body_offset += 1;
+                // find the end of this entire if...end block
+                // to locate the anchor literal after it
+                var scan2 = body_end;
+                var depth2: usize = 0;
+                var after_end: usize = template.len;
+
+                while (scan2 < template.len) {
+                    if (std.mem.startsWith(u8, template[scan2..], "{>")) {
+                        const s2 = scan2 + 2;
+                        const e2 = std.mem.indexOf(
+                            u8,
+                            template[s2..],
+                            "<}",
+                        ) orelse
+                            return error.InvalidTemplate;
+
+                        const t2 = trimTag(template[s2 .. s2 + e2]);
+
+                        if (std.mem.startsWith(u8, t2, "if ")) {
+                            depth2 += 1;
+                        } else if (std.mem.eql(u8, t2, "end")) {
+                            if (depth2 == 0) {
+                                // right after "<}" of end
+                                after_end = s2 + e2 + 2;
+                                break;
+                            }
+                            depth2 -= 1;
+                        }
+
+                        scan2 = s2 + e2 + 2;
+                    } else {
+                        scan2 += 1;
+                    }
                 }
 
-                // append remaining user-edited rendered
-                // content corresponding to this branch
-                const remaining_len = rendered.len - r;
-                try out.appendSlice(rendered[r .. r + remaining_len]);
+                const anchor_start = after_end;
+                const next_tag_off = std.mem.indexOf(
+                    u8,
+                    template[anchor_start..],
+                    "{>",
+                );
 
-                r += remaining_len;
+                const anchor_end = if (next_tag_off) |off|
+                    anchor_start + off
+                else
+                    template.len;
+
+                const anchor_lit = template[anchor_start..anchor_end];
+
+                // find user chunk in rendered by
+                // searching for the anchor literal (if any)
+                var user_end = rendered.len;
+                if (anchor_lit.len > 0) {
+                    if (std.mem.indexOf(u8, rendered[r..], anchor_lit)) |pos| {
+                        user_end = r + pos;
+                    }
+                }
+                var user_chunk = rendered[r..user_end];
+
+                // the forward pass trimmed trailing newlines from bodies
+                // so trim them here from user content
+                var user_trim_end = user_chunk.len;
+                while (user_trim_end > 0 and
+                    (user_chunk[user_trim_end - 1] == '\n' or
+                        user_chunk[user_trim_end - 1] == '\r'))
+                {
+                    user_trim_end -= 1;
+                }
+
+                // preserve template's leading/trailing newlines around the body
+                var lead: usize = 0;
+                while (lead < body.len and
+                    (body[lead] == '\n' or
+                        body[lead] == '\r'))
+                    lead += 1;
+
+                var trail: usize = 0;
+                while (trail < body.len - lead and
+                    (body[body.len - 1 - trail] == '\n' or
+                        body[body.len - 1 - trail] == '\r'))
+                {
+                    trail += 1;
+                }
+
+                // original leading newlines
+                try out.appendSlice(body[0..lead]);
+                // user content (no trailing NLs)
+                try out.appendSlice(user_chunk[0..user_trim_end]);
+                // original trailing newlines
+                if (trail > 0)
+                    try out.appendSlice(body[body.len - trail .. body.len]);
+
+                // advance rendered cursor to the consumed user chunk
+                r = user_end;
             } else {
-                // keep template body
+                // non-active branch: keep template body verbatim
                 try out.appendSlice(body);
             }
 
             i = body_end;
         } else {
             // literal text outside template tags
+            // copy corresponding rendered bytes (if present)
             const next_tag_opt = std.mem.indexOf(u8, template[i..], "{>");
             const literal_end = if (next_tag_opt) |off|
                 i + off
@@ -245,7 +328,47 @@ pub fn reverseTemplate(
         try out.appendSlice(rendered[r..]);
     }
 
-    return out.toOwnedSlice();
+    // normalize final trailing CR/LF sequence to
+    // exactly match template's trailing CR/LF sequence
+    var result = try out.toOwnedSlice();
+
+    var tmpl_trail: usize = 0;
+    var jj: usize = template.len;
+    while (jj > 0 and
+        (template[jj - 1] == '\n' or
+            template[jj - 1] == '\r')) : (jj -= 1)
+    {
+        tmpl_trail += 1;
+    }
+
+    var res_trail: usize = 0;
+    var kk: usize = result.len;
+    while (kk > 0 and
+        (result[kk - 1] == '\n' or
+            result[kk - 1] == '\r')) : (kk -= 1)
+    {
+        res_trail += 1;
+    }
+
+    if (res_trail == tmpl_trail) {
+        return result;
+    }
+
+    const core_len = result.len - res_trail;
+    const new_len = core_len + tmpl_trail;
+    const new_slice = try allocator.alloc(u8, new_len);
+    @memcpy(new_slice[0..core_len], result[0..core_len]);
+
+    if (tmpl_trail > 0) {
+        @memcpy(
+            new_slice[core_len..new_len],
+            template[template.len - tmpl_trail .. template.len],
+        );
+    }
+
+    allocator.free(result);
+
+    return new_slice;
 }
 
 fn getSystem() []const u8 {
