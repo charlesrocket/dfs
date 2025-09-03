@@ -445,6 +445,45 @@ test "back-no_template (linux)" {
 
     const rendered_user_edit =
         \\BAR
+        \\val="Bar"
+        \\
+    ;
+
+    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
+    defer gpa.free(reversed);
+
+    const expected_template =
+        \\BAR
+        \\{> if SYSTEM.os == linux <}
+        \\val="Bar"
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="Bar"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\
+    ;
+    try std.testing.expectEqualStrings(expected_template, reversed);
+}
+
+test "mixed (fbsd)" {
+    if (builtin.os.tag != .freebsd) return error.SkipZigTest;
+    var gpa = std.testing.allocator;
+
+    const template =
+        \\FOO
+        \\{> if SYSTEM.os == linux <}
+        \\val="Foo"
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="Bar"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\
+    ;
+
+    const rendered_user_edit =
+        \\BAR
         \\val="Zoot"
         \\
     ;
@@ -457,9 +496,86 @@ test "back-no_template (linux)" {
         \\{> if SYSTEM.os == linux <}
         \\val="Foo"
         \\{> elif SYSTEM.os == freebsd <}
+        \\val="Zoot"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\
+    ;
+    try std.testing.expectEqualStrings(expected_template, reversed);
+}
+
+test "mixed (linux)" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    var gpa = std.testing.allocator;
+
+    const template =
+        \\FOO
+        \\{> if SYSTEM.os == linux <}
+        \\val="Foo"
+        \\{> elif SYSTEM.os == freebsd <}
         \\val="Bar"
         \\{> else <}
         \\val="Else"
+        \\{> end <}
+        \\
+    ;
+
+    const rendered_user_edit =
+        \\BAR
+        \\val="Zoot"
+        \\
+    ;
+
+    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
+    defer gpa.free(reversed);
+
+    const expected_template =
+        \\BAR
+        \\{> if SYSTEM.os == linux <}
+        \\val="Zoot"
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="Bar"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\
+    ;
+    try std.testing.expectEqualStrings(expected_template, reversed);
+}
+
+test "mixed-else" {
+    var gpa = std.testing.allocator;
+
+    const template =
+        \\FOO
+        \\{> if SYSTEM.os == openbsd <}
+        \\val="Foo"
+        \\{> elif SYSTEM.os == netbsd <}
+        \\val="Bar"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\
+    ;
+
+    const rendered_user_edit =
+        \\BAR
+        \\val="Zoot"
+        \\
+    ;
+
+    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
+    defer gpa.free(reversed);
+
+    const expected_template =
+        \\BAR
+        \\{> if SYSTEM.os == openbsd <}
+        \\val="Foo"
+        \\{> elif SYSTEM.os == netbsd <}
+        \\val="Bar"
+        \\{> else <}
+        \\val="Zoot"
         \\{> end <}
         \\
     ;
