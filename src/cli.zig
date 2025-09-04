@@ -69,7 +69,7 @@ pub const setup_cmd: CommandT = .{
     .name = "dfs",
     .description = "Dotfiles manager",
     .examples = &.{
-        "dfs",
+        "dfs init -h",
     },
     .sub_cmds_mandatory = true,
     .sub_cmds = &.{
