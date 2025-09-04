@@ -636,6 +636,7 @@ pub fn main() !void {
             }
         }
 
+        var count: usize = 0;
         var files = std.ArrayListUnmanaged(Dotfile).empty;
         //defer files.deinit(allocator);
 
@@ -645,7 +646,10 @@ pub fn main() !void {
 
         for (owned_files) |file| {
             try processFile(allocator, file, dry_run);
+            count += 1;
         }
+
+        std.debug.print("PROCESSED FILES: {d}\n", .{count});
     }
 }
 
