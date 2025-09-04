@@ -3,6 +3,11 @@ pub const setup_cmd = cli.setup_cmd;
 
 const VERSION = build_options.version;
 
+const XdgDir = enum {
+    Config,
+    Data,
+};
+
 const Dotfile = struct {
     dest: []const u8,
     src: []const u8,
@@ -38,7 +43,7 @@ const Config = struct {
     }
 
     fn write(self: *Config, allocator: std.mem.Allocator) !void {
-        const path = try configPath(allocator);
+        const path = try getXdgDir(allocator, XdgDir.Config);
         const config = try std.fmt.allocPrint(
             allocator,
             "{s}/dfs.zon",
@@ -76,6 +81,7 @@ const Meta = struct {
 
 // TODO use regex
 const ignore_list = [_][]const u8{
+    "README.md",
     "LICENSE",
     "codecov.yml",
     "codecov.yaml",
@@ -91,7 +97,10 @@ const UserInput = enum {
     Destination,
 };
 
-fn getUserInput(allocator: std.mem.Allocator, input: UserInput) !std.ArrayList(u8) {
+fn getUserInput(
+    allocator: std.mem.Allocator,
+    input: UserInput,
+) !std.ArrayList(u8) {
     const stdin = std.io.getStdIn().reader();
     const stdout = std.io.getStdOut().writer();
 
@@ -170,23 +179,28 @@ fn isText(data: []const u8) bool {
     return (non_text_count * 100 / data.len) < 10;
 }
 
-fn configPath(allocator: std.mem.Allocator) ![]const u8 {
-    var path = std.ArrayList(u8).init(allocator);
-
-    // TODO handle missing env var
-    const xdg_conf = try std.process.getEnvVarOwned(
+fn getXdgDir(allocator: std.mem.Allocator, env_var: XdgDir) ![]const u8 {
+    const home = try std.process.getEnvVarOwned(allocator, "HOME");
+    const path = std.process.getEnvVarOwned(
         allocator,
-        "XDG_CONFIG_HOME",
-    );
+        switch (env_var) {
+            .Config => "XDG_CONFIG_HOME",
+            .Data => "XDG_DATA_HOME",
+        },
+    ) catch switch (env_var) {
+        .Config => return try std.fs.path.join(allocator, &.{
+            home,
+            ".config",
+        }),
+        .Data => return try std.fs.path.join(allocator, &.{
+            home,
+            ".local",
+            "share",
+            "dfs",
+        }),
+    };
 
-    const config_home = try std.fmt.allocPrint(
-        allocator,
-        "{s}",
-        .{xdg_conf},
-    );
-
-    try path.appendSlice(config_home);
-    return path.toOwnedSlice();
+    return path;
 }
 
 fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !void {
@@ -204,7 +218,10 @@ fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !void {
         const part = component.name;
         if (part.len == 0) continue;
 
-        if (buffer.items.len > 1 or (buffer.items.len == 1 and buffer.items[0] != sep)) {
+        if (buffer.items.len > 1 or
+            (buffer.items.len == 1 and
+                buffer.items[0] != sep))
+        {
             try buffer.append(sep);
         }
 
@@ -218,10 +235,24 @@ fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !void {
     }
 }
 
-fn recordLastSync(file: Dotfile) !void {
+fn recordLastSync(allocator: std.mem.Allocator, file: Dotfile) !void {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const sync_path = try std.fmt.bufPrint(&buf, "{s}.sync.zon", .{file.dest});
-    const f = try std.fs.createFileAbsolute(sync_path, .{ .read = false, .truncate = true });
+    const data_dir = try getXdgDir(allocator, XdgDir.Data);
+    const sync_dest = try std.fmt.bufPrint(&buf, "{s}{s}.zon", .{
+        data_dir,
+        file.dest,
+    });
+
+    const index = std.mem.lastIndexOfScalar(u8, sync_dest, '/');
+    const sync_dir = sync_dest[0 .. index.? + 1];
+
+    try createDirRecursively(allocator, sync_dir);
+
+    const f = try std.fs.createFileAbsolute(sync_dest, .{
+        .read = false,
+        .truncate = true,
+    });
+
     defer f.close();
 
     const record = Meta{
@@ -259,20 +290,32 @@ fn lastMod(file: []const u8) ?u64 {
     return result;
 }
 
-fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void {
+fn processFile(
+    allocator: std.mem.Allocator,
+    file: Dotfile,
+    dry_run: bool,
+) !void {
     const template_file = try std.fs.cwd().openFile(file.src, .{});
     defer template_file.close();
 
     // TODO adjust buffer limit
-    const template_content = try template_file.readToEndAlloc(allocator, 2048 * 2048);
+    const template_content = try template_file.readToEndAlloc(
+        allocator,
+        2048 * 2048,
+    );
     const is_text = isText(template_content);
 
     if (!is_text) {
         if (dry_run) {
-            std.debug.print("FILE: copy binary {s} -> {s}\n", .{ file.src, file.dest });
+            std.debug.print("FILE: copy binary {s} -> {s}\n", .{
+                file.src,
+                file.dest,
+            });
         } else {
             // ensure destination directory exists
-            const dir_path = std.fs.path.dirname(file.dest) orelse return error.InvalidPath;
+            const dir_path = std.fs.path.dirname(file.dest) orelse
+                return error.InvalidPath;
+
             try createDirRecursively(allocator, dir_path);
 
             const dest_file = try std.fs.createFileAbsolute(file.dest, .{
@@ -282,7 +325,7 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
             defer dest_file.close();
 
             try dest_file.writeAll(template_content);
-            try recordLastSync(file);
+            try recordLastSync(allocator, file);
         }
 
         return;
@@ -290,36 +333,59 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
 
     var last_sync: usize = 0;
     var meta_present = true;
+    const data_dir = try getXdgDir(allocator, XdgDir.Data);
     const meta_file_path = try std.fmt.allocPrint(
         allocator,
-        "{s}.sync.zon",
-        .{file.dest},
+        "{s}{s}.zon",
+        .{ data_dir, file.dest },
     );
 
     defer allocator.free(meta_file_path);
 
-    const dir_path = std.fs.path.dirname(file.dest) orelse return error.InvalidPath;
+    const dir_path = std.fs.path.dirname(file.dest) orelse
+        return error.InvalidPath;
 
     try createDirRecursively(allocator, dir_path);
+    try createDirRecursively(allocator, data_dir);
 
-    const meta_file = std.fs.cwd().openFile(meta_file_path, .{}) catch |err| switch (err) {
-        error.FileNotFound => blk: {
-            meta_present = false;
-            _ = try std.fs.createFileAbsolute(
-                meta_file_path,
-                .{ .read = false, .truncate = true },
-            );
+    // TODO maybe this is a bit too much
+    const meta_file: ?std.fs.File = std.fs.cwd().openFile(
+        meta_file_path,
+        .{},
+    ) catch |err|
+        switch (err) {
+            error.FileNotFound => blk: {
+                meta_present = false;
+                const index = std.mem.lastIndexOfScalar(u8, meta_file_path, '/');
+                const meta_dest = meta_file_path[0..index.?];
 
-            break :blk std.fs.cwd().openFile(meta_file_path, .{}) catch unreachable;
-        },
+                if (!dry_run) {
+                    try createDirRecursively(allocator, meta_dest);
+                    _ = try std.fs.createFileAbsolute(
+                        meta_file_path,
+                        .{
+                            .read = false,
+                            .truncate = true,
+                            .mode = 0o600,
+                        },
+                    );
+                }
 
-        else => return err,
-    };
+                break :blk if (dry_run)
+                    null
+                else
+                    std.fs.cwd().openFile(meta_file_path, .{}) catch unreachable;
+            },
 
-    defer meta_file.close();
+            else => return err,
+        };
+
+    defer {
+        if (meta_file != null) meta_file.?.close();
+    }
 
     if (meta_present) {
-        const meta_content_t = try meta_file.readToEndAlloc(allocator, 1024);
+        const meta_content_t = try meta_file.?.readToEndAlloc(allocator, 1024);
         var meta_content = std.ArrayList(u8).init(allocator);
         defer meta_content.deinit();
 
@@ -331,13 +397,17 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
         try meta_content.append(0);
 
         const input = meta_content.items[0 .. meta_content.items.len - 1 :0];
-        const meta = try std.zon.parse.fromSlice(
+        const meta = std.zon.parse.fromSlice(
             Meta,
             allocator,
             input,
             null,
             .{},
-        );
+        ) catch
+            return std.debug.print(
+                "Failed to parse ZON file: {s}\n",
+                .{meta_file_path},
+            );
 
         last_sync = @intCast(meta.synced);
     }
@@ -348,10 +418,17 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
         const rendered_file = try std.fs.cwd().openFile(file.dest, .{});
         defer rendered_file.close();
 
-        const rendered_content = try rendered_file.readToEndAlloc(allocator, 1024);
+        const rendered_content = try rendered_file.readToEndAlloc(
+            allocator,
+            2048 * 2048,
+        );
         defer allocator.free(rendered_content);
 
-        const new_template = try lib.reverseTemplate(allocator, rendered_content, template_content);
+        const new_template = try lib.reverseTemplate(
+            allocator,
+            rendered_content,
+            template_content,
+        );
 
         if (!dry_run) {
             const updated_template = try std.fs.createFileAbsolute(file.src, .{
@@ -378,7 +455,7 @@ fn processFile(allocator: std.mem.Allocator, file: Dotfile, dry_run: bool) !void
         try output_file.writeAll(result);
         defer output_file.close();
 
-        try recordLastSync(file);
+        try recordLastSync(allocator, file);
     } else {
         std.debug.print("FILE: updated: {s}\n", .{file.dest});
 
@@ -418,13 +495,23 @@ fn walkDir(
     while (try iter.next()) |node| {
         if (isIgnored(node.name)) continue;
 
-        const node_path = try std.fs.path.join(allocator, &.{ current_path, node.name });
+        const node_path = try std.fs.path.join(
+            allocator,
+            &.{ current_path, node.name },
+        );
         //defer allocator.free(node_path);
 
-        const rel_path = try std.fs.path.relative(allocator, base_path, node_path);
+        const rel_path = try std.fs.path.relative(
+            allocator,
+            base_path,
+            node_path,
+        );
         //defer allocator.free(rel_path);
 
-        const dest_path = try std.fs.path.join(allocator, &.{ dest, rel_path });
+        const dest_path = try std.fs.path.join(
+            allocator,
+            &.{ dest, rel_path },
+        );
         //defer allocator.free(dest_path);
 
         switch (node.kind) {
@@ -488,7 +575,7 @@ pub fn main() !void {
         try init(allocator);
     }
 
-    const conf_home = try configPath(allocator);
+    const conf_home = try getXdgDir(allocator, XdgDir.Config);
     const config_path = try std.fmt.allocPrint(
         allocator,
         "{s}/dfs.zon",
@@ -506,7 +593,11 @@ pub fn main() !void {
 
     defer config_file.close();
 
-    const config_content_t = try config_file.readToEndAlloc(allocator, 1024);
+    const config_content_t = try config_file.readToEndAlloc(
+        allocator,
+        1024,
+    );
+
     var config_content = std.ArrayList(u8).init(allocator);
     defer config_content.deinit();
 
@@ -516,7 +607,9 @@ pub fn main() !void {
 
     try config_content.append(0);
 
-    const config_data = config_content.items[0 .. config_content.items.len - 1 :0];
+    const config_data =
+        config_content.items[0 .. config_content.items.len - 1 :0];
+
     var config = try std.zon.parse.fromSlice(
         Config,
         allocator,
