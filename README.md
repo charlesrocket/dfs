@@ -16,3 +16,4 @@ zig build
 * [ ] Upstream pulls
 * [ ] Colors
 * [x] Dry run
+* [ ] Backups
