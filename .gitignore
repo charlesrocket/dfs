@@ -4,6 +4,7 @@
 /build-*/
 /docgen_tmp/
 /meta/
+/docs/
 
 .zig-cache/
 zig-out/
