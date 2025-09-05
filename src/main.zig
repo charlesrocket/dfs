@@ -137,6 +137,7 @@ fn init(allocator: std.mem.Allocator) !void {
     const command = [_][]const u8{
         "git",
         "clone",
+        "--recurse-submodules",
         repo,
         src,
     };
