@@ -67,7 +67,7 @@ const ValueT = CommandT.ValueT;
 
 pub const setup_cmd: CommandT = .{
     .name = "dfs",
-    .description = "Dotfiles manager",
+    .description = "A true 2-way sync dotfiles manager with reverse template translator",
     .examples = &.{
         "dfs init -h",
     },
