@@ -1,3 +1,7 @@
+//! LIBDFS
+//!
+//! Dfs is a template engine with reverse translation.
+
 const Token = union(enum) {
     text: []const u8,
     tag: []const u8,
