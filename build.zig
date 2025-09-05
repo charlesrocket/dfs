@@ -99,6 +99,15 @@ pub fn build(b: *std.Build) void {
     const coverage_step = b.step("coverage", "Generate test coverage (kcov)");
     coverage_step.dependOn(&merge_step.step);
 
+    const build_docs = b.addInstallDirectory(.{
+        .source_dir = lib.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "../docs",
+    });
+
+    const build_docs_step = b.step("docs", "Build the library documentation");
+    build_docs_step.dependOn(&build_docs.step);
+
     const clean_step = b.step("clean", "Clean up project directory");
     clean_step.dependOn(&b.addRemoveDirTree(b.path("meta")).step);
     clean_step.dependOn(&b.addRemoveDirTree(b.path("zig-out")).step);
