@@ -307,7 +307,7 @@ fn processFile(
 
     if (!is_text) {
         if (dry_run) {
-            std.debug.print("FILE: copy binary {s} -> {s}\n", .{
+            std.debug.print("FILE | copy binary {s} -> {s}\n", .{
                 file.src,
                 file.dest,
             });
@@ -439,8 +439,8 @@ fn processFile(
             defer updated_template.close();
             try updated_template.writeAll(new_template);
         } else {
-            std.debug.print("FILE: updated: {s}\n", .{file.src});
-            std.debug.print("FILE: new template data:\n{s}\n", .{new_template});
+            std.debug.print("FILE | {s}\n", .{file.src});
+            std.debug.print("FILE | new template data:\n\n{s}{s}", .{new_template, assets.separator});
         }
     }
 
@@ -457,12 +457,12 @@ fn processFile(
 
         try recordLastSync(allocator, file);
     } else {
-        std.debug.print("FILE: updated: {s}\n", .{file.dest});
+        std.debug.print("FILE | {s}\n", .{file.dest});
 
         if (is_text)
-            std.debug.print("FILE: new render data:\n{s}\n", .{result})
+            std.debug.print("FILE | new render data:\n\n{s}{s}", .{result, assets.separator})
         else
-            std.debug.print("FILE: new render data: binary\n", .{});
+            std.debug.print("FILE | new render data: binary\n", .{});
     }
 }
 
@@ -660,3 +660,4 @@ const build_options = @import("build_options");
 
 const cova = @import("cova");
 const cli = @import("cli.zig");
+const assets = @import("assets.zig");
