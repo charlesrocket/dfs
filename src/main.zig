@@ -440,7 +440,10 @@ fn processFile(
             try updated_template.writeAll(new_template);
         } else {
             std.debug.print("FILE | {s}\n", .{file.src});
-            std.debug.print("FILE | new template data:\n\n{s}{s}", .{new_template, assets.separator});
+            std.debug.print("FILE | new template data:\n\n{s}{s}", .{
+                new_template,
+                assets.separator,
+            });
         }
     }
 
@@ -460,7 +463,10 @@ fn processFile(
         std.debug.print("FILE | {s}\n", .{file.dest});
 
         if (is_text)
-            std.debug.print("FILE | new render data:\n\n{s}{s}", .{result, assets.separator})
+            std.debug.print("FILE | new render data:\n\n{s}{s}", .{
+                result,
+                assets.separator,
+            })
         else
             std.debug.print("FILE | new render data: binary\n", .{});
     }
