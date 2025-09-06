@@ -73,7 +73,7 @@ fn getUserInput(
     }
 }
 
-fn init(allocator: std.mem.Allocator) !void {
+fn init(allocator: std.mem.Allocator, custom_config: ?[]const u8) !void {
     var repo_usr = try getUserInput(allocator, UserInput.Url);
     var src_usr = try getUserInput(allocator, UserInput.Source);
     var dest_usr = try getUserInput(allocator, UserInput.Destination);
@@ -95,7 +95,7 @@ fn init(allocator: std.mem.Allocator) !void {
 
     try proc.spawn();
     _ = try proc.wait();
-    try config.write(allocator);
+    try config.write(allocator, custom_config);
     std.posix.exit(0);
 }
 
@@ -442,6 +442,7 @@ pub fn main() !void {
     const main_cmd = try setup_cmd.init(allocator, .{});
     defer main_cmd.deinit();
 
+    var custom_config_path: ?[]const u8 = null;
     var usage_help_called = false;
     var args_iter = try cova.ArgIteratorGeneric.init(allocator);
     defer args_iter.deinit();
@@ -471,8 +472,12 @@ pub fn main() !void {
         std.posix.exit(0);
     }
 
+    if (opts.get("config")) |dest| {
+        custom_config_path = try dest.val.getAs([]const u8);
+    }
+
     if (main_cmd.checkSubCmd("init")) {
-        try init(allocator);
+        try init(allocator, custom_config_path);
     }
 
     const conf_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
@@ -482,7 +487,10 @@ pub fn main() !void {
         .{conf_home},
     );
 
-    const config_file = std.fs.cwd().openFile(config_path, .{}) catch |err|
+    const config_file = std.fs.cwd().openFile(if (custom_config_path == null)
+        config_path
+    else
+        custom_config_path.?, .{}) catch |err|
         switch (err) {
             error.FileNotFound => {
                 std.debug.print("Config not found!\nRun `dfs init`.", .{});

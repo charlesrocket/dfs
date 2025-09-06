@@ -23,7 +23,11 @@ pub const Configuration = struct {
         };
     }
 
-    pub fn write(self: *Configuration, allocator: std.mem.Allocator) !void {
+    pub fn write(
+        self: *Configuration,
+        allocator: std.mem.Allocator,
+        custom_path: ?[]const u8,
+    ) !void {
         const path = try getXdgDir(allocator, XdgDir.Config);
         const config = try std.fmt.allocPrint(
             allocator,
@@ -34,7 +38,7 @@ pub const Configuration = struct {
         try Util.createDirRecursively(allocator, path);
 
         const f = try std.fs.createFileAbsolute(
-            config,
+            if (custom_path == null) config else custom_path.?,
             .{ .read = false, .truncate = true },
         );
 

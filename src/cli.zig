@@ -101,6 +101,16 @@ pub const setup_cmd: CommandT = .{
     },
     .opts = &.{
         .{
+            .name = "config",
+            .description = "Configuration path.",
+            .short_name = 'c',
+            .long_name = "config",
+            .val = ValueT.ofType([]const u8, .{
+                .name = "string",
+                .alias_child_type = "path",
+            }),
+        },
+        .{
             .name = "source",
             .description = "Override the source directory.",
             .short_name = 's',
