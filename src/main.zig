@@ -202,9 +202,12 @@ fn processFile(
 
     if (!is_text) {
         if (dry_run) {
-            try stdout.print("FILE | copy binary {s} -> {s}\n", .{
+            try stdout.print("{s}{s}FILE | copy {s} -> {s}{s}\n\n", .{
+                cli.blue,
+                cli.bold,
                 file.src,
                 file.dest,
+                cli.reset,
             });
         } else {
             // ensure destination directory exists
@@ -300,8 +303,8 @@ fn processFile(
             .{},
         ) catch
             return std.debug.print(
-                "Failed to parse ZON file: {s}\n",
-                .{meta_file_path},
+                "{s}Failed to parse ZON file:{s} {s}\n",
+                .{ cli.red, cli.reset, meta_file_path },
             );
 
         last_sync = @intCast(meta.synced);
@@ -334,8 +337,17 @@ fn processFile(
             defer updated_template.close();
             try updated_template.writeAll(new_template);
         } else {
-            try stdout.print("FILE | {s}\n", .{file.src});
-            try stdout.print("FILE | new template data:\n\n{s}{s}", .{
+            try stdout.print("{s}{s}FILE | {s}{s}\n", .{
+                cli.yellow,
+                cli.bold,
+                file.src,
+                cli.reset,
+            });
+
+            try stdout.print("{s}{s}FILE | new template data:{s}\n\n{s}{s}", .{
+                cli.yellow,
+                cli.bold,
+                cli.reset,
                 new_template,
                 assets.separator,
             });
@@ -355,15 +367,28 @@ fn processFile(
 
         try recordLastSync(allocator, file);
     } else {
-        try stdout.print("FILE | {s}\n", .{file.dest});
+        try stdout.print("{s}{s}FILE | {s}{s}\n", .{
+            cli.yellow,
+            cli.bold,
+            file.dest,
+            cli.reset,
+        });
 
         if (is_text)
-            try stdout.print("FILE | new render data:\n\n{s}{s}", .{
+            try stdout.print("{s}{s}FILE | new render data:{s}\n\n{s}{s}", .{
+                cli.yellow,
+                cli.bold,
+                cli.reset,
                 result,
                 assets.separator,
             })
         else
-            try stdout.print("FILE | new render data: binary\n", .{});
+            try stdout.print("{s}{s}FILE | new render data: {s}binary{s}\n\n", .{
+                cli.blue,
+                cli.bold,
+                cli.italic,
+                cli.reset,
+            });
     }
 }
 
@@ -494,7 +519,11 @@ pub fn main() !void {
         custom_config_path.?, .{}) catch |err|
         switch (err) {
             error.FileNotFound => {
-                std.debug.print("Config not found!\nRun `dfs init`.", .{});
+                std.debug.print("{s}Config not found!{s}\nRun `dfs init`.", .{
+                    cli.red,
+                    cli.reset,
+                });
+
                 std.posix.exit(1);
             },
             else => return err,
@@ -536,11 +565,20 @@ pub fn main() !void {
     }
 
     if (main_cmd.matchSubCmd("sync")) |sync_cmd| {
-        // TODO add colors to the (dry-run) output
         var dry_run = false;
+
+        try stdout.print("{s}SYNC STARTED{s}\n", .{
+            cli.bold,
+            cli.reset,
+        });
+
         if ((try sync_cmd.getOpts(.{})).get("dry")) |dry_opt| {
             if (dry_opt.val.isSet()) {
-                try stdout.print("DRY RUN\n", .{});
+                try stdout.print("{s}{s}DRY RUN{s}\n\n", .{
+                    cli.italic,
+                    cli.blink,
+                    cli.reset,
+                });
                 dry_run = true;
             }
         }
@@ -558,7 +596,17 @@ pub fn main() !void {
             count += 1;
         }
 
-        try stdout.print("PROCESSED FILES: {d}\n", .{count});
+        try stdout.print("PROCESSED FILES: {s}{d}{s}\n", .{
+            cli.underline,
+            count,
+            cli.reset,
+        });
+
+        try stdout.print("{s}{s}DONE{s}\n", .{
+            cli.bold,
+            cli.green,
+            cli.reset,
+        });
     }
 }
 

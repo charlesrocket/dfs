@@ -1,3 +1,15 @@
+// ANSI codes
+pub const reset = "\x1b[0m";
+pub const bold = "\x1b[1m";
+pub const underline = "\x1b[4m";
+pub const italic = "\x1b[3m";
+pub const blink = "\x1b[5m";
+pub const red = "\x1b[31m";
+pub const green = "\x1b[32m";
+pub const blue = "\x1b[34m";
+pub const yellow = "\x1b[33m";
+pub const magenta = "\x1b[35m";
+
 pub const CommandT = cova.Command.Custom(.{
     .global_help_prefix = assets.help_prefix,
     .help_header_fmt = assets.help_message,
