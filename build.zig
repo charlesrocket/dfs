@@ -105,7 +105,7 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "../docs",
     });
 
-    const build_docs_step = b.step("docs", "Build the library documentation");
+    const build_docs_step = b.step("docs", "Build library documentation");
     build_docs_step.dependOn(&build_docs.step);
 
     const clean_step = b.step("clean", "Clean up project directory");
