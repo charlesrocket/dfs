@@ -186,6 +186,7 @@ fn lastMod(file: []const u8) ?u64 {
 
 fn processFile(
     allocator: std.mem.Allocator,
+    stdout: @TypeOf(std.io.getStdOut().writer()),
     file: Dotfile,
     dry_run: bool,
 ) !void {
@@ -201,7 +202,7 @@ fn processFile(
 
     if (!is_text) {
         if (dry_run) {
-            std.debug.print("FILE | copy binary {s} -> {s}\n", .{
+            try stdout.print("FILE | copy binary {s} -> {s}\n", .{
                 file.src,
                 file.dest,
             });
@@ -333,8 +334,8 @@ fn processFile(
             defer updated_template.close();
             try updated_template.writeAll(new_template);
         } else {
-            std.debug.print("FILE | {s}\n", .{file.src});
-            std.debug.print("FILE | new template data:\n\n{s}{s}", .{
+            try stdout.print("FILE | {s}\n", .{file.src});
+            try stdout.print("FILE | new template data:\n\n{s}{s}", .{
                 new_template,
                 assets.separator,
             });
@@ -354,15 +355,15 @@ fn processFile(
 
         try recordLastSync(allocator, file);
     } else {
-        std.debug.print("FILE | {s}\n", .{file.dest});
+        try stdout.print("FILE | {s}\n", .{file.dest});
 
         if (is_text)
-            std.debug.print("FILE | new render data:\n\n{s}{s}", .{
+            try stdout.print("FILE | new render data:\n\n{s}{s}", .{
                 result,
                 assets.separator,
             })
         else
-            std.debug.print("FILE | new render data: binary\n", .{});
+            try stdout.print("FILE | new render data: binary\n", .{});
     }
 }
 
@@ -539,7 +540,7 @@ pub fn main() !void {
         var dry_run = false;
         if ((try sync_cmd.getOpts(.{})).get("dry")) |dry_opt| {
             if (dry_opt.val.isSet()) {
-                std.debug.print("DRY RUN\n", .{});
+                try stdout.print("DRY RUN\n", .{});
                 dry_run = true;
             }
         }
@@ -553,11 +554,11 @@ pub fn main() !void {
         const owned_files = try files.toOwnedSlice(allocator);
 
         for (owned_files) |file| {
-            try processFile(allocator, file, dry_run);
+            try processFile(allocator, stdout, file, dry_run);
             count += 1;
         }
 
-        std.debug.print("PROCESSED FILES: {d}\n", .{count});
+        try stdout.print("PROCESSED FILES: {d}\n", .{count});
     }
 }
 
