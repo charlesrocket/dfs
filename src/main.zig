@@ -22,57 +22,6 @@ const Dotfile = struct {
     }
 };
 
-const Config = struct {
-    source: []const u8,
-    destination: []const u8,
-
-    fn new(
-        allocator: std.mem.Allocator,
-        source: []const u8,
-        destination: ?[]const u8,
-    ) !Config {
-        const path = if (destination == null)
-            try std.process.getEnvVarOwned(allocator, "HOME")
-        else
-            destination.?;
-
-        return .{
-            .source = source,
-            .destination = path,
-        };
-    }
-
-    fn write(self: *Config, allocator: std.mem.Allocator) !void {
-        const path = try getXdgDir(allocator, XdgDir.Config);
-        const config = try std.fmt.allocPrint(
-            allocator,
-            "{s}/dfs.zon",
-            .{path},
-        );
-
-        try createDirRecursively(allocator, path);
-
-        const f = try std.fs.createFileAbsolute(
-            config,
-            .{ .read = false, .truncate = true },
-        );
-
-        defer f.close();
-
-        var writer = f.writer();
-        try writer.print(
-            ".{{\n" ++
-                "    .source= \"{s}\",\n" ++
-                "    .destination = \"{s}\",\n" ++
-                "}}\n",
-            .{
-                self.source,
-                self.destination,
-            },
-        );
-    }
-};
-
 const Meta = struct {
     src: []const u8,
     dest: []const u8,
@@ -133,7 +82,7 @@ fn init(allocator: std.mem.Allocator) !void {
     const src = try src_usr.toOwnedSlice();
     const dest = try dest_usr.toOwnedSlice();
 
-    var config = try Config.new(allocator, src, dest);
+    var config = try Config.Configuration.new(allocator, src, dest);
     const command = [_][]const u8{
         "git",
         "clone",
@@ -180,65 +129,9 @@ fn isText(data: []const u8) bool {
     return (non_text_count * 100 / data.len) < 10;
 }
 
-fn getXdgDir(allocator: std.mem.Allocator, env_var: XdgDir) ![]const u8 {
-    const home = try std.process.getEnvVarOwned(allocator, "HOME");
-    const path = std.process.getEnvVarOwned(
-        allocator,
-        switch (env_var) {
-            .Config => "XDG_CONFIG_HOME",
-            .Data => "XDG_DATA_HOME",
-        },
-    ) catch switch (env_var) {
-        .Config => return try std.fs.path.join(allocator, &.{
-            home,
-            ".config",
-        }),
-        .Data => return try std.fs.path.join(allocator, &.{
-            home,
-            ".local",
-            "share",
-            "dfs",
-        }),
-    };
-
-    return path;
-}
-
-fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !void {
-    var parts = try std.fs.path.componentIterator(path);
-    var buffer = std.ArrayList(u8).init(allocator);
-    //defer buffer.deinit();
-
-    const sep = std.fs.path.sep;
-
-    if (std.fs.path.isAbsolute(path)) {
-        try buffer.append(sep);
-    }
-
-    while (parts.next()) |component| {
-        const part = component.name;
-        if (part.len == 0) continue;
-
-        if (buffer.items.len > 1 or
-            (buffer.items.len == 1 and
-                buffer.items[0] != sep))
-        {
-            try buffer.append(sep);
-        }
-
-        try buffer.appendSlice(part);
-        const dir_path = buffer.items;
-
-        std.fs.makeDirAbsolute(dir_path) catch |err| switch (err) {
-            error.PathAlreadyExists => {},
-            else => return err,
-        };
-    }
-}
-
 fn recordLastSync(allocator: std.mem.Allocator, file: Dotfile) !void {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const data_dir = try getXdgDir(allocator, XdgDir.Data);
+    const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
     const sync_dest = try std.fmt.bufPrint(&buf, "{s}{s}.zon", .{
         data_dir,
         file.dest,
@@ -247,7 +140,7 @@ fn recordLastSync(allocator: std.mem.Allocator, file: Dotfile) !void {
     const index = std.mem.lastIndexOfScalar(u8, sync_dest, '/');
     const sync_dir = sync_dest[0 .. index.? + 1];
 
-    try createDirRecursively(allocator, sync_dir);
+    try Util.createDirRecursively(allocator, sync_dir);
 
     const f = try std.fs.createFileAbsolute(sync_dest, .{
         .read = false,
@@ -317,7 +210,7 @@ fn processFile(
             const dir_path = std.fs.path.dirname(file.dest) orelse
                 return error.InvalidPath;
 
-            try createDirRecursively(allocator, dir_path);
+            try Util.createDirRecursively(allocator, dir_path);
 
             const dest_file = try std.fs.createFileAbsolute(file.dest, .{
                 .read = false,
@@ -334,7 +227,7 @@ fn processFile(
 
     var last_sync: usize = 0;
     var meta_present = true;
-    const data_dir = try getXdgDir(allocator, XdgDir.Data);
+    const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
     const meta_file_path = try std.fmt.allocPrint(
         allocator,
         "{s}{s}.zon",
@@ -346,8 +239,8 @@ fn processFile(
     const dir_path = std.fs.path.dirname(file.dest) orelse
         return error.InvalidPath;
 
-    try createDirRecursively(allocator, dir_path);
-    try createDirRecursively(allocator, data_dir);
+    try Util.createDirRecursively(allocator, dir_path);
+    try Util.createDirRecursively(allocator, data_dir);
 
     // TODO maybe this is a bit too much
     const meta_file: ?std.fs.File = std.fs.cwd().openFile(
@@ -361,7 +254,7 @@ fn processFile(
                 const meta_dest = meta_file_path[0..index.?];
 
                 if (!dry_run) {
-                    try createDirRecursively(allocator, meta_dest);
+                    try Util.createDirRecursively(allocator, meta_dest);
                     _ = try std.fs.createFileAbsolute(
                         meta_file_path,
                         .{
@@ -476,7 +369,7 @@ fn processFile(
 fn walk(
     arr: *std.ArrayListUnmanaged(Dotfile),
     allocator: std.mem.Allocator,
-    config: Config,
+    config: Config.Configuration,
 ) !void {
     // with base path reference
     try walkDir(
@@ -582,7 +475,7 @@ pub fn main() !void {
         try init(allocator);
     }
 
-    const conf_home = try getXdgDir(allocator, XdgDir.Config);
+    const conf_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
     const config_path = try std.fmt.allocPrint(
         allocator,
         "{s}/dfs.zon",
@@ -618,7 +511,7 @@ pub fn main() !void {
         config_content.items[0 .. config_content.items.len - 1 :0];
 
     var config = try std.zon.parse.fromSlice(
-        Config,
+        Config.Configuration,
         allocator,
         config_data,
         null,
@@ -666,5 +559,7 @@ const posix = std.posix;
 const build_options = @import("build_options");
 
 const cova = @import("cova");
+const Config = @import("config.zig");
+const Util = @import("util.zig");
 const cli = @import("cli.zig");
 const assets = @import("assets.zig");
