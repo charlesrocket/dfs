@@ -57,7 +57,7 @@ fn interpret(tokens: []Token, allocator: std.mem.Allocator) ![]u8 {
             },
             .tag => |tag| {
                 if (std.mem.startsWith(u8, tag, "if ")) {
-                    i = try evalIfGroup(tokens, i, &w);
+                    i = try evalIfGroup(allocator, tokens, i, &w);
                 } else {
                     // outside of an if-group tags are not allowed
                     return error.InvalidTemplate;
@@ -85,9 +85,9 @@ fn evalIfGroup(allocator: std.mem.Allocator, tokens: []Token, start: usize, w: a
 
         // decide whether this branch is active
         if (std.mem.startsWith(u8, cur_tag, "if ")) {
-            active = evalCondition(cur_tag[3..]) and !branch_taken;
+            active = evalCondition(allocator, cur_tag[3..]) and !branch_taken;
         } else if (std.mem.startsWith(u8, cur_tag, "elif ")) {
-            active = evalCondition(cur_tag[5..]) and !branch_taken;
+            active = evalCondition(allocator, cur_tag[5..]) and !branch_taken;
         } else if (std.mem.eql(u8, cur_tag, "else")) {
             active = !branch_taken;
         } else if (std.mem.eql(u8, cur_tag, "end")) {
@@ -157,7 +157,7 @@ fn evalIfGroup(allocator: std.mem.Allocator, tokens: []Token, start: usize, w: a
     return error.invalidTemplate;
 }
 
-fn evalCondition(cond: []const u8) bool {
+fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
     // split on any whitespace (handles multiple spaces/tabs)
     var parts: [3][]const u8 = undefined; // 3 parts: lhs, op, rhs
     var i: usize = 0;
@@ -180,10 +180,16 @@ fn evalCondition(cond: []const u8) bool {
     const rhs = trimTag(parts[2]);
 
     if (std.mem.eql(u8, lhs, "SYSTEM.os")) {
-        const sys = getSystem();
+        const os = getOS();
 
-        if (std.mem.eql(u8, op, "==")) return std.mem.eql(u8, sys, rhs);
-        if (std.mem.eql(u8, op, "!=")) return !std.mem.eql(u8, sys, rhs);
+        if (std.mem.eql(u8, op, "==")) return std.mem.eql(u8, os, rhs);
+        if (std.mem.eql(u8, op, "!=")) return !std.mem.eql(u8, os, rhs);
+    } else if (std.mem.eql(u8, lhs, "SYSTEM.hostname")) {
+        const host = getHostname(allocator) catch "unknown";
+        defer allocator.free(host);
+
+        if (std.mem.eql(u8, op, "==")) return std.mem.eql(u8, host, rhs);
+        if (std.mem.eql(u8, op, "!=")) return !std.mem.eql(u8, host, rhs);
     }
 
     return false;
@@ -264,9 +270,9 @@ pub fn reverseTemplate(
 
             var active = false;
             if (std.mem.startsWith(u8, tag_trim, "if ")) {
-                active = evalCondition(tag_trim[3..]) and !branch_taken;
+                active = evalCondition(allocator, tag_trim[3..]) and !branch_taken;
             } else if (std.mem.startsWith(u8, tag_trim, "elif ")) {
-                active = evalCondition(tag_trim[5..]) and !branch_taken;
+                active = evalCondition(allocator, tag_trim[5..]) and !branch_taken;
             } else if (std.mem.eql(u8, tag_trim, "else")) {
                 active = !branch_taken;
             }
@@ -398,8 +404,14 @@ pub fn reverseTemplate(
     return new_slice;
 }
 
-fn getSystem() []const u8 {
+fn getOS() []const u8 {
     return @tagName(builtin.target.os.tag);
+}
+
+fn getHostname(allocator: std.mem.Allocator) ![]const u8 {
+    var buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
+    const host = try std.posix.gethostname(&buf);
+    return allocator.dupe(u8, host) catch unreachable;
 }
 
 fn splitWhitespace(s: []const u8) struct { lead: usize, trail: usize } {
@@ -468,6 +480,39 @@ test "forward-inline (fbsd)" {
 
     const rendered_expected =
         \\val="Bar"
+        \\
+    ;
+
+    const rendered = try applyTemplate(gpa, template);
+    defer gpa.free(rendered);
+    try std.testing.expectEqualStrings(rendered_expected, rendered);
+}
+
+test applyTemplate {
+    if (builtin.os.tag != .freebsd) return error.SkipZigTest;
+    var gpa = std.testing.allocator;
+
+    const template =
+        \\{> if SYSTEM.os == linux <}
+        \\val="Foo"
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="Bar"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\
+        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\val="HOST2"
+        \\{> else <}
+        \\val="HOST1"
+        \\{> end <}
+        \\
+    ;
+
+    const rendered_expected =
+        \\val="Bar"
+        \\
+        \\val="HOST1"
         \\
     ;
 
