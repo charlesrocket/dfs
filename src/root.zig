@@ -68,49 +68,7 @@ fn interpret(tokens: []Token, allocator: std.mem.Allocator) ![]u8 {
     return out.toOwnedSlice();
 }
 
-fn evalIfBlock(
-    tokens: []Token,
-    start: usize,
-    branch_taken: *bool,
-    w: anytype,
-) !usize {
-    var i = start;
-
-    while (i < tokens.len) {
-        switch (tokens[i]) {
-            .text => |body| {
-                if (branch_taken.*) {
-                    // trim trailing newlines if needed
-                    try w.print("{s}", .{trimTrailingNewlines(body)});
-                }
-
-                i += 1;
-            },
-            .tag => |tag| {
-                if (std.mem.startsWith(u8, tag, "if ")) {
-                    const cond = evalCondition(tag[3..]);
-                    if (cond and !branch_taken.*) branch_taken.* = true;
-                    i += 1;
-                } else if (std.mem.startsWith(u8, tag, "elif ")) {
-                    const cond = evalCondition(tag[5..]);
-                    if (cond and !branch_taken.*) branch_taken.* = true;
-                    i += 1;
-                } else if (std.mem.eql(u8, tag, "else")) {
-                    if (!branch_taken.*) branch_taken.* = true;
-                    i += 1;
-                } else if (std.mem.eql(u8, tag, "end")) {
-                    return i + 1; // exit block
-                } else {
-                    return error.InvalidTemplate;
-                }
-            },
-        }
-    }
-
-    return error.MissingEnd;
-}
-
-fn evalIfGroup(tokens: []Token, start: usize, w: anytype) !usize {
+fn evalIfGroup(allocator: std.mem.Allocator, tokens: []Token, start: usize, w: anytype) !usize {
     if (start >= tokens.len) return error.InvalidTemplate;
 
     var i: usize = start;
