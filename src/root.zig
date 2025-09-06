@@ -68,7 +68,12 @@ fn interpret(tokens: []Token, allocator: std.mem.Allocator) ![]u8 {
     return out.toOwnedSlice();
 }
 
-fn evalIfGroup(allocator: std.mem.Allocator, tokens: []Token, start: usize, w: anytype) !usize {
+fn evalIfGroup(
+    allocator: std.mem.Allocator,
+    tokens: []Token,
+    start: usize,
+    w: anytype,
+) !usize {
     if (start >= tokens.len) return error.InvalidTemplate;
 
     var i: usize = start;
@@ -190,6 +195,11 @@ fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
 
         if (std.mem.eql(u8, op, "==")) return std.mem.eql(u8, host, rhs);
         if (std.mem.eql(u8, op, "!=")) return !std.mem.eql(u8, host, rhs);
+    } else if (std.mem.eql(u8, lhs, "SYSTEM.arch")) {
+        const host = getArch();
+
+        if (std.mem.eql(u8, op, "==")) return std.mem.eql(u8, host, rhs);
+        if (std.mem.eql(u8, op, "!=")) return !std.mem.eql(u8, host, rhs);
     }
 
     return false;
@@ -270,9 +280,15 @@ pub fn reverseTemplate(
 
             var active = false;
             if (std.mem.startsWith(u8, tag_trim, "if ")) {
-                active = evalCondition(allocator, tag_trim[3..]) and !branch_taken;
+                active = evalCondition(
+                    allocator,
+                    tag_trim[3..],
+                ) and !branch_taken;
             } else if (std.mem.startsWith(u8, tag_trim, "elif ")) {
-                active = evalCondition(allocator, tag_trim[5..]) and !branch_taken;
+                active = evalCondition(
+                    allocator,
+                    tag_trim[5..],
+                ) and !branch_taken;
             } else if (std.mem.eql(u8, tag_trim, "else")) {
                 active = !branch_taken;
             }
@@ -325,7 +341,11 @@ pub fn reverseTemplate(
                 var user_end = rnd_len;
 
                 if (anchor_lit.len > 0) {
-                    if (std.mem.indexOf(u8, rendered[rnd_i..], anchor_lit)) |pos| {
+                    if (std.mem.indexOf(
+                        u8,
+                        rendered[rnd_i..],
+                        anchor_lit,
+                    )) |pos| {
                         user_end = rnd_i + pos;
                     }
                 }
@@ -408,6 +428,10 @@ fn getOS() []const u8 {
     return @tagName(builtin.target.os.tag);
 }
 
+fn getArch() []const u8 {
+    return @tagName(builtin.cpu.arch);
+}
+
 fn getHostname(allocator: std.mem.Allocator) ![]const u8 {
     var buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
     const host = try std.posix.gethostname(&buf);
@@ -442,6 +466,45 @@ fn trimTrailingNewlines(s: []const u8) []const u8 {
     }
 
     return s[0..end];
+}
+
+test applyTemplate {
+    if (builtin.os.tag != .freebsd or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    var gpa = std.testing.allocator;
+
+    const template =
+        \\{> if SYSTEM.os == linux <}
+        \\val="Foo"
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="Bar"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\{> if SYSTEM.arch == x86_64 <}
+        \\val="test0"
+        \\{> else <}
+        \\val="test1"
+        \\{> end <}
+        \\
+        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\val="HOST2"
+        \\{> else <}
+        \\val="HOST1"
+        \\{> end <}
+        \\
+    ;
+
+    const rendered_expected =
+        \\val="Bar"
+        \\val="test0"
+        \\
+        \\val="HOST1"
+        \\
+    ;
+
+    const rendered = try applyTemplate(gpa, template);
+    defer gpa.free(rendered);
+    try std.testing.expectEqualStrings(rendered_expected, rendered);
 }
 
 test "forward (fbsd)" {
@@ -480,39 +543,6 @@ test "forward-inline (fbsd)" {
 
     const rendered_expected =
         \\val="Bar"
-        \\
-    ;
-
-    const rendered = try applyTemplate(gpa, template);
-    defer gpa.free(rendered);
-    try std.testing.expectEqualStrings(rendered_expected, rendered);
-}
-
-test applyTemplate {
-    if (builtin.os.tag != .freebsd) return error.SkipZigTest;
-    var gpa = std.testing.allocator;
-
-    const template =
-        \\{> if SYSTEM.os == linux <}
-        \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
-        \\val="Bar"
-        \\{> else <}
-        \\val="Else"
-        \\{> end <}
-        \\
-        \\{> if SYSTEM.hostname == not_my_machine <}
-        \\val="HOST2"
-        \\{> else <}
-        \\val="HOST1"
-        \\{> end <}
-        \\
-    ;
-
-    const rendered_expected =
-        \\val="Bar"
-        \\
-        \\val="HOST1"
         \\
     ;
 
