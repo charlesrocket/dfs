@@ -26,43 +26,10 @@ pub const ignore_list = [_][]const u8{
     ".git",
 };
 
-const UserInput = enum {
-    Url,
-    Source,
-    Destination,
-};
-
-fn getUserInput(
-    allocator: std.mem.Allocator,
-    input: UserInput,
-) !std.ArrayList(u8) {
-    const stdin = std.io.getStdIn().reader();
-    const stdout = std.io.getStdOut().writer();
-
-    var buf: [2048]u8 = undefined;
-    var list = std.ArrayList(u8).init(allocator);
-
-    try stdout.print("Enter {s}: ", .{switch (input) {
-        .Url => "repository URL",
-        .Source => "repository destination",
-        .Destination => "configuration destination",
-    }});
-
-    if (try stdin.readUntilDelimiterOrEof(buf[0..], '\n')) |user_input| {
-        for (user_input) |c| {
-            try list.append(c);
-        }
-
-        return list;
-    } else {
-        return error.Foo;
-    }
-}
-
 fn init(allocator: std.mem.Allocator, custom_config: ?[]const u8) !void {
-    var repo_usr = try getUserInput(allocator, UserInput.Url);
-    var src_usr = try getUserInput(allocator, UserInput.Source);
-    var dest_usr = try getUserInput(allocator, UserInput.Destination);
+    var repo_usr = try cli.getUserInput(allocator, cli.UserInput.Url);
+    var src_usr = try cli.getUserInput(allocator, cli.UserInput.Source);
+    var dest_usr = try cli.getUserInput(allocator, cli.UserInput.Destination);
 
     const repo = try repo_usr.toOwnedSlice();
     const src = try src_usr.toOwnedSlice();

@@ -1,3 +1,9 @@
+pub const UserInput = enum {
+    Url,
+    Source,
+    Destination,
+};
+
 // ANSI codes
 pub const reset = "\x1b[0m";
 pub const bold = "\x1b[1m";
@@ -163,6 +169,33 @@ fn genVals(T: type, default: ?usize) []const u8 {
         str = str ++ ")";
         break :blk str;
     };
+}
+
+pub fn getUserInput(
+    allocator: std.mem.Allocator,
+    input: UserInput,
+) !std.ArrayList(u8) {
+    const stdin = std.io.getStdIn().reader();
+    const stdout = std.io.getStdOut().writer();
+
+    var buf: [2048]u8 = undefined;
+    var list = std.ArrayList(u8).init(allocator);
+
+    try stdout.print("Enter {s}: ", .{switch (input) {
+        .Url => "repository URL",
+        .Source => "repository destination",
+        .Destination => "configuration destination",
+    }});
+
+    if (try stdin.readUntilDelimiterOrEof(buf[0..], '\n')) |user_input| {
+        for (user_input) |c| {
+            try list.append(c);
+        }
+
+        return list;
+    } else {
+        return error.Foo;
+    }
 }
 
 const main = @import("main.zig");
