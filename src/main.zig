@@ -129,6 +129,7 @@ fn processFile(
     stdout: @TypeOf(std.io.getStdOut().writer()),
     file: Dotfile,
     dry_run: bool,
+    verbose: bool,
 ) !void {
     const template_file = try std.fs.cwd().openFile(file.src, .{});
     defer template_file.close();
@@ -141,8 +142,8 @@ fn processFile(
     const is_text = Util.isText(template_content);
 
     if (!is_text) {
-        if (dry_run) {
-            try stdout.print("{s}{s}FILE | copy {s} -> {s}{s}\n\n", .{
+        if (dry_run or verbose) {
+            try stdout.print("{s}{s}FILE | copy {s} -> {s}{s}\n", .{
                 cli.blue,
                 cli.bold,
                 file.src,
@@ -269,28 +270,40 @@ fn processFile(
         );
 
         if (!dry_run) {
-            const updated_template = try std.fs.createFileAbsolute(file.src, .{
-                .read = false,
-                .truncate = true,
-            });
+            const updated_template = try std.fs.createFileAbsolute(
+                file.src,
+                .{
+                    .read = false,
+                    .truncate = true,
+                },
+            );
 
             defer updated_template.close();
             try updated_template.writeAll(new_template);
-        } else {
-            try stdout.print("{s}{s}FILE | {s}{s}\n", .{
-                cli.yellow,
-                cli.bold,
-                file.src,
-                cli.reset,
-            });
+        }
+        if (dry_run or verbose) {
+            try stdout.print(
+                "{s}{s}FILE | {s}{s}\n",
+                .{
+                    cli.yellow,
+                    cli.bold,
+                    file.src,
+                    cli.reset,
+                },
+            );
 
-            try stdout.print("{s}{s}FILE | new template data:{s}\n\n{s}{s}", .{
-                cli.yellow,
-                cli.bold,
-                cli.reset,
-                new_template,
-                assets.separator,
-            });
+            if (dry_run) {
+                try stdout.print(
+                    "{s}{s}FILE | new template data:{s}\n\n{s}{s}",
+                    .{
+                        cli.yellow,
+                        cli.bold,
+                        cli.reset,
+                        new_template,
+                        assets.separator,
+                    },
+                );
+            }
         }
     }
 
@@ -306,7 +319,9 @@ fn processFile(
         defer output_file.close();
 
         try recordLastSync(allocator, file);
-    } else {
+    }
+
+    if (dry_run or verbose) {
         try stdout.print("{s}{s}FILE | {s}{s}\n", .{
             cli.yellow,
             cli.bold,
@@ -314,21 +329,29 @@ fn processFile(
             cli.reset,
         });
 
-        if (is_text)
-            try stdout.print("{s}{s}FILE | new render data:{s}\n\n{s}{s}", .{
-                cli.yellow,
-                cli.bold,
-                cli.reset,
-                result,
-                assets.separator,
-            })
-        else
-            try stdout.print("{s}{s}FILE | new render data: {s}binary{s}\n\n", .{
-                cli.blue,
-                cli.bold,
-                cli.italic,
-                cli.reset,
-            });
+        if (dry_run) {
+            if (is_text)
+                try stdout.print(
+                    "{s}{s}FILE | new render data:{s}\n\n{s}{s}",
+                    .{
+                        cli.yellow,
+                        cli.bold,
+                        cli.reset,
+                        result,
+                        assets.separator,
+                    },
+                )
+            else
+                try stdout.print(
+                    "{s}{s}FILE | new render data: {s}binary{s}\n\n",
+                    .{
+                        cli.blue,
+                        cli.bold,
+                        cli.italic,
+                        cli.reset,
+                    },
+                );
+        }
     }
 }
 
@@ -439,6 +462,7 @@ pub fn main() !void {
     }
 
     if (main_cmd.matchSubCmd("sync")) |sync_cmd| {
+        var verbose = false;
         var dry_run = false;
 
         try stdout.print("{s}\n{s}{s}SYNC STARTED{s}\n", .{
@@ -447,6 +471,8 @@ pub fn main() !void {
             cli.bold,
             cli.reset,
         });
+
+        if (sync_cmd.checkFlag("verbose")) verbose = true;
 
         if ((try sync_cmd.getOpts(.{})).get("dry")) |dry_opt| {
             if (dry_opt.val.isSet()) {
@@ -468,7 +494,7 @@ pub fn main() !void {
         const owned_files = try files.toOwnedSlice(allocator);
 
         for (owned_files) |file| {
-            try processFile(allocator, stdout, file, dry_run);
+            try processFile(allocator, stdout, file, dry_run, verbose);
             count += 1;
         }
 

@@ -114,6 +114,11 @@ pub const setup_cmd: CommandT = .{
                     .description = "Preview changes without writing any files.",
                     .long_name = "dry",
                 },
+                .{
+                    .name = "verbose",
+                    .description = "Verbose mode.",
+                    .long_name = "verbose",
+                },
             },
         },
     },
