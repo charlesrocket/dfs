@@ -12,6 +12,10 @@ config:
 - changed-files:
   - any-glob-to-any-file: 'src/config.zig'
 
+cli:
+- changed-files:
+  - any-glob-to-any-file: 'src/cli.zig'
+
 engine:
 - changed-files:
   - any-glob-to-any-file: 'src/lib.zig'
