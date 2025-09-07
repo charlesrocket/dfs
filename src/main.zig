@@ -15,7 +15,7 @@ const Meta = struct {
 };
 
 // TODO use regex
-const ignore_list = [_][]const u8{
+pub const ignore_list = [_][]const u8{
     "README.md",
     "LICENSE",
     "codecov.yml",
@@ -83,36 +83,6 @@ fn init(allocator: std.mem.Allocator, custom_config: ?[]const u8) !void {
     _ = try proc.wait();
     try config.write(allocator, custom_config);
     std.posix.exit(0);
-}
-
-fn isIgnored(value: []const u8) bool {
-    for (ignore_list) |el| {
-        if (std.mem.eql(u8, el, value)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-fn isText(data: []const u8) bool {
-    if (std.unicode.utf8ValidateSlice(data)) {
-        return true;
-    }
-
-    // ASCII heuristic
-    var non_text_count: usize = 0;
-    for (data) |c| {
-        // common text whitespace
-        if (c == '\n' or c == '\r' or c == '\t') continue;
-        // printable range
-        if (c >= 0x20 and c <= 0x7E) continue;
-
-        non_text_count += 1;
-    }
-
-    // treat as binary if the threshold is reached
-    return (non_text_count * 100 / data.len) < 10;
 }
 
 fn recordLastSync(allocator: std.mem.Allocator, file: Dotfile) !void {
@@ -184,7 +154,7 @@ fn processFile(
         allocator,
         2048 * 2048,
     );
-    const is_text = isText(template_content);
+    const is_text = Util.isText(template_content);
 
     if (!is_text) {
         if (dry_run) {
@@ -378,72 +348,6 @@ fn processFile(
     }
 }
 
-fn walk(
-    arr: *std.ArrayListUnmanaged(Dotfile),
-    allocator: std.mem.Allocator,
-    config: Config.Configuration,
-) !void {
-    // with base path reference
-    try walkDir(
-        arr,
-        allocator,
-        config.source,
-        config.source,
-        config.destination,
-    );
-}
-
-fn walkDir(
-    arr: *std.ArrayListUnmanaged(Dotfile),
-    allocator: std.mem.Allocator,
-    base_path: []const u8,
-    current_path: []const u8,
-    dest: []const u8,
-) !void {
-    var dir = try std.fs.cwd().openDir(current_path, .{});
-    defer dir.close();
-
-    var iter = dir.iterate();
-    while (try iter.next()) |node| {
-        if (isIgnored(node.name)) continue;
-
-        const node_path = try std.fs.path.join(
-            allocator,
-            &.{ current_path, node.name },
-        );
-        //defer allocator.free(node_path);
-
-        const rel_path = try std.fs.path.relative(
-            allocator,
-            base_path,
-            node_path,
-        );
-        //defer allocator.free(rel_path);
-
-        const dest_path = try std.fs.path.join(
-            allocator,
-            &.{ dest, rel_path },
-        );
-        //defer allocator.free(dest_path);
-
-        switch (node.kind) {
-            .file => {
-                // grab file strings
-                const src_copy = try allocator.dupe(u8, node_path);
-                const dest_copy = try allocator.dupe(u8, dest_path);
-                const file = Dotfile.new(src_copy, dest_copy);
-                try arr.append(allocator, file);
-            },
-            .directory => {
-                try walkDir(arr, allocator, base_path, node_path, dest);
-            },
-            else => {
-                continue;
-            },
-        }
-    }
-}
-
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer _ = arena.deinit();
@@ -573,7 +477,7 @@ pub fn main() !void {
         var files = std.ArrayListUnmanaged(Dotfile).empty;
         //defer files.deinit(allocator);
 
-        try walk(&files, allocator, config);
+        try Util.walk(&files, allocator, config);
 
         const owned_files = try files.toOwnedSlice(allocator);
 
@@ -603,6 +507,7 @@ const build_options = @import("build_options");
 
 const cova = @import("cova");
 const Config = @import("config.zig");
+const Dotfile = @import("dotfile.zig");
 const Util = @import("util.zig");
 const cli = @import("cli.zig");
 const assets = @import("assets.zig");
