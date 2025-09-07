@@ -8,20 +8,6 @@ const XdgDir = enum {
     Data,
 };
 
-const Dotfile = struct {
-    dest: []const u8,
-    src: []const u8,
-    synced: ?u64,
-
-    fn new(src: []const u8, dest: []const u8) Dotfile {
-        return .{
-            .dest = dest,
-            .src = src,
-            .synced = null,
-        };
-    }
-};
-
 const Meta = struct {
     src: []const u8,
     dest: []const u8,
