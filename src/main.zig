@@ -5,6 +5,7 @@ const VERSION = build_options.version;
 
 // TODO use regex
 pub const ignore_list = [_][]const u8{
+    "CHANGELOG.md",
     "README.md",
     "LICENSE",
     "codecov.yml",
