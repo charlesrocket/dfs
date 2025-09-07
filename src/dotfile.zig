@@ -90,7 +90,7 @@ pub fn processFile(
 
     if (!is_text) {
         if (dry_run or verbose) {
-            try stdout.print("{s}{s}FILE | {s} -> {s}{s}\n", .{
+            try stdout.print("{s}{s}FILE | {s} >>> {s}{s}\n", .{
                 cli.blue,
                 cli.bold,
                 self.src,
