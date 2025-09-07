@@ -81,7 +81,7 @@ pub fn processFile(
     const template_file = try std.fs.cwd().openFile(self.src, .{});
     defer template_file.close();
 
-    const template_size = (try template_file.stat()).size;
+    const template_size: usize = @intCast((try template_file.stat()).size);
     const template_content = try template_file.readToEndAlloc(
         allocator,
         template_size,
@@ -171,7 +171,7 @@ pub fn processFile(
     }
 
     if (meta_present) {
-        const meta_file_size = (try meta_file.?.stat()).size;
+        const meta_file_size: usize = @intCast((try meta_file.?.stat()).size);
         const meta_content_t = try meta_file.?.readToEndAlloc(
             allocator,
             meta_file_size,
@@ -209,7 +209,7 @@ pub fn processFile(
         const rendered_file = try std.fs.cwd().openFile(self.dest, .{});
         defer rendered_file.close();
 
-        const rendered_size = (try rendered_file.stat()).size;
+        const rendered_size: usize = @intCast((try rendered_file.stat()).size);
         const rendered_content = try rendered_file.readToEndAlloc(
             allocator,
             rendered_size,
