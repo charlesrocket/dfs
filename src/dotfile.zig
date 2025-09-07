@@ -90,7 +90,7 @@ pub fn processFile(
 
     if (!is_text) {
         if (dry_run or verbose) {
-            try stdout.print("{s}{s}FILE | copy {s} -> {s}{s}\n", .{
+            try stdout.print("{s}{s}FILE | {s} -> {s}{s}\n", .{
                 cli.blue,
                 cli.bold,
                 self.src,
@@ -248,7 +248,7 @@ pub fn processFile(
 
             if (dry_run) {
                 try stdout.print(
-                    "{s}{s}FILE | new template data:{s}\n\n{s}{s}",
+                    "{s}{s}DATA | template:{s}\n\n{s}{s}",
                     .{
                         cli.yellow,
                         cli.bold,
@@ -286,7 +286,7 @@ pub fn processFile(
         if (dry_run) {
             if (is_text)
                 try stdout.print(
-                    "{s}{s}FILE | new render data:{s}\n\n{s}{s}",
+                    "{s}{s}DATA | render:{s}\n\n{s}{s}",
                     .{
                         cli.yellow,
                         cli.bold,
@@ -297,7 +297,7 @@ pub fn processFile(
                 )
             else
                 try stdout.print(
-                    "{s}{s}FILE | new render data: {s}binary{s}\n\n",
+                    "{s}{s}DATA | render: {s}binary{s}\n\n",
                     .{
                         cli.blue,
                         cli.bold,
