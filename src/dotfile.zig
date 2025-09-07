@@ -81,10 +81,10 @@ pub fn processFile(
     const template_file = try std.fs.cwd().openFile(self.src, .{});
     defer template_file.close();
 
-    // TODO adjust buffer limit
+    const template_size = (try template_file.stat()).size;
     const template_content = try template_file.readToEndAlloc(
         allocator,
-        2048 * 2048,
+        template_size,
     );
     const is_text = Util.isText(template_content);
 
@@ -171,7 +171,12 @@ pub fn processFile(
     }
 
     if (meta_present) {
-        const meta_content_t = try meta_file.?.readToEndAlloc(allocator, 1024);
+        const meta_file_size = (try meta_file.?.stat()).size;
+        const meta_content_t = try meta_file.?.readToEndAlloc(
+            allocator,
+            meta_file_size,
+        );
+
         var meta_content = std.ArrayList(u8).init(allocator);
         defer meta_content.deinit();
 
@@ -204,10 +209,12 @@ pub fn processFile(
         const rendered_file = try std.fs.cwd().openFile(self.dest, .{});
         defer rendered_file.close();
 
+        const rendered_size = (try rendered_file.stat()).size;
         const rendered_content = try rendered_file.readToEndAlloc(
             allocator,
-            2048 * 2048,
+            rendered_size,
         );
+
         defer allocator.free(rendered_content);
 
         const new_template = try lib.reverseTemplate(
