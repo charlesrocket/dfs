@@ -26,7 +26,17 @@ pub const ignore_list = [_][]const u8{
     ".git",
 };
 
-fn init(allocator: std.mem.Allocator, custom_config: ?[]const u8) !void {
+fn init(
+    allocator: std.mem.Allocator,
+    stdout: @TypeOf(std.io.getStdOut().writer()),
+    custom_config: ?[]const u8,
+) !void {
+    try stdout.print("{s}{s}{s}\nInitializing configuration...\n", .{
+        assets.help_prefix,
+        cli.bold,
+        cli.reset,
+    });
+
     var repo_usr = try cli.getUserInput(allocator, cli.UserInput.Url);
     var src_usr = try cli.getUserInput(allocator, cli.UserInput.Source);
     var dest_usr = try cli.getUserInput(allocator, cli.UserInput.Destination);
@@ -48,7 +58,14 @@ fn init(allocator: std.mem.Allocator, custom_config: ?[]const u8) !void {
 
     try proc.spawn();
     _ = try proc.wait();
+
     try config.write(allocator, custom_config);
+    try stdout.print("{s}{s}{s}\nCOMPLETED\n", .{
+        assets.help_prefix,
+        cli.bold,
+        cli.reset,
+    });
+
     std.posix.exit(0);
 }
 
@@ -360,7 +377,7 @@ pub fn main() !void {
     }
 
     if (main_cmd.checkSubCmd("init")) {
-        try init(allocator, custom_config_path);
+        try init(allocator, stdout, custom_config_path);
     }
 
     const conf_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
@@ -424,7 +441,9 @@ pub fn main() !void {
     if (main_cmd.matchSubCmd("sync")) |sync_cmd| {
         var dry_run = false;
 
-        try stdout.print("{s}SYNC STARTED{s}\n", .{
+        try stdout.print("{s}\n{s}{s}SYNC STARTED{s}\n", .{
+            assets.logo,
+            cli.magenta,
             cli.bold,
             cli.reset,
         });
