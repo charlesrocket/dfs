@@ -4,6 +4,11 @@ const Meta = struct {
     synced: i64,
 };
 
+const File = enum {
+    Template,
+    Render,
+};
+
 dest: []const u8,
 src: []const u8,
 synced: ?u64,
@@ -57,10 +62,15 @@ pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
     );
 }
 
-pub fn lastMod(self: @This()) ?u64 {
-    const path = std.fs.path.dirname(self.dest);
+pub fn lastMod(self: @This(), file: File) ?u64 {
+    const target = switch (file) {
+        .Template => self.src,
+        .Render => self.dest,
+    };
+
+    const path = std.fs.path.dirname(target);
     const dir = std.fs.cwd().openDir(path.?, .{}) catch return null;
-    const stat = dir.statFile(self.dest) catch return null;
+    const stat = dir.statFile(target) catch return null;
 
     // compress the integer
     const result = @divFloor(
@@ -203,9 +213,12 @@ pub fn processFile(
         last_sync = @intCast(meta.synced);
     }
 
-    const last_modified = self.lastMod() orelse 0;
+    const last_modified_src = self.lastMod(File.Template) orelse 0;
+    const last_modified_rend = self.lastMod(File.Render) orelse 0;
 
-    if (last_sync < last_modified) {
+    if ((last_sync < last_modified_rend) and
+        (last_modified_rend > last_modified_src))
+    {
         const rendered_file = try std.fs.cwd().openFile(self.dest, .{});
         defer rendered_file.close();
 
@@ -259,52 +272,52 @@ pub fn processFile(
                 );
             }
         }
-    }
+    } else {
+        const result = try lib.applyTemplate(allocator, template_content);
 
-    const result = try lib.applyTemplate(allocator, template_content);
+        if (!dry_run) {
+            const output_file = try std.fs.createFileAbsolute(self.dest, .{
+                .read = false,
+                .truncate = true,
+            });
 
-    if (!dry_run) {
-        const output_file = try std.fs.createFileAbsolute(self.dest, .{
-            .read = false,
-            .truncate = true,
-        });
+            try output_file.writeAll(result);
+            defer output_file.close();
 
-        try output_file.writeAll(result);
-        defer output_file.close();
+            try self.recordLastSync(allocator);
+        }
 
-        try self.recordLastSync(allocator);
-    }
+        if (dry_run or verbose) {
+            try stdout.print("{s}{s}FILE | {s}{s}\n", .{
+                cli.yellow,
+                cli.bold,
+                self.dest,
+                cli.reset,
+            });
 
-    if (dry_run or verbose) {
-        try stdout.print("{s}{s}FILE | {s}{s}\n", .{
-            cli.yellow,
-            cli.bold,
-            self.dest,
-            cli.reset,
-        });
-
-        if (dry_run) {
-            if (is_text)
-                try stdout.print(
-                    "{s}{s}DATA | render:{s}\n\n{s}{s}",
-                    .{
-                        cli.yellow,
-                        cli.bold,
-                        cli.reset,
-                        result,
-                        assets.separator,
-                    },
-                )
-            else
-                try stdout.print(
-                    "{s}{s}DATA | render: {s}binary{s}\n\n",
-                    .{
-                        cli.blue,
-                        cli.bold,
-                        cli.italic,
-                        cli.reset,
-                    },
-                );
+            if (dry_run) {
+                if (is_text)
+                    try stdout.print(
+                        "{s}{s}DATA | render:{s}\n\n{s}{s}",
+                        .{
+                            cli.yellow,
+                            cli.bold,
+                            cli.reset,
+                            result,
+                            assets.separator,
+                        },
+                    )
+                else
+                    try stdout.print(
+                        "{s}{s}DATA | render: {s}binary{s}\n\n",
+                        .{
+                            cli.blue,
+                            cli.bold,
+                            cli.italic,
+                            cli.reset,
+                        },
+                    );
+            }
         }
     }
 }
