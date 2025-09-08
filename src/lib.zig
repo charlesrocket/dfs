@@ -469,7 +469,8 @@ fn trimTrailingNewlines(s: []const u8) []const u8 {
 }
 
 test applyTemplate {
-    if (builtin.os.tag != .freebsd or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (builtin.os.tag != .freebsd or
+        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
     var gpa = std.testing.allocator;
 
     const template =
@@ -505,6 +506,69 @@ test applyTemplate {
     const rendered = try applyTemplate(gpa, template);
     defer gpa.free(rendered);
     try std.testing.expectEqualStrings(rendered_expected, rendered);
+}
+
+test reverseTemplate {
+    if (builtin.os.tag != .freebsd or
+        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+
+    var gpa = std.testing.allocator;
+
+    const template =
+        \\{> if SYSTEM.os == linux <}
+        \\val="Foo"
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="Bar"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\{> if SYSTEM.arch == x86_64 <}
+        \\val="test0"
+        \\{> else <}
+        \\val="test1"
+        \\{> end <}
+        \\
+        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\val="HOST2"
+        \\{> else <}
+        \\val="HOST1"
+        \\{> end <}
+        \\
+    ;
+
+    const rendered_user_edit =
+        \\val="Zoot"
+        \\val="test0-back"
+        \\
+        \\val="HOST3"
+        \\
+    ;
+
+    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
+    defer gpa.free(reversed);
+
+    const expected_template =
+        \\{> if SYSTEM.os == linux <}
+        \\val="Foo"
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="Zoot"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\{> if SYSTEM.arch == x86_64 <}
+        \\val="test0-back"
+        \\{> else <}
+        \\val="test1"
+        \\{> end <}
+        \\
+        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\val="HOST2"
+        \\{> else <}
+        \\val="HOST3"
+        \\{> end <}
+        \\
+    ;
+    try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
 test "forward (fbsd)" {
