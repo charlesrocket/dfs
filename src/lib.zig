@@ -657,6 +657,7 @@ test reverseTemplate {
         \\{> end <}
         \\
     ;
+
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
@@ -1065,6 +1066,140 @@ test "mixed-else" {
         \\{> end <}
         \\
     ;
+    try std.testing.expectEqualStrings(expected_template, reversed);
+}
+
+test "blocks (fbsd)" {
+    if (builtin.os.tag != .freebsd or
+        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+
+    var gpa = std.testing.allocator;
+
+    const template =
+        \\FOO
+        \\{> if SYSTEM.os == linux <}
+        \\val="Foo"
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="Bar"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\{> if SYSTEM.arch == x86_64 <}
+        \\val="test0"
+        \\{> else <}
+        \\val="test1"
+        \\{> end <}
+        \\
+        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\val="HOST2"
+        \\{> else <}
+        \\val="HOST1"
+        \\{> end <}
+        \\
+    ;
+
+    const rendered_user_edit =
+        \\BAR
+        \\val="Zoot"
+        \\val="test0-back"
+        \\
+        \\val="HOST3"
+        \\
+    ;
+
+    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
+    defer gpa.free(reversed);
+
+    const expected_template =
+        \\BAR
+        \\{> if SYSTEM.os == linux <}
+        \\val="Foo"
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="Zoot"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\{> if SYSTEM.arch == x86_64 <}
+        \\val="test0-back"
+        \\{> else <}
+        \\val="test1"
+        \\{> end <}
+        \\
+        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\val="HOST2"
+        \\{> else <}
+        \\val="HOST3"
+        \\{> end <}
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected_template, reversed);
+}
+
+test "blocks (linux)" {
+    if (builtin.os.tag != .linux or
+        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+
+    var gpa = std.testing.allocator;
+
+    const template =
+        \\FOO
+        \\{> if SYSTEM.os == linux <}
+        \\val="Foo"
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="Bar"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\{> if SYSTEM.arch == x86_64 <}
+        \\val="test0"
+        \\{> else <}
+        \\val="test1"
+        \\{> end <}
+        \\
+        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\val="HOST2"
+        \\{> else <}
+        \\val="HOST1"
+        \\{> end <}
+        \\
+    ;
+
+    const rendered_user_edit =
+        \\BAR
+        \\val="Zoot"
+        \\val="test0-back"
+        \\
+        \\val="HOST3"
+        \\
+    ;
+
+    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
+    defer gpa.free(reversed);
+
+    const expected_template =
+        \\BAR
+        \\{> if SYSTEM.os == linux <}
+        \\val="Zoot"
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="Bar"
+        \\{> else <}
+        \\val="Else"
+        \\{> end <}
+        \\{> if SYSTEM.arch == x86_64 <}
+        \\val="test0-back"
+        \\{> else <}
+        \\val="test1"
+        \\{> end <}
+        \\
+        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\val="HOST2"
+        \\{> else <}
+        \\val="HOST3"
+        \\{> end <}
+        \\
+    ;
+
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
