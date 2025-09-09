@@ -8,12 +8,4 @@
 zig build
 ```
 
-## Roadmap
-* [x] Template engine
-* [x] Reverse translator
-* [x] Conditionals
-* [x] Machine info
-* [ ] Upstream pulls
-* [x] Colors
-* [x] Dry run
-* [ ] Backups
+### [Roadmap](https://github.com/users/charlesrocket/projects/8)
