@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [unreleased]
+## [0.1.0] - 2025-09-09
 
 ### Bug Fixes
 
@@ -16,6 +16,13 @@ All notable changes to this project will be documented in this file.
 - Drop `evalIfBlock()`
 - Set stdout prints
 - Improve stdout prints
+- Ignore changelog
+- Set file size
+- Enforce file size type
+- Improve diff/raw format
+- Improve copy output
+- Handle rendered conflicts
+- Handle multiblocks
 
 ### Documentation
 
@@ -30,6 +37,7 @@ All notable changes to this project will be documented in this file.
 - Update description
 - Add header
 - Close roadmap items
+- Move roadmap
 
 ### Features
 
@@ -63,6 +71,7 @@ All notable changes to this project will be documented in this file.
 - Add gitignore
 - Ignore docs
 - Move library
+- Add changelog
 
 ### Operations
 
@@ -83,6 +92,7 @@ All notable changes to this project will be documented in this file.
 - Move `Dotfile`
 - Move `main` functions
 - Move `getUserInput()`
+- Move `dotfile` functions
 
 ### Styling
 
@@ -96,6 +106,8 @@ All notable changes to this project will be documented in this file.
 - Add linux cases
 - Add `mixed`
 - Add inline cases
+- Add `reverseTemplate`
+- Add block cases
 
 ### Build
 
@@ -104,5 +116,6 @@ All notable changes to this project will be documented in this file.
 - Fix man page section
 - Add `docs` step
 - Edit `docs` step
+- Update fingerprint
 
 
