@@ -392,14 +392,14 @@ pub fn applyTemplate(
 
 pub fn reverseTemplate(
     allocator: std.mem.Allocator,
-    rendered: []const u8,
+    render: []const u8,
     template: []const u8,
 ) ![]u8 {
     var out = std.ArrayList(u8).init(allocator);
     defer out.deinit();
 
     const tpl_len = template.len;
-    const rnd_len = rendered.len;
+    const rnd_len = render.len;
 
     var tpl_i: usize = 0; // template index
     var rnd_i: usize = 0; // rendered index
@@ -458,7 +458,7 @@ pub fn reverseTemplate(
                         );
 
                         const change_chunk = extractChangeChunk(
-                            rendered,
+                            render,
                             rnd_len,
                             rnd_i,
                             anchor_lit,
@@ -493,7 +493,7 @@ pub fn reverseTemplate(
                 len = rnd_len - rnd_i;
             }
 
-            try out.appendSlice(rendered[rnd_i .. rnd_i + len]);
+            try out.appendSlice(render[rnd_i .. rnd_i + len]);
 
             rnd_i += len;
             tpl_i = lit_end;
@@ -502,7 +502,7 @@ pub fn reverseTemplate(
 
     // append any remaining rendered content
     if (rnd_i < rnd_len) {
-        try out.appendSlice(rendered[rnd_i..]);
+        try out.appendSlice(render[rnd_i..]);
     }
 
     const result = try out.toOwnedSlice();
