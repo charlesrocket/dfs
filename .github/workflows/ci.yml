@@ -115,7 +115,7 @@ jobs:
         run: zig fmt --check .
 
   release:
-    name: Releas
+    name: Release
     needs: [build-cross, test]
     permissions:
       contents: write
