@@ -7,6 +7,22 @@ const Token = union(enum) {
     tag: []const u8,
 };
 
+const Tag = struct {
+    raw: []const u8,
+    trim: []const u8,
+    after: usize,
+};
+
+const Body = struct {
+    slice: []const u8,
+    after: usize,
+};
+
+const Chunk = struct {
+    slice: []const u8,
+    end: usize,
+};
+
 fn tokenize(template: []const u8, allocator: std.mem.Allocator) ![]Token {
     var tokens = std.ArrayList(Token).init(allocator);
     errdefer tokens.deinit();
@@ -68,6 +84,164 @@ fn interpret(tokens: []Token, allocator: std.mem.Allocator) ![]u8 {
     return out.toOwnedSlice();
 }
 
+fn indexOfTag(s: []const u8, start: usize) ?usize {
+    if (std.mem.indexOf(u8, s[start..], "{>")) |pos| {
+        return start + pos;
+    }
+    return null;
+}
+
+fn countTrail(s: []const u8) usize {
+    var i: usize = s.len;
+    while (i > 0 and (s[i - 1] == '\n' or s[i - 1] == '\r')) : (i -= 1) {}
+
+    return s.len - i;
+}
+
+fn parseTag(template: []const u8, i: usize) !Tag {
+    const start = i + 2;
+    const rel_end = std.mem.indexOf(u8, template[start..], "<}") orelse
+        return error.InvalidTemplate;
+
+    const raw = template[start .. start + rel_end];
+    return Tag{
+        .raw = raw,
+        .trim = trimTag(raw),
+        .after = start + rel_end + 2,
+    };
+}
+
+fn parseBody(template: []const u8, tpl_len: usize, start: usize) !Body {
+    var i = start;
+    var depth: usize = 0;
+    while (i < tpl_len) {
+        if (std.mem.startsWith(u8, template[i..], "{>")) {
+            const t = try parseTag(template, i);
+
+            if (std.mem.startsWith(u8, t.trim, "if ")) {
+                depth += 1;
+            } else if (std.mem.eql(u8, t.trim, "end")) {
+                if (depth == 0) break;
+                depth -= 1;
+            } else if ((std.mem.startsWith(u8, t.trim, "elif ") or
+                std.mem.eql(u8, t.trim, "else")) and depth == 0)
+            {
+                break;
+            }
+            i = t.after;
+        } else i += 1;
+    }
+
+    return Body{ .slice = template[start..i], .after = i };
+}
+
+fn nextTag(template: []const u8, start: usize) ?usize {
+    if (std.mem.indexOf(u8, template[start..], "{>")) |pos| {
+        return start + pos;
+    } else {
+        return null;
+    }
+}
+
+fn findAnchorLiteral(
+    template: []const u8,
+    tpl_len: usize,
+    body_end: usize,
+) ![]const u8 {
+    var scan = body_end;
+    var depth: usize = 0;
+    var anchor_start: usize = tpl_len;
+    while (scan < tpl_len) {
+        if (std.mem.startsWith(u8, template[scan..], "{>")) {
+            const s2 = scan + 2;
+            const e2 = std.mem.indexOf(u8, template[s2..], "<}") orelse
+                return error.InvalidTemplate;
+
+            const t2 = trimTag(template[s2 .. s2 + e2]);
+
+            if (std.mem.startsWith(u8, t2, "if ")) {
+                depth += 1;
+            } else if (std.mem.eql(u8, t2, "end")) {
+                if (depth == 0) {
+                    anchor_start = s2 + e2 + 2;
+                    break;
+                }
+                depth -= 1;
+            }
+
+            scan = s2 + e2 + 2;
+        } else scan += 1;
+    }
+
+    if (anchor_start >= tpl_len) return template[tpl_len..tpl_len];
+    if (std.mem.indexOf(u8, template[anchor_start..], "{>")) |off| {
+        return template[anchor_start .. anchor_start + off];
+    } else {
+        return template[anchor_start..tpl_len];
+    }
+}
+
+fn extractChangeChunk(
+    rendered: []const u8,
+    rnd_len: usize,
+    rnd_i: usize,
+    anchor_lit: []const u8,
+) Chunk {
+    var change_end = rnd_len;
+
+    if (anchor_lit.len > 0) {
+        if (std.mem.indexOf(u8, rendered[rnd_i..], anchor_lit)) |pos| {
+            change_end = rnd_i + pos;
+        }
+    }
+
+    return Chunk{ .slice = rendered[rnd_i..change_end], .end = change_end };
+}
+
+fn copyWithWhitespace(
+    out: *std.ArrayList(u8),
+    body: []const u8,
+    change: []const u8,
+) !void {
+    var lead: usize = 0;
+    while (lead < body.len and (body[lead] == '\n' or
+        body[lead] == '\r')) lead += 1;
+
+    var trail: usize = 0;
+    while (trail < body.len - lead and (body[body.len - 1 - trail] == '\n' or
+        body[body.len - 1 - trail] == '\r')) trail += 1;
+
+    if (lead > 0) try out.appendSlice(body[0..lead]);
+    try out.appendSlice(change);
+    if (trail > 0) try out.appendSlice(body[body.len - trail ..]);
+}
+
+fn normalizeTrailing(
+    allocator: std.mem.Allocator,
+    result: []u8,
+    template: []const u8,
+) ![]u8 {
+    const tmpl_trail = countTrail(template);
+    const res_trail = countTrail(result);
+
+    if (res_trail == tmpl_trail) return result;
+
+    const core_len = result.len - res_trail;
+    const new_len = core_len + tmpl_trail;
+    const new_slice = try allocator.alloc(u8, new_len);
+
+    @memcpy(new_slice[0..core_len], result[0..core_len]);
+
+    if (tmpl_trail > 0) @memcpy(
+        new_slice[core_len..],
+        template[template.len - tmpl_trail ..],
+    );
+
+    allocator.free(result);
+
+    return new_slice;
+}
+
 fn evalIfGroup(
     allocator: std.mem.Allocator,
     tokens: []Token,
@@ -102,9 +276,10 @@ fn evalIfGroup(
             return error.InvalidTemplate;
         }
 
-        // check if there is a following text token (the body for this control)
+        // check if there is a following text token
+        // (the body for this control tag)
         var had_body: bool = false;
-        var body: []const u8 = &[_]u8{}; //empty
+        var body: []const u8 = &[_]u8{};
 
         if (i + 1 < tokens.len) {
             switch (tokens[i + 1]) {
@@ -128,7 +303,7 @@ fn evalIfGroup(
 
         // compute increment and ensure we don't step past tokens.len
         const inc: usize = if (had_body) 2 else 1;
-        // check that i + inc does not overflow and that it is <= tokens.len
+        // check that i+inc does not overflow and that it is <= tokens.len
         if (inc > tokens.len - i) {
             // past end of the token stream
             return error.InvalidTemplate;
@@ -223,205 +398,115 @@ pub fn reverseTemplate(
     var out = std.ArrayList(u8).init(allocator);
     defer out.deinit();
 
-    var tpl_i: usize = 0; // template index
-    var rnd_i: usize = 0; // rendered index
-
     const tpl_len = template.len;
     const rnd_len = rendered.len;
 
-    var branch_taken = false;
+    var tpl_i: usize = 0; // template index
+    var rnd_i: usize = 0; // rendered index
 
     while (tpl_i < tpl_len) {
         if (std.mem.startsWith(u8, template[tpl_i..], "{>")) {
-            const start = tpl_i + 2;
-            const rel_end = std.mem.indexOf(u8, template[start..], "<}") orelse
-                return error.InvalidTemplate;
+            const tag = try parseTag(template, tpl_i);
 
-            const tag_slice = template[start .. start + rel_end];
-            const tag_trim = trimTag(tag_slice);
+            // check if this is the start of a conditional group
+            if (std.mem.startsWith(u8, tag.trim, "if ")) {
+                // process the entire if-elif-else-end group
+                var group_tpl_i = tpl_i;
+                var branch_taken = false;
+                var active_branch_processed = false;
 
-            tpl_i = start + rel_end + 2;
+                while (group_tpl_i < tpl_len) {
+                    const group_tag = try parseTag(template, group_tpl_i);
 
-            if (std.mem.startsWith(u8, tag_trim, "if ")) branch_taken = false;
+                    // output the tag
+                    try out.appendSlice("{>");
+                    try out.appendSlice(group_tag.raw);
+                    try out.appendSlice("<}");
 
-            try out.appendSlice("{>");
-            try out.appendSlice(tag_slice);
-            try out.appendSlice("<}");
+                    group_tpl_i = group_tag.after;
 
-            const body_start = tpl_i;
-            var depth: usize = 0;
-            var body_end = tpl_i;
-
-            while (body_end < tpl_len) {
-                if (std.mem.startsWith(u8, template[body_end..], "{>")) {
-                    const s = body_end + 2;
-                    const e = std.mem.indexOf(u8, template[s..], "<}") orelse
-                        return error.InvalidTemplate;
-
-                    const inner_tag = trimTag(template[s .. s + e]);
-                    if (std.mem.startsWith(u8, inner_tag, "if ")) {
-                        depth += 1;
-                    } else if (std.mem.eql(u8, inner_tag, "end")) {
-                        if (depth == 0) break;
-                        depth -= 1;
-                    } else if ((std.mem.startsWith(u8, inner_tag, "elif ") or
-                        std.mem.eql(u8, inner_tag, "else")) and depth == 0)
-                    {
+                    // check if this is the end tag
+                    if (std.mem.eql(u8, group_tag.trim, "end")) {
+                        tpl_i = group_tpl_i;
                         break;
                     }
 
-                    body_end = s + e + 2;
-                } else {
-                    body_end += 1;
-                }
-            }
+                    // parse the body for this branch
+                    const body = try parseBody(template, tpl_len, group_tpl_i);
 
-            const body = template[body_start..body_end];
-
-            var active = false;
-            if (std.mem.startsWith(u8, tag_trim, "if ")) {
-                active = evalCondition(
-                    allocator,
-                    tag_trim[3..],
-                ) and !branch_taken;
-            } else if (std.mem.startsWith(u8, tag_trim, "elif ")) {
-                active = evalCondition(
-                    allocator,
-                    tag_trim[5..],
-                ) and !branch_taken;
-            } else if (std.mem.eql(u8, tag_trim, "else")) {
-                active = !branch_taken;
-            }
-
-            if (active) {
-                branch_taken = true;
-
-                // find anchor literal after this block
-                var scan = body_end;
-                var depth2: usize = 0;
-                var anchor_start = tpl_len;
-                while (scan < tpl_len) {
-                    if (std.mem.startsWith(u8, template[scan..], "{>")) {
-                        const s2 = scan + 2;
-                        const e2 = std.mem.indexOf(
-                            u8,
-                            template[s2..],
-                            "<}",
-                        ) orelse
-                            return error.InvalidTemplate;
-
-                        const t2 = trimTag(template[s2 .. s2 + e2]);
-
-                        if (std.mem.startsWith(u8, t2, "if ")) {
-                            depth2 += 1;
-                        } else if (std.mem.eql(u8, t2, "end")) {
-                            if (depth2 == 0) {
-                                anchor_start = s2 + e2 + 2;
-                                break;
-                            }
-                            depth2 -= 1;
-                        }
-
-                        scan = s2 + e2 + 2;
-                    } else scan += 1;
-                }
-
-                const next_tag_off = std.mem.indexOf(
-                    u8,
-                    template[anchor_start..],
-                    "{>",
-                );
-
-                const anchor_end = if (next_tag_off) |off|
-                    anchor_start + off
-                else
-                    tpl_len;
-
-                const anchor_lit = template[anchor_start..anchor_end];
-                var user_end = rnd_len;
-
-                if (anchor_lit.len > 0) {
-                    if (std.mem.indexOf(
-                        u8,
-                        rendered[rnd_i..],
-                        anchor_lit,
-                    )) |pos| {
-                        user_end = rnd_i + pos;
+                    // decide whether this branch is active
+                    var active = false;
+                    if (std.mem.startsWith(u8, group_tag.trim, "if ")) {
+                        active = evalCondition(allocator, group_tag.trim[3..]) and
+                            !branch_taken;
+                    } else if (std.mem.startsWith(u8, group_tag.trim, "elif ")) {
+                        active = evalCondition(allocator, group_tag.trim[5..]) and
+                            !branch_taken;
+                    } else if (std.mem.eql(u8, group_tag.trim, "else")) {
+                        active = !branch_taken;
                     }
+
+                    if (active and !active_branch_processed) {
+                        branch_taken = true;
+                        active_branch_processed = true;
+
+                        // extract changed render content for the active branch
+                        const anchor_lit = try findAnchorLiteral(
+                            template,
+                            tpl_len,
+                            body.after,
+                        );
+
+                        const change_chunk = extractChangeChunk(
+                            rendered,
+                            rnd_len,
+                            rnd_i,
+                            anchor_lit,
+                        );
+
+                        try copyWithWhitespace(
+                            &out,
+                            body.slice,
+                            change_chunk.slice,
+                        );
+
+                        rnd_i = change_chunk.end;
+                    } else {
+                        // inactive branch: copy the template body
+                        try out.appendSlice(body.slice);
+                    }
+
+                    group_tpl_i = body.after;
                 }
-
-                const user_chunk = rendered[rnd_i..user_end];
-
-                // preserve leading/trailing template whitespace
-                var lead: usize = 0;
-                while (lead < body.len and
-                    (body[lead] == '\n' or
-                        body[lead] == '\r'))
-                    lead += 1;
-
-                var trail: usize = 0;
-                while (trail < body.len - lead and
-                    (body[body.len - 1 - trail] == '\n' or
-                        body[body.len - 1 - trail] == '\r'))
-                    trail += 1;
-
-                if (lead > 0) try out.appendSlice(body[0..lead]);
-                try out.appendSlice(user_chunk);
-                if (trail > 0) try out.appendSlice(body[body.len - trail ..]);
-
-                rnd_i = user_end;
             } else {
-                try out.appendSlice(body); // inactive branch verbatim
+                // no non-if tags outside of the group
+                return error.InvalidTemplate;
+            }
+        } else {
+            // handle literal text between conditional groups
+            const lit_end = nextTag(template, tpl_i) orelse tpl_len;
+            const lit_template = template[tpl_i..lit_end];
+
+            // copy corresponding content from rendered output
+            var len = lit_template.len;
+            if (rnd_i + len > rnd_len) {
+                len = rnd_len - rnd_i;
             }
 
-            tpl_i = body_end;
-        } else {
-            const next_tag_off = std.mem.indexOf(u8, template[tpl_i..], "{>");
-            const literal_end = if (next_tag_off) |off| tpl_i + off else tpl_len;
-            const literal_len = literal_end - tpl_i;
-            const render_end = if (rnd_i + literal_len <= rnd_len)
-                rnd_i + literal_len
-            else
-                rnd_len;
+            try out.appendSlice(rendered[rnd_i .. rnd_i + len]);
 
-            try out.appendSlice(rendered[rnd_i..render_end]);
-
-            rnd_i = render_end;
-            tpl_i = literal_end;
+            rnd_i += len;
+            tpl_i = lit_end;
         }
     }
 
-    if (rnd_i < rnd_len) try out.appendSlice(rendered[rnd_i..]);
+    // append any remaining rendered content
+    if (rnd_i < rnd_len) {
+        try out.appendSlice(rendered[rnd_i..]);
+    }
 
     const result = try out.toOwnedSlice();
-
-    // normalize trailing CR/LF
-    var tmpl_trail: usize = 0;
-    var jj: usize = tpl_len;
-    while (jj > 0 and (template[jj - 1] == '\n' or
-        template[jj - 1] == '\r')) : (jj -= 1) tmpl_trail += 1;
-
-    var res_trail: usize = 0;
-    var kk: usize = result.len;
-    while (kk > 0 and (result[kk - 1] == '\n' or
-        result[kk - 1] == '\r')) : (kk -= 1) res_trail += 1;
-
-    if (res_trail == tmpl_trail) return result;
-
-    const core_len = result.len - res_trail;
-    const new_len = core_len + tmpl_trail;
-    const new_slice = try allocator.alloc(u8, new_len);
-
-    @memcpy(new_slice[0..core_len], result[0..core_len]);
-
-    if (tmpl_trail > 0) @memcpy(
-        new_slice[core_len..],
-        template[tpl_len - tmpl_trail .. tpl_len],
-    );
-
-    allocator.free(result);
-
-    return new_slice;
+    return try normalizeTrailing(allocator, result, template);
 }
 
 fn getOS() []const u8 {
@@ -443,11 +528,15 @@ fn splitWhitespace(s: []const u8) struct { lead: usize, trail: usize } {
     var trail: usize = 0;
 
     // count leading whitespace
-    while (lead < s.len and (s[lead] == ' ' or s[lead] == '\t')) : (lead += 1) {}
+    while (lead < s.len and (s[lead] == ' ' or
+        s[lead] == '\t')) : (lead += 1)
+    {}
 
     // count trailing whitespace
     var j = s.len;
-    while (j > lead and (s[j - 1] == ' ' or s[j - 1] == '\t')) : (j -= 1) {}
+    while (j > lead and (s[j - 1] == ' ' or
+        s[j - 1] == '\t')) : (j -= 1)
+    {}
 
     trail = s.len - j;
 
