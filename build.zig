@@ -106,8 +106,12 @@ pub fn build(b: *std.Build) void {
     const kcov_unit = b.addSystemCommand(&.{ "kcov", "--include-path=src" });
     kcov_unit.addDirectoryArg(b.path("kcov-unit"));
     kcov_unit.addArtifactArg(lib_unit_tests);
-    kcov_unit.addArtifactArg(integration_tests);
     merge_step.step.dependOn(&kcov_unit.step);
+
+    const kcov_int = b.addSystemCommand(&.{ "kcov", "--include-path=src" });
+    kcov_int.addDirectoryArg(b.path("kcov-int"));
+    kcov_int.addArtifactArg(integration_tests);
+    merge_step.step.dependOn(&kcov_int.step);
 
     const coverage_step = b.step("coverage", "Generate test coverage (kcov)");
     coverage_step.dependOn(&merge_step.step);
