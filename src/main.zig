@@ -165,6 +165,20 @@ pub fn main() !void {
         config.source = try src.val.getAs([]const u8);
     }
 
+    if (!std.mem.endsWith(u8, config.source, "/"))
+        config.source = try std.fmt.allocPrint(
+            allocator,
+            "{s}/",
+            .{config.source},
+        );
+
+    if (!std.mem.endsWith(u8, config.destination, "/"))
+        config.destination = try std.fmt.allocPrint(
+            allocator,
+            "{s}/",
+            .{config.destination},
+        );
+
     if (main_cmd.matchSubCmd("sync")) |sync_cmd| {
         var verbose = false;
         var dry_run = false;

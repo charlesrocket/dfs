@@ -23,10 +23,15 @@ pub fn new(src: []const u8, dest: []const u8) @This() {
 
 pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dest = self.dest;
     const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
+
+    if (!std.mem.startsWith(u8, dest, "/"))
+        dest = try std.fmt.allocPrint(allocator, "/{s}", .{self.dest});
+
     const sync_dest = try std.fmt.bufPrint(&buf, "{s}{s}.zon", .{
         data_dir,
-        self.dest,
+        dest,
     });
 
     const index = std.mem.lastIndexOfScalar(u8, sync_dest, '/');
@@ -88,6 +93,10 @@ pub fn processFile(
     dry_run: bool,
     verbose: bool,
 ) !void {
+    var dest = self.dest;
+    if (!std.mem.startsWith(u8, dest, "/"))
+        dest = try std.fmt.allocPrint(allocator, "/{s}", .{self.dest});
+
     const template_file = try std.fs.cwd().openFile(self.src, .{});
     defer template_file.close();
 
@@ -128,12 +137,11 @@ pub fn processFile(
     }
 
     var last_sync: usize = 0;
-    var meta_present = true;
     const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
     const meta_file_path = try std.fmt.allocPrint(
         allocator,
         "{s}{s}.zon",
-        .{ data_dir, self.dest },
+        .{ data_dir, dest },
     );
 
     defer allocator.free(meta_file_path);
@@ -145,34 +153,12 @@ pub fn processFile(
     try Util.createDirRecursively(allocator, data_dir);
 
     // TODO maybe this is a bit too much
-    const meta_file: ?std.fs.File = std.fs.cwd().openFile(
+    var meta_file: ?std.fs.File = std.fs.cwd().openFile(
         meta_file_path,
         .{},
     ) catch |err|
         switch (err) {
-            error.FileNotFound => blk: {
-                meta_present = false;
-                const index = std.mem.lastIndexOfScalar(u8, meta_file_path, '/');
-                const meta_dest = meta_file_path[0..index.?];
-
-                if (!dry_run) {
-                    try Util.createDirRecursively(allocator, meta_dest);
-                    _ = try std.fs.createFileAbsolute(
-                        meta_file_path,
-                        .{
-                            .read = false,
-                            .truncate = true,
-                            .mode = 0o600,
-                        },
-                    );
-                }
-
-                break :blk if (dry_run)
-                    null
-                else
-                    std.fs.cwd().openFile(meta_file_path, .{}) catch unreachable;
-            },
-
+            error.FileNotFound => null,
             else => return err,
         };
 
@@ -180,7 +166,24 @@ pub fn processFile(
         if (meta_file != null) meta_file.?.close();
     }
 
-    if (meta_present) {
+    if (meta_file == null) {
+        const index = std.mem.lastIndexOfScalar(u8, meta_file_path, '/');
+        const meta_dest = meta_file_path[0..index.?];
+
+        if (!dry_run) {
+            try Util.createDirRecursively(allocator, meta_dest);
+            _ = try std.fs.createFileAbsolute(
+                meta_file_path,
+                .{
+                    .read = false,
+                    .truncate = true,
+                    .mode = 0o600,
+                },
+            );
+        }
+    }
+
+    if (meta_file != null) {
         const meta_file_size: usize = @intCast((try meta_file.?.stat()).size);
         const meta_content_t = try meta_file.?.readToEndAlloc(
             allocator,
@@ -206,7 +209,7 @@ pub fn processFile(
             .{},
         ) catch
             return std.debug.print(
-                "{s}Failed to parse ZON file:{s} {s}\n",
+                "{s}ERROR | Failed to parse ZON file:{s} {s}\n",
                 .{ cli.red, cli.reset, meta_file_path },
             );
 
@@ -247,6 +250,7 @@ pub fn processFile(
 
             defer updated_template.close();
             try updated_template.writeAll(new_template);
+            try self.recordLastSync(allocator);
         }
         if (dry_run or verbose) {
             try stdout.print(
@@ -276,10 +280,16 @@ pub fn processFile(
         const result = try lib.applyTemplate(allocator, template_content);
 
         if (!dry_run) {
-            const output_file = try std.fs.createFileAbsolute(self.dest, .{
-                .read = false,
-                .truncate = true,
-            });
+            const output_file = if (std.mem.startsWith(u8, self.dest, "/"))
+                try std.fs.createFileAbsolute(self.dest, .{
+                    .read = false,
+                    .truncate = true,
+                })
+            else
+                try std.fs.cwd().createFile(self.dest, .{
+                    .read = false,
+                    .truncate = true,
+                });
 
             try output_file.writeAll(result);
             defer output_file.close();

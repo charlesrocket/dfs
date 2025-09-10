@@ -5,7 +5,9 @@ pub fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !voi
 
     const sep = std.fs.path.sep;
 
-    if (std.fs.path.isAbsolute(path)) {
+    const absolute = std.fs.path.isAbsolute(path);
+
+    if (absolute) {
         try buffer.append(sep);
     }
 
@@ -23,10 +25,17 @@ pub fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !voi
         try buffer.appendSlice(part);
         const dir_path = buffer.items;
 
-        std.fs.makeDirAbsolute(dir_path) catch |err| switch (err) {
-            error.PathAlreadyExists => {},
-            else => return err,
-        };
+        if (absolute) {
+            std.fs.makeDirAbsolute(dir_path) catch |err| switch (err) {
+                error.PathAlreadyExists => {},
+                else => return err,
+            };
+        } else {
+            std.fs.cwd().makeDir(dir_path) catch |err| switch (err) {
+                error.PathAlreadyExists => {},
+                else => return err,
+            };
+        }
     }
 }
 
