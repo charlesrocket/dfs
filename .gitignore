@@ -6,5 +6,8 @@
 /meta/
 /docs/
 
+/coverage/
+/kcov-*
+
 .zig-cache/
 zig-out/
