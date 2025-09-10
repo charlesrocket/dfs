@@ -1,7 +1,7 @@
 pub fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !void {
     var parts = try std.fs.path.componentIterator(path);
     var buffer = std.ArrayList(u8).init(allocator);
-    //defer buffer.deinit();
+    defer buffer.deinit();
 
     const sep = std.fs.path.sep;
 
@@ -44,12 +44,15 @@ pub fn walk(
     allocator: std.mem.Allocator,
     config: Config.Configuration,
 ) !void {
+    const base_abs = try std.fs.realpathAlloc(allocator, config.source);
+    defer allocator.free(base_abs);
+
     // with base path reference
     try walkDir(
         arr,
         allocator,
-        config.source,
-        config.source,
+        base_abs,
+        base_abs,
         config.destination,
     );
 }
@@ -61,7 +64,7 @@ fn walkDir(
     current_path: []const u8,
     dest: []const u8,
 ) !void {
-    var dir = try std.fs.cwd().openDir(current_path, .{});
+    var dir = try std.fs.openDirAbsolute(current_path, .{ .iterate = true });
     defer dir.close();
 
     var iter = dir.iterate();
@@ -72,24 +75,31 @@ fn walkDir(
             allocator,
             &.{ current_path, node.name },
         );
-        //defer allocator.free(node_path);
 
-        const rel_path = try std.fs.path.relative(
-            allocator,
-            base_path,
-            node_path,
-        );
-        //defer allocator.free(rel_path);
+        const rel_path = if (std.mem.eql(u8, base_path, current_path))
+            try allocator.dupe(u8, node.name)
+        else blk: {
+            const prefix_len = base_path.len + 1;
+            if (node_path.len > prefix_len) {
+                break :blk try allocator.dupe(u8, node_path[prefix_len..]);
+            } else {
+                break :blk try allocator.dupe(u8, node.name);
+            }
+        };
 
         const dest_path = try std.fs.path.join(
             allocator,
             &.{ dest, rel_path },
         );
-        //defer allocator.free(dest_path);
+
+        defer {
+            allocator.free(node_path);
+            allocator.free(rel_path);
+            allocator.free(dest_path);
+        }
 
         switch (node.kind) {
             .file => {
-                // grab file strings
                 const src_copy = try allocator.dupe(u8, node_path);
                 const dest_copy = try allocator.dupe(u8, dest_path);
                 const file = Dotfile.new(src_copy, dest_copy);
@@ -98,9 +108,7 @@ fn walkDir(
             .directory => {
                 try walkDir(arr, allocator, base_path, node_path, dest);
             },
-            else => {
-                continue;
-            },
+            else => continue,
         }
     }
 }
