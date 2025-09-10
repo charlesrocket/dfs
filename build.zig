@@ -82,9 +82,21 @@ pub fn build(b: *std.Build) void {
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
-    const test_step = b.step("test", "Run unit tests");
+    const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    const test_options = b.addOptions();
+    test_options.addOptionPath("exe_path", exe.getEmittedBin());
+
+    const integration_tests = b.addTest(.{
+        .root_source_file = b.path("test/cli.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    integration_tests.root_module.addOptions("build_options", test_options);
+    test_step.dependOn(&b.addRunArtifact(integration_tests).step);
 
     const merge_step = b.addSystemCommand(&.{ "kcov", "--merge" });
     merge_step.addDirectoryArg(b.path("coverage"));
@@ -94,6 +106,7 @@ pub fn build(b: *std.Build) void {
     const kcov_unit = b.addSystemCommand(&.{ "kcov", "--include-path=src" });
     kcov_unit.addDirectoryArg(b.path("kcov-unit"));
     kcov_unit.addArtifactArg(lib_unit_tests);
+    kcov_unit.addArtifactArg(integration_tests);
     merge_step.step.dependOn(&kcov_unit.step);
 
     const coverage_step = b.step("coverage", "Generate test coverage (kcov)");

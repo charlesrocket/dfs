@@ -1,0 +1,4 @@
+.{
+    .source = "test/root",
+    .destination = "test/dest",
+}

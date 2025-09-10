@@ -1,0 +1,7 @@
+# TEST
+Foo
+{> if SYSTEM.os == unsupported <}
+val="Zoot"
+{> else <}
+val="Bar"
+{> end <}
