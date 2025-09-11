@@ -153,6 +153,11 @@ pub const setup_cmd: CommandT = .{
                 .alias_child_type = "path",
             }),
         },
+        .{
+            .name = "json",
+            .description = "Output JSON status string.",
+            .long_name = "json",
+        },
     },
 };
 

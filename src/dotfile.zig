@@ -90,9 +90,12 @@ pub fn processFile(
     self: @This(),
     allocator: std.mem.Allocator,
     stdout: @TypeOf(std.io.getStdOut().writer()),
+    counter: *Util.Counter,
     dry_run: bool,
     verbose: bool,
+    json: bool,
 ) !void {
+    counter.total += 1;
     var dest = self.dest;
     if (!std.mem.startsWith(u8, dest, "/"))
         dest = try std.fmt.allocPrint(allocator, "/{s}", .{self.dest});
@@ -108,7 +111,7 @@ pub fn processFile(
     const is_text = Util.isText(template_content);
 
     if (!is_text) {
-        if (dry_run or verbose) {
+        if (!json and (dry_run or verbose)) {
             try stdout.print("{s}{s}FILE | {s} >>> {s}{s}\n", .{
                 cli.blue,
                 cli.bold,
@@ -133,6 +136,8 @@ pub fn processFile(
             try self.recordLastSync(allocator);
         }
 
+        counter.updated += 1;
+        counter.binary += 1;
         return;
     }
 
@@ -207,11 +212,14 @@ pub fn processFile(
             input,
             null,
             .{},
-        ) catch
+        ) catch {
+            counter.errors += 1;
+
             return std.debug.print(
                 "{s}ERROR | Failed to parse ZON file:{s} {s}\n",
                 .{ cli.red, cli.reset, meta_file_path },
             );
+        };
 
         last_sync = @intCast(meta.synced);
     }
@@ -252,7 +260,7 @@ pub fn processFile(
             try updated_template.writeAll(new_template);
             try self.recordLastSync(allocator);
         }
-        if (dry_run or verbose) {
+        if (!json and (dry_run or verbose)) {
             try stdout.print(
                 "{s}{s}FILE | {s}{s}\n",
                 .{
@@ -276,6 +284,9 @@ pub fn processFile(
                 );
             }
         }
+
+        counter.updated += 1;
+        counter.template += 1;
     } else {
         const result = try lib.applyTemplate(allocator, template_content);
 
@@ -297,7 +308,7 @@ pub fn processFile(
             try self.recordLastSync(allocator);
         }
 
-        if (dry_run or verbose) {
+        if (!json and (dry_run or verbose)) {
             try stdout.print("{s}{s}FILE | {s}{s}\n", .{
                 cli.yellow,
                 cli.bold,
@@ -329,6 +340,9 @@ pub fn processFile(
                     );
             }
         }
+
+        counter.updated += 1;
+        counter.render += 1;
     }
 }
 

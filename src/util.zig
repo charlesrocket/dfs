@@ -1,4 +1,40 @@
-pub fn createDirRecursively(allocator: std.mem.Allocator, path: []const u8) !void {
+pub const Counter = struct {
+    total: usize,
+    updated: usize,
+    template: usize,
+    render: usize,
+    binary: usize,
+    errors: usize,
+    dry_run: bool,
+
+    pub fn new(dry: bool) Counter {
+        return .{
+            .total = 0,
+            .updated = 0,
+            .template = 0,
+            .render = 0,
+            .binary = 0,
+            .errors = 0,
+            .dry_run = dry,
+        };
+    }
+
+    pub fn json(
+        self: *Counter,
+        stdout: @TypeOf(std.io.getStdOut().writer()),
+    ) !void {
+        const options = std.json.StringifyOptions{
+            .whitespace = .indent_4,
+        };
+
+        try std.json.stringify(self, options, stdout);
+    }
+};
+
+pub fn createDirRecursively(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+) !void {
     var parts = try std.fs.path.componentIterator(path);
     var buffer = std.ArrayList(u8).init(allocator);
     defer buffer.deinit();

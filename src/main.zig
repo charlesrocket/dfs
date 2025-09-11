@@ -71,6 +71,8 @@ pub fn main() !void {
 
     var custom_config_path: ?[]const u8 = null;
     var usage_help_called = false;
+    var dry_run = false;
+    var json = false;
     var args_iter = try cova.ArgIteratorGeneric.init(allocator);
     defer args_iter.deinit();
 
@@ -97,6 +99,10 @@ pub fn main() !void {
         );
 
         std.posix.exit(0);
+    }
+
+    if (main_cmd.checkFlag("json")) {
+        json = true;
     }
 
     if (opts.get("config")) |dest| {
@@ -181,52 +187,64 @@ pub fn main() !void {
 
     if (main_cmd.matchSubCmd("sync")) |sync_cmd| {
         var verbose = false;
-        var dry_run = false;
 
-        try stdout.print("{s}\n{s}{s}SYNC STARTED{s}\n", .{
-            assets.logo,
-            cli.magenta,
-            cli.bold,
-            cli.reset,
-        });
+        if (!json) {
+            try stdout.print("{s}\n{s}{s}SYNC STARTED{s}\n", .{
+                assets.logo,
+                cli.magenta,
+                cli.bold,
+                cli.reset,
+            });
+        }
 
         if (sync_cmd.checkFlag("verbose")) verbose = true;
 
         if ((try sync_cmd.getOpts(.{})).get("dry")) |dry_opt| {
-            if (dry_opt.val.isSet()) {
+            dry_run = dry_opt.val.isSet();
+
+            if (!json and dry_run) {
                 try stdout.print("{s}{s}DRY RUN{s}\n\n", .{
                     cli.italic,
                     cli.blink,
                     cli.reset,
                 });
-                dry_run = true;
             }
         }
 
-        var count: usize = 0;
+        var counter = Util.Counter.new(dry_run);
         var files = std.ArrayListUnmanaged(Dotfile).empty;
-        //defer files.deinit(allocator);
+        defer files.deinit(allocator);
 
         try Util.walk(&files, allocator, config);
 
         const owned_files = try files.toOwnedSlice(allocator);
 
         for (owned_files) |file| {
-            try file.processFile(allocator, stdout, dry_run, verbose);
-            count += 1;
+            try file.processFile(
+                allocator,
+                stdout,
+                &counter,
+                dry_run,
+                verbose,
+                json,
+            );
         }
 
-        try stdout.print("PROCESSED FILES: {s}{d}{s}\n", .{
-            cli.underline,
-            count,
-            cli.reset,
-        });
+        if (json) {
+            try counter.json(stdout);
+        } else {
+            try stdout.print("PROCESSED FILES: {s}{d}{s}\n", .{
+                cli.underline,
+                counter.total,
+                cli.reset,
+            });
 
-        try stdout.print("{s}{s}DONE{s}\n", .{
-            cli.bold,
-            cli.green,
-            cli.reset,
-        });
+            try stdout.print("{s}{s}DONE{s}\n", .{
+                cli.bold,
+                cli.green,
+                cli.reset,
+            });
+        }
     }
 }
 
