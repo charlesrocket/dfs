@@ -56,7 +56,7 @@ fn init(
         cli.reset,
     });
 
-    std.posix.exit(0);
+    std.process.exit(0);
 }
 
 pub fn main() !void {
@@ -98,7 +98,7 @@ pub fn main() !void {
             .{ "dfs version ", VERSION, "\n" },
         );
 
-        std.posix.exit(0);
+        std.process.exit(0);
     }
 
     if (main_cmd.checkFlag("json")) {
@@ -111,6 +111,21 @@ pub fn main() !void {
 
     if (main_cmd.checkSubCmd("init")) {
         try init(allocator, stdout, custom_config_path);
+    } else if (main_cmd.matchSubCmd("bootstrap")) |bootstrap_cmd| {
+        const bootstrap_opts = try bootstrap_cmd.getOpts(.{});
+        const url = try bootstrap_opts.get("url").?.val.getAs([]const u8);
+
+        try stdout.print("{s}\nFetching external config...\n", .{
+            assets.help_prefix,
+        });
+
+        try Util.bootstrap(allocator, url);
+        try stdout.print("{s}DONE{s}\n", .{
+            cli.bold,
+            cli.reset,
+        });
+
+        std.process.exit(0);
     }
 
     const conf_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
@@ -131,7 +146,7 @@ pub fn main() !void {
                     cli.reset,
                 });
 
-                std.posix.exit(1);
+                std.process.exit(1);
             },
             else => return err,
         };

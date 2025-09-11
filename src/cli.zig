@@ -106,6 +106,22 @@ pub const setup_cmd: CommandT = .{
             ,
         },
         .{
+            .name = "bootstrap",
+            .description = "Download and deploy an external config file.",
+            .opts = &.{
+                .{
+                    .name = "url",
+                    .description = "Config file URL.",
+                    .long_name = "url",
+                    .mandatory = true,
+                    .val = ValueT.ofType([]const u8, .{
+                        .name = "string",
+                        .alias_child_type = "URL",
+                    }),
+                },
+            },
+        },
+        .{
             .name = "sync",
             .description = "Run synchronization.",
             .opts = &.{

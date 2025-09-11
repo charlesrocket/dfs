@@ -29,6 +29,56 @@ pub const Counter = struct {
     }
 };
 
+pub fn bootstrap(allocator: std.mem.Allocator, url: []const u8) !void {
+    const config_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
+    defer allocator.free(config_home);
+
+    const config_path = try std.fmt.allocPrint(
+        allocator,
+        "{s}/dfs.zon",
+        .{config_home},
+    );
+
+    defer allocator.free(config_path);
+
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+
+    try createDirRecursively(allocator, config_home);
+
+    var file = try std.fs.createFileAbsolute(
+        config_path,
+        .{ .read = false, .truncate = true },
+    );
+
+    defer file.close();
+
+    const parsed = try std.Uri.parse(url);
+    const buf = try allocator.alloc(u8, 1024 * 8);
+    defer allocator.free(buf);
+
+    var req = try client.open(.GET, parsed, .{
+        .server_header_buffer = buf,
+    });
+
+    defer req.deinit();
+
+    try req.send();
+    try req.finish();
+    try req.wait();
+
+    if (req.response.status != .ok) {
+        return error.UnexpectedRequestStatus;
+    }
+
+    var read_buf: [4096]u8 = undefined;
+    while (true) {
+        const n = try req.read(&read_buf);
+        if (n == 0) break;
+        try file.writeAll(read_buf[0..n]);
+    }
+}
+
 pub fn createDirRecursively(
     allocator: std.mem.Allocator,
     path: []const u8,
@@ -38,7 +88,6 @@ pub fn createDirRecursively(
     defer buffer.deinit();
 
     const sep = std.fs.path.sep;
-
     const absolute = std.fs.path.isAbsolute(path);
 
     if (absolute) {
