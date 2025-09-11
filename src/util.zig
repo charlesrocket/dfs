@@ -23,9 +23,7 @@ pub const Counter = struct {
         self: *Counter,
         stdout: @TypeOf(std.io.getStdOut().writer()),
     ) !void {
-        const options = std.json.StringifyOptions{
-            .whitespace = .indent_4,
-        };
+        const options = std.json.StringifyOptions{};
 
         try std.json.stringify(self, options, stdout);
     }
