@@ -4,7 +4,6 @@ pub const Counter = struct {
     template: usize,
     render: usize,
     binary: usize,
-    ignored_total: usize,
     errors: usize,
     dry_run: bool,
 
@@ -15,7 +14,6 @@ pub const Counter = struct {
             .template = 0,
             .render = 0,
             .binary = 0,
-            .ignored_total = 0,
             .errors = 0,
             .dry_run = dry,
         };
@@ -129,6 +127,7 @@ pub fn walk(
     allocator: std.mem.Allocator,
     config: Config.Configuration,
     counter: *Counter,
+    ignore_list: [][]const u8,
 ) !void {
     const base_abs = try std.fs.realpathAlloc(allocator, config.source);
     defer allocator.free(base_abs);
@@ -141,6 +140,7 @@ pub fn walk(
         base_abs,
         config.destination,
         counter,
+        ignore_list,
     );
 }
 
@@ -151,16 +151,14 @@ fn walkDir(
     current_path: []const u8,
     dest: []const u8,
     counter: *Counter,
+    ignore_list: [][]const u8,
 ) !void {
     var dir = try std.fs.openDirAbsolute(current_path, .{ .iterate = true });
     defer dir.close();
 
     var iter = dir.iterate();
     while (try iter.next()) |node| {
-        if (isIgnored(node.name)) {
-            counter.ignored_total += 1;
-            continue;
-        }
+        if (isIgnored(node.name, ignore_list)) continue;
 
         const node_path = try std.fs.path.join(
             allocator,
@@ -204,6 +202,7 @@ fn walkDir(
                     node_path,
                     dest,
                     counter,
+                    ignore_list,
                 );
             },
             else => continue,
@@ -211,15 +210,15 @@ fn walkDir(
     }
 }
 
-pub fn isIgnored(value: []const u8) bool {
-    for (main.ignore_list) |el| {
+pub fn isIgnored(value: []const u8, ignore_list: [][]const u8) bool {
+    for (ignore_list) |el| {
         if (std.mem.eql(u8, el, value)) {
             return true;
         }
     }
 
     if (builtin.target.os.tag != .macos) {
-        for (main.mac_specific) |el| {
+        for (main.MAC_SPECIFIC) |el| {
             if (std.mem.eql(u8, el, value)) {
                 return true;
             }

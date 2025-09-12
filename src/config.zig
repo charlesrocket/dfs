@@ -6,6 +6,7 @@ pub const XdgDir = enum {
 pub const Configuration = struct {
     source: []const u8,
     destination: []const u8,
+    ignore_list: [][]const u8,
 
     pub fn new(
         allocator: std.mem.Allocator,
@@ -20,6 +21,7 @@ pub const Configuration = struct {
         return .{
             .source = source,
             .destination = path,
+            .ignore_list = &[_][]u8{},
         };
     }
 
@@ -43,18 +45,15 @@ pub const Configuration = struct {
         );
 
         defer f.close();
-
         var writer = f.writer();
-        try writer.print(
-            ".{{\n" ++
-                "    .source= \"{s}\",\n" ++
-                "    .destination = \"{s}\",\n" ++
-                "}}\n",
-            .{
-                self.source,
-                self.destination,
-            },
+
+        _ = try std.zon.stringify.serialize(
+            self,
+            .{},
+            writer,
         );
+
+        _ = try writer.write("\n");
     }
 };
 

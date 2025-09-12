@@ -3,8 +3,7 @@ pub const setup_cmd = cli.setup_cmd;
 
 const VERSION = build_options.version;
 
-// TODO use regex
-pub const ignore_list = [_][]const u8{
+pub const IGNORE_LIST = [_][]const u8{
     "CHANGELOG.md",
     "README.md",
     "LICENSE",
@@ -17,7 +16,7 @@ pub const ignore_list = [_][]const u8{
     ".DS_Store",
 };
 
-pub const mac_specific = [_][]const u8{
+pub const MAC_SPECIFIC = [_][]const u8{
     ".yabairc",
 };
 
@@ -55,11 +54,7 @@ fn init(
     _ = try proc.wait();
 
     try config.write(allocator, custom_config);
-    try stdout.print("{s}{s}{s}\nCOMPLETED\n", .{
-        assets.help_prefix,
-        cli.bold,
-        cli.reset,
-    });
+    _ = try stdout.write("COMPLETED\n");
 
     std.process.exit(0);
 }
@@ -134,16 +129,18 @@ pub fn main() !void {
     }
 
     const conf_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
-    const config_path = try std.fmt.allocPrint(
+    const config_default = try std.fmt.allocPrint(
         allocator,
         "{s}/dfs.zon",
         .{conf_home},
     );
 
-    const config_file = std.fs.cwd().openFile(if (custom_config_path == null)
-        config_path
+    const config_path = if (custom_config_path == null)
+        config_default
     else
-        custom_config_path.?, .{}) catch |err|
+        custom_config_path.?;
+
+    const config_file = std.fs.cwd().openFile(config_path, .{}) catch |err|
         switch (err) {
             error.FileNotFound => {
                 std.debug.print("{s}Config not found!{s}\nRun `dfs init`.", .{
@@ -175,13 +172,33 @@ pub fn main() !void {
     const config_data =
         config_content.items[0 .. config_content.items.len - 1 :0];
 
-    var config = try std.zon.parse.fromSlice(
+    var config = std.zon.parse.fromSlice(
         Config.Configuration,
         allocator,
         config_data,
         null,
         .{},
-    );
+    ) catch {
+        try stdout.print("{s}INVALID CONFIG{s}: {s}\n\n", .{
+            cli.red,
+            cli.reset,
+            config_path,
+        });
+
+        _ = try stdout.write("Example:\n\n");
+        _ = try std.zon.stringify.serialize(
+            try Config.Configuration.new(
+                allocator,
+                "/tmp/src/dotfiles",
+                "/tmp/test",
+            ),
+            .{},
+            stdout,
+        );
+
+        _ = try stdout.write("\n");
+        std.process.exit(1);
+    };
 
     if (opts.get("destination")) |dest| {
         config.destination = try dest.val.getAs([]const u8);
@@ -206,6 +223,17 @@ pub fn main() !void {
         );
 
     if (main_cmd.matchSubCmd("sync")) |sync_cmd| {
+        var ignore_list = std.ArrayList([]const u8).init(allocator);
+        defer ignore_list.deinit();
+
+        for (IGNORE_LIST) |item| {
+            try ignore_list.append(item);
+        }
+
+        for (config.ignore_list) |item| {
+            try ignore_list.append(item);
+        }
+
         var verbose = false;
 
         if (!json) {
@@ -235,7 +263,7 @@ pub fn main() !void {
         var files = std.ArrayListUnmanaged(Dotfile).empty;
         defer files.deinit(allocator);
 
-        try Util.walk(&files, allocator, config, &counter);
+        try Util.walk(&files, allocator, config, &counter, ignore_list.items);
 
         const owned_files = try files.toOwnedSlice(allocator);
 
