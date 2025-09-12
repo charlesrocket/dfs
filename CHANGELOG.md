@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2025-09-12
+
+### Bug Fixes
+
+- Handle relative paths
+- Fix linux paths
+- Change json options
+- Add newline to stdout
+
+### Features
+
+- Add `json` option
+- Add `bootstrap` command
+- Add platform-specific ignore list
+- [**breaking**] Add ignore list
+
+### Miscellaneous tasks
+
+- Ignore kcov
+
+### Operations
+
+- Fix `release` name
+- Update label list
+
+### Refactor
+
+- `rendered` -> `render`
+
+### Testing
+
+- Add `sync`
+
+### Build
+
+- Fix coverage
+
 ## [0.1.0] - 2025-09-09
 
 ### Bug Fixes
