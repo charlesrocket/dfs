@@ -247,6 +247,7 @@ pub fn main() !void {
 
         if (json) {
             try counter.json(stdout);
+            _ = try stdout.write("\n");
         } else {
             try stdout.print("PROCESSED FILES: {s}{d}{s}\n", .{
                 cli.underline,
