@@ -4,6 +4,7 @@ pub const Counter = struct {
     template: usize,
     render: usize,
     binary: usize,
+    ignored_total: usize,
     errors: usize,
     dry_run: bool,
 
@@ -14,6 +15,7 @@ pub const Counter = struct {
             .template = 0,
             .render = 0,
             .binary = 0,
+            .ignored_total = 0,
             .errors = 0,
             .dry_run = dry,
         };
@@ -126,6 +128,7 @@ pub fn walk(
     arr: *std.ArrayListUnmanaged(Dotfile),
     allocator: std.mem.Allocator,
     config: Config.Configuration,
+    counter: *Counter,
 ) !void {
     const base_abs = try std.fs.realpathAlloc(allocator, config.source);
     defer allocator.free(base_abs);
@@ -137,6 +140,7 @@ pub fn walk(
         base_abs,
         base_abs,
         config.destination,
+        counter,
     );
 }
 
@@ -146,13 +150,17 @@ fn walkDir(
     base_path: []const u8,
     current_path: []const u8,
     dest: []const u8,
+    counter: *Counter,
 ) !void {
     var dir = try std.fs.openDirAbsolute(current_path, .{ .iterate = true });
     defer dir.close();
 
     var iter = dir.iterate();
     while (try iter.next()) |node| {
-        if (isIgnored(node.name)) continue;
+        if (isIgnored(node.name)) {
+            counter.ignored_total += 1;
+            continue;
+        }
 
         const node_path = try std.fs.path.join(
             allocator,
@@ -189,7 +197,14 @@ fn walkDir(
                 try arr.append(allocator, file);
             },
             .directory => {
-                try walkDir(arr, allocator, base_path, node_path, dest);
+                try walkDir(
+                    arr,
+                    allocator,
+                    base_path,
+                    node_path,
+                    dest,
+                    counter,
+                );
             },
             else => continue,
         }
@@ -200,6 +215,14 @@ pub fn isIgnored(value: []const u8) bool {
     for (main.ignore_list) |el| {
         if (std.mem.eql(u8, el, value)) {
             return true;
+        }
+    }
+
+    if (builtin.target.os.tag != .macos) {
+        for (main.mac_specific) |el| {
+            if (std.mem.eql(u8, el, value)) {
+                return true;
+            }
         }
     }
 
@@ -227,6 +250,7 @@ pub fn isText(data: []const u8) bool {
 }
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const main = @import("main.zig");
 const Config = @import("config.zig");

@@ -14,6 +14,11 @@ pub const ignore_list = [_][]const u8{
     ".gitmodules",
     ".github",
     ".git",
+    ".DS_Store",
+};
+
+pub const mac_specific = [_][]const u8{
+    ".yabairc",
 };
 
 fn init(
@@ -230,7 +235,7 @@ pub fn main() !void {
         var files = std.ArrayListUnmanaged(Dotfile).empty;
         defer files.deinit(allocator);
 
-        try Util.walk(&files, allocator, config);
+        try Util.walk(&files, allocator, config, &counter);
 
         const owned_files = try files.toOwnedSlice(allocator);
 
