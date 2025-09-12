@@ -16,6 +16,14 @@ cli:
 - changed-files:
   - any-glob-to-any-file: 'src/cli.zig'
 
+util:
+- changed-files:
+  - any-glob-to-any-file: 'src/util.zig'
+
+core:
+- changed-files:
+  - any-glob-to-any-file: ['src/main.zig', 'src/dotfile.zig']
+
 engine:
 - changed-files:
   - any-glob-to-any-file: 'src/lib.zig'
