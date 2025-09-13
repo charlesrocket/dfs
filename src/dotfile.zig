@@ -21,10 +21,16 @@ pub fn new(src: []const u8, dest: []const u8) @This() {
     };
 }
 
+pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+    allocator.free(self.src);
+    allocator.free(self.dest);
+}
+
 pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     var dest = self.dest;
     const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
+    defer allocator.free(data_dir);
 
     if (!std.mem.startsWith(u8, dest, "/"))
         dest = try std.fmt.allocPrint(allocator, "/{s}", .{self.dest});
@@ -100,7 +106,16 @@ pub fn processFile(
     if (!std.mem.startsWith(u8, dest, "/"))
         dest = try std.fmt.allocPrint(allocator, "/{s}", .{self.dest});
 
-    const template_file = try std.fs.cwd().openFile(self.src, .{});
+    const template_file = std.fs.cwd().openFile(self.src, .{}) catch {
+        counter.errors += 1;
+        std.debug.print(
+            "{s}Not found:{s} {s}\n",
+            .{ cli.red, cli.reset, self.src },
+        );
+
+        return;
+    };
+
     defer template_file.close();
 
     const template_size: usize = @intCast((try template_file.stat()).size);
@@ -108,6 +123,9 @@ pub fn processFile(
         allocator,
         template_size,
     );
+
+    defer allocator.free(template_content);
+
     const is_text = Util.isText(template_content);
 
     if (!is_text) {
@@ -143,6 +161,8 @@ pub fn processFile(
 
     var last_sync: usize = 0;
     const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
+    defer allocator.free(data_dir);
+
     const meta_file_path = try std.fmt.allocPrint(
         allocator,
         "{s}{s}.zon",
@@ -195,6 +215,8 @@ pub fn processFile(
             meta_file_size,
         );
 
+        defer allocator.free(meta_content_t);
+
         var meta_content = std.ArrayList(u8).init(allocator);
         defer meta_content.deinit();
 
@@ -221,6 +243,8 @@ pub fn processFile(
             );
         };
 
+        defer std.zon.parse.free(allocator, meta);
+
         last_sync = @intCast(meta.synced);
     }
 
@@ -246,6 +270,8 @@ pub fn processFile(
             rendered_content,
             template_content,
         );
+
+        defer allocator.free(new_template);
 
         if (!dry_run) {
             const updated_template = try std.fs.createFileAbsolute(
@@ -289,6 +315,7 @@ pub fn processFile(
         counter.template += 1;
     } else {
         const result = try lib.applyTemplate(allocator, template_content);
+        defer allocator.free(result);
 
         if (!dry_run) {
             const output_file = if (std.mem.startsWith(u8, self.dest, "/"))

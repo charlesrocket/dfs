@@ -59,11 +59,22 @@ fn init(
     std.process.exit(0);
 }
 
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = arena.deinit();
+fn ensureTrailingSlash(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+) ![]const u8 {
+    if (std.mem.endsWith(u8, path, "/")) {
+        return path;
+    }
 
-    const allocator = arena.allocator();
+    return try std.fmt.allocPrint(allocator, "{s}/", .{path});
+}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    const allocator = gpa.allocator();
     const stdout = std.io.getStdOut().writer();
 
     const main_cmd = try setup_cmd.init(allocator, .{});
@@ -129,11 +140,15 @@ pub fn main() !void {
     }
 
     const conf_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
+    defer allocator.free(conf_home);
+
     const config_default = try std.fmt.allocPrint(
         allocator,
         "{s}/dfs.zon",
         .{conf_home},
     );
+
+    defer allocator.free(config_default);
 
     const config_path = if (custom_config_path == null)
         config_default
@@ -160,6 +175,8 @@ pub fn main() !void {
         1024,
     );
 
+    defer allocator.free(config_content_t);
+
     var config_content = std.ArrayList(u8).init(allocator);
     defer config_content.deinit();
 
@@ -179,6 +196,14 @@ pub fn main() !void {
         null,
         .{},
     ) catch {
+        const example_config = try Config.Configuration.new(
+            allocator,
+            "/tmp/src/dotfiles",
+            "/tmp/test",
+        );
+
+        defer std.zon.parse.free(allocator, example_config);
+
         try stdout.print("{s}INVALID CONFIG{s}: {s}\n\n", .{
             cli.red,
             cli.reset,
@@ -187,11 +212,7 @@ pub fn main() !void {
 
         _ = try stdout.write("Example:\n\n");
         _ = try std.zon.stringify.serialize(
-            try Config.Configuration.new(
-                allocator,
-                "/tmp/src/dotfiles",
-                "/tmp/test",
-            ),
+            example_config,
             .{},
             stdout,
         );
@@ -199,6 +220,8 @@ pub fn main() !void {
         _ = try stdout.write("\n");
         std.process.exit(1);
     };
+
+    defer std.zon.parse.free(allocator, config);
 
     if (opts.get("destination")) |dest| {
         config.destination = try dest.val.getAs([]const u8);
@@ -208,19 +231,14 @@ pub fn main() !void {
         config.source = try src.val.getAs([]const u8);
     }
 
-    if (!std.mem.endsWith(u8, config.source, "/"))
-        config.source = try std.fmt.allocPrint(
-            allocator,
-            "{s}/",
-            .{config.source},
-        );
+    const source_with_slash = try ensureTrailingSlash(allocator, config.source);
+    const dest_with_slash = try ensureTrailingSlash(allocator, config.destination);
 
-    if (!std.mem.endsWith(u8, config.destination, "/"))
-        config.destination = try std.fmt.allocPrint(
-            allocator,
-            "{s}/",
-            .{config.destination},
-        );
+    defer if (!std.mem.eql(u8, source_with_slash, config.source))
+        allocator.free(source_with_slash);
+
+    defer if (!std.mem.eql(u8, dest_with_slash, config.destination))
+        allocator.free(dest_with_slash);
 
     if (main_cmd.matchSubCmd("sync")) |sync_cmd| {
         var ignore_list = std.ArrayList([]const u8).init(allocator);
@@ -266,6 +284,7 @@ pub fn main() !void {
         try Util.walk(&files, allocator, config, &counter, ignore_list.items);
 
         const owned_files = try files.toOwnedSlice(allocator);
+        defer allocator.free(owned_files);
 
         for (owned_files) |file| {
             try file.processFile(
@@ -276,6 +295,12 @@ pub fn main() !void {
                 verbose,
                 json,
             );
+        }
+
+        defer {
+            for (owned_files) |file| {
+                file.deinit(allocator);
+            }
         }
 
         if (json) {

@@ -31,11 +31,15 @@ pub const Configuration = struct {
         custom_path: ?[]const u8,
     ) !void {
         const path = try getXdgDir(allocator, XdgDir.Config);
+        defer allocator.free(path);
+
         const config = try std.fmt.allocPrint(
             allocator,
             "{s}/dfs.zon",
             .{path},
         );
+
+        defer allocator.free(config);
 
         try Util.createDirRecursively(allocator, path);
 
@@ -45,6 +49,7 @@ pub const Configuration = struct {
         );
 
         defer f.close();
+
         var writer = f.writer();
 
         _ = try std.zon.stringify.serialize(
@@ -59,6 +64,8 @@ pub const Configuration = struct {
 
 pub fn getXdgDir(allocator: std.mem.Allocator, env_var: XdgDir) ![]const u8 {
     const home = try std.process.getEnvVarOwned(allocator, "HOME");
+    defer allocator.free(home);
+
     const path = std.process.getEnvVarOwned(
         allocator,
         switch (env_var) {
