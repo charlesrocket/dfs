@@ -84,6 +84,7 @@ fn interpret(tokens: []Token, allocator: std.mem.Allocator) ![]u8 {
             },
         }
     }
+
     return out.toOwnedSlice();
 }
 
@@ -569,6 +570,63 @@ fn trimTrailingNewlines(s: []const u8) []const u8 {
     }
 
     return s[0..end];
+}
+
+test interpret {
+    const template_invalid =
+        \\FOO
+        \\{> else <}
+        \\val="HOST1"
+        \\{> end <}
+        \\
+    ;
+
+    const template =
+        \\FOO
+        \\{> if SYSTEM.hostname == somepc <}
+        \\val="HOST2"
+        \\{> else <}
+        \\val="HOST1"
+        \\{> end <}
+        \\
+    ;
+
+    const tokenized_invalid = try tokenize(template_invalid, std.testing.allocator);
+    defer std.testing.allocator.free(tokenized_invalid);
+
+    const interpreted_invalid = interpret(tokenized_invalid, std.testing.allocator);
+    try std.testing.expectError(error.InvalidTemplateGroup, interpreted_invalid);
+
+    const tokenized = try tokenize(template, std.testing.allocator);
+    defer std.testing.allocator.free(tokenized);
+
+    const interpreted = try interpret(tokenized, std.testing.allocator);
+    defer std.testing.allocator.free(interpreted);
+
+    try std.testing.expectEqualStrings("FOO\nval=\"HOST1\"\n", interpreted);
+}
+
+test tokenize {
+    const template_invalid =
+        \\FOO{> xx
+    ;
+
+    const failure = tokenize(template_invalid, std.testing.allocator);
+    try std.testing.expectError(error.InvalidTemplate, failure);
+
+    const template =
+        \\FOO{> if SYSTEM.hostname == somepc <}val="HOST2"{> else <}val="HOST1"{> end <}
+    ;
+
+    const tokenized = try tokenize(template, std.testing.allocator);
+    defer std.testing.allocator.free(tokenized);
+
+    try std.testing.expectEqualStrings("FOO", tokenized[0].text);
+    try std.testing.expectEqualStrings("if SYSTEM.hostname == somepc", tokenized[1].tag);
+    try std.testing.expectEqualStrings("val=\"HOST2\"", tokenized[2].text);
+    try std.testing.expectEqualStrings("else", tokenized[3].tag);
+    try std.testing.expectEqualStrings("val=\"HOST1\"", tokenized[4].text);
+    try std.testing.expectEqualStrings("end", tokenized[5].tag);
 }
 
 test applyTemplate {
