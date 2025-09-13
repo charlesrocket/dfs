@@ -76,7 +76,7 @@ fn interpret(tokens: []Token, allocator: std.mem.Allocator) ![]u8 {
                     i = try evalIfGroup(allocator, tokens, i, &w);
                 } else {
                     // outside of an if-group tags are not allowed
-                    return error.InvalidTemplate;
+                    return error.InvalidTemplateGroup;
                 }
             },
         }
@@ -101,9 +101,10 @@ fn countTrail(s: []const u8) usize {
 fn parseTag(template: []const u8, i: usize) !Tag {
     const start = i + 2;
     const rel_end = std.mem.indexOf(u8, template[start..], "<}") orelse
-        return error.InvalidTemplate;
+        return error.InvalidTemplateEndTag;
 
     const raw = template[start .. start + rel_end];
+
     return Tag{
         .raw = raw,
         .trim = trimTag(raw),
@@ -128,6 +129,7 @@ fn parseBody(template: []const u8, tpl_len: usize, start: usize) !Body {
             {
                 break;
             }
+
             i = t.after;
         } else i += 1;
     }
@@ -155,7 +157,7 @@ fn findAnchorLiteral(
         if (std.mem.startsWith(u8, template[scan..], "{>")) {
             const s2 = scan + 2;
             const e2 = std.mem.indexOf(u8, template[s2..], "<}") orelse
-                return error.InvalidTemplate;
+                return error.InvalidTemplateEndTag;
 
             const t2 = trimTag(template[s2 .. s2 + e2]);
 
@@ -273,7 +275,7 @@ fn evalIfGroup(
             // consume the 'end' tag and return index after it
             return i + 1;
         } else {
-            return error.InvalidTemplate;
+            return error.InvalidTemplateTag;
         }
 
         // check if there is a following text token
@@ -306,8 +308,9 @@ fn evalIfGroup(
         // check that i+inc does not overflow and that it is <= tokens.len
         if (inc > tokens.len - i) {
             // past end of the token stream
-            return error.InvalidTemplate;
+            return error.InvalidTemplateTag;
         }
+
         i += inc;
 
         // next token is `end`, consume it and return
@@ -324,17 +327,17 @@ fn evalIfGroup(
                     // according to our grammar, after a control+body we
                     // expect the next token to be another control tag or end
                     // (text tokens are invalid here)
-                    return error.InvalidTemplate;
+                    return error.InvalidTemplateTag;
                 },
             }
         } else {
             // reached end of tokens without an `end` tag
-            return error.InvalidTemplate;
+            return error.InvalidTemplateEndTag;
         }
     }
 
-    // missing end
-    return error.invalidTemplate;
+    // missing `end` tag
+    return error.invalidTemplateEndTag;
 }
 
 fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
@@ -480,7 +483,7 @@ pub fn reverseTemplate(
                 }
             } else {
                 // no non-if tags outside of the group
-                return error.InvalidTemplate;
+                return error.InvalidTemplateTag;
             }
         } else {
             // handle literal text between conditional groups
