@@ -60,10 +60,10 @@ fn init(
 }
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = arena.deinit();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
 
-    const allocator = arena.allocator();
+    const allocator = gpa.allocator();
     const stdout = std.io.getStdOut().writer();
 
     const main_cmd = try setup_cmd.init(allocator, .{});
@@ -129,11 +129,15 @@ pub fn main() !void {
     }
 
     const conf_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
+    defer allocator.free(conf_home);
+
     const config_default = try std.fmt.allocPrint(
         allocator,
         "{s}/dfs.zon",
         .{conf_home},
     );
+
+    defer allocator.free(config_default);
 
     const config_path = if (custom_config_path == null)
         config_default
@@ -160,6 +164,8 @@ pub fn main() !void {
         1024,
     );
 
+    defer allocator.free(config_content_t);
+
     var config_content = std.ArrayList(u8).init(allocator);
     defer config_content.deinit();
 
@@ -179,6 +185,14 @@ pub fn main() !void {
         null,
         .{},
     ) catch {
+        const example_config = try Config.Configuration.new(
+            allocator,
+            "/tmp/src/dotfiles",
+            "/tmp/test",
+        );
+
+        defer std.zon.parse.free(allocator, example_config);
+
         try stdout.print("{s}INVALID CONFIG{s}: {s}\n\n", .{
             cli.red,
             cli.reset,
@@ -187,11 +201,7 @@ pub fn main() !void {
 
         _ = try stdout.write("Example:\n\n");
         _ = try std.zon.stringify.serialize(
-            try Config.Configuration.new(
-                allocator,
-                "/tmp/src/dotfiles",
-                "/tmp/test",
-            ),
+            example_config,
             .{},
             stdout,
         );
@@ -199,6 +209,8 @@ pub fn main() !void {
         _ = try stdout.write("\n");
         std.process.exit(1);
     };
+
+    defer std.zon.parse.free(allocator, config);
 
     if (opts.get("destination")) |dest| {
         config.destination = try dest.val.getAs([]const u8);
@@ -266,6 +278,7 @@ pub fn main() !void {
         try Util.walk(&files, allocator, config, &counter, ignore_list.items);
 
         const owned_files = try files.toOwnedSlice(allocator);
+        defer allocator.free(owned_files);
 
         for (owned_files) |file| {
             try file.processFile(
@@ -276,6 +289,12 @@ pub fn main() !void {
                 verbose,
                 json,
             );
+        }
+
+        defer {
+            for (owned_files) |file| {
+                file.deinit(allocator);
+            }
         }
 
         if (json) {
