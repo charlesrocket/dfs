@@ -28,8 +28,10 @@ fn tokenize(template: []const u8, allocator: std.mem.Allocator) ![]Token {
     errdefer tokens.deinit();
 
     var i: usize = 0;
+
     while (i < template.len) {
         const start_tag = std.mem.indexOfPos(u8, template, i, "{>");
+
         if (start_tag == null) {
             try tokens.append(.{ .text = template[i..] });
             break;
@@ -62,9 +64,10 @@ fn tokenize(template: []const u8, allocator: std.mem.Allocator) ![]Token {
 fn interpret(tokens: []Token, allocator: std.mem.Allocator) ![]u8 {
     var out = std.ArrayList(u8).init(allocator);
     defer out.deinit();
-    var w = out.writer();
 
+    var w = out.writer();
     var i: usize = 0;
+
     while (i < tokens.len) {
         switch (tokens[i]) {
             .text => |t| {
@@ -88,6 +91,7 @@ fn indexOfTag(s: []const u8, start: usize) ?usize {
     if (std.mem.indexOf(u8, s[start..], "{>")) |pos| {
         return start + pos;
     }
+
     return null;
 }
 
@@ -115,6 +119,7 @@ fn parseTag(template: []const u8, i: usize) !Tag {
 fn parseBody(template: []const u8, tpl_len: usize, start: usize) !Body {
     var i = start;
     var depth: usize = 0;
+
     while (i < tpl_len) {
         if (std.mem.startsWith(u8, template[i..], "{>")) {
             const t = try parseTag(template, i);
@@ -153,6 +158,7 @@ fn findAnchorLiteral(
     var scan = body_end;
     var depth: usize = 0;
     var anchor_start: usize = tpl_len;
+
     while (scan < tpl_len) {
         if (std.mem.startsWith(u8, template[scan..], "{>")) {
             const s2 = scan + 2;
@@ -206,10 +212,12 @@ fn copyWithWhitespace(
     change: []const u8,
 ) !void {
     var lead: usize = 0;
+
     while (lead < body.len and (body[lead] == '\n' or
         body[lead] == '\r')) lead += 1;
 
     var trail: usize = 0;
+
     while (trail < body.len - lead and (body[body.len - 1 - trail] == '\n' or
         body[body.len - 1 - trail] == '\r')) trail += 1;
 
@@ -344,8 +352,8 @@ fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
     // split on any whitespace (handles multiple spaces/tabs)
     var parts: [3][]const u8 = undefined; // 3 parts: lhs, op, rhs
     var i: usize = 0;
-
     var iter = std.mem.splitAny(u8, cond, " \t");
+
     while (true) {
         const part = iter.next();
 
@@ -439,6 +447,7 @@ pub fn reverseTemplate(
 
                     // decide whether this branch is active
                     var active = false;
+
                     if (std.mem.startsWith(u8, group_tag.trim, "if ")) {
                         active = evalCondition(allocator, group_tag.trim[3..]) and
                             !branch_taken;
@@ -537,6 +546,7 @@ fn splitWhitespace(s: []const u8) struct { lead: usize, trail: usize } {
 
     // count trailing whitespace
     var j = s.len;
+
     while (j > lead and (s[j - 1] == ' ' or
         s[j - 1] == '\t')) : (j -= 1)
     {}
@@ -552,6 +562,7 @@ fn trimTag(tag: []const u8) []const u8 {
 
 fn trimTrailingNewlines(s: []const u8) []const u8 {
     var end = s.len;
+
     while (end > 0) : (end -= 1) {
         const c = s[end - 1];
         if (c != '\n' and c != '\r') break;
@@ -563,6 +574,7 @@ fn trimTrailingNewlines(s: []const u8) []const u8 {
 test applyTemplate {
     if (builtin.os.tag != .freebsd or
         builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -666,6 +678,7 @@ test reverseTemplate {
 
 test "forward (fbsd)" {
     if (builtin.os.tag != .freebsd) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -691,6 +704,7 @@ test "forward (fbsd)" {
 
 test "forward-inline (fbsd)" {
     if (builtin.os.tag != .freebsd) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -710,6 +724,7 @@ test "forward-inline (fbsd)" {
 
 test "forward (linux)" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -735,6 +750,7 @@ test "forward (linux)" {
 
 test "forward-inline (linux)" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -754,6 +770,7 @@ test "forward-inline (linux)" {
 
 test "back-template (fbsd)" {
     if (builtin.os.tag != .freebsd) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -790,6 +807,7 @@ test "back-template (fbsd)" {
 
 test "back-no_template (fbsd)" {
     if (builtin.os.tag != .freebsd) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -829,6 +847,7 @@ test "back-no_template (fbsd)" {
 
 test "back-template (linux)" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -865,6 +884,7 @@ test "back-template (linux)" {
 
 test "back-no_template (linux)" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -904,6 +924,7 @@ test "back-no_template (linux)" {
 
 test "mixed (fbsd)" {
     if (builtin.os.tag != .freebsd) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -943,6 +964,7 @@ test "mixed (fbsd)" {
 
 test "mixed (linux)" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -982,6 +1004,7 @@ test "mixed (linux)" {
 
 test "mixed-inlie (fbsd)" {
     if (builtin.os.tag != .freebsd) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
@@ -1009,6 +1032,7 @@ test "mixed-inlie (fbsd)" {
 
 test "mixed-inlie (linux)" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
     var gpa = std.testing.allocator;
 
     const template =
