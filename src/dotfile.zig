@@ -28,16 +28,12 @@ pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
 
 pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    var dest = self.dest;
     const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
     defer allocator.free(data_dir);
 
-    if (!std.mem.startsWith(u8, dest, "/"))
-        dest = try std.fmt.allocPrint(allocator, "/{s}", .{self.dest});
-
     const sync_dest = try std.fmt.bufPrint(&buf, "{s}{s}.zon", .{
         data_dir,
-        dest,
+        self.dest,
     });
 
     const index = std.mem.lastIndexOfScalar(u8, sync_dest, '/');
@@ -95,17 +91,13 @@ pub fn lastMod(self: @This(), file: File) ?u64 {
 pub fn processFile(
     self: @This(),
     allocator: std.mem.Allocator,
-    stdout: @TypeOf(std.io.getStdOut().writer()),
+    stdout: anytype,
     counter: *Util.Counter,
     dry_run: bool,
     verbose: bool,
     json: bool,
 ) !void {
     counter.total += 1;
-    var dest = self.dest;
-    if (!std.mem.startsWith(u8, dest, "/"))
-        dest = try std.fmt.allocPrint(allocator, "/{s}", .{self.dest});
-
     const template_file = std.fs.cwd().openFile(self.src, .{}) catch {
         counter.errors += 1;
         std.debug.print(
@@ -166,7 +158,7 @@ pub fn processFile(
     const meta_file_path = try std.fmt.allocPrint(
         allocator,
         "{s}{s}.zon",
-        .{ data_dir, dest },
+        .{ data_dir, self.dest },
     );
 
     defer allocator.free(meta_file_path);
@@ -371,6 +363,39 @@ pub fn processFile(
         counter.updated += 1;
         counter.render += 1;
     }
+}
+
+test processFile {
+    var dotfile = new("test/root/testfile1", "test/dest/testfile-unit");
+    var counter = Util.Counter.new(false);
+    var buff = std.ArrayList(u8).init(std.testing.allocator);
+    defer buff.deinit();
+
+    _ = try dotfile.processFile(
+        std.testing.allocator,
+        buff.writer(),
+        &counter,
+        false,
+        false,
+        false,
+    );
+
+    const file = try std.fs.cwd().openFile("test/dest/testfile-unit", .{});
+    const file_content = try file.readToEndAlloc(
+        std.testing.allocator,
+        1024,
+    );
+
+    defer std.testing.allocator.free(file_content);
+
+    const expected_content =
+        \\# TEST
+        \\Foo
+        \\val="Bar"
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected_content, file_content);
 }
 
 const std = @import("std");

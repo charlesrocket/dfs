@@ -322,6 +322,10 @@ pub fn main() !void {
     }
 }
 
+test {
+    _ = Dotfile;
+}
+
 const std = @import("std");
 const build_options = @import("build_options");
 
