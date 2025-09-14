@@ -103,6 +103,7 @@ pub fn build(b: *std.Build) void {
     const merge_step = b.addSystemCommand(&.{ "kcov", "--merge" });
     merge_step.addDirectoryArg(b.path("coverage"));
     merge_step.addDirectoryArg(b.path("kcov-unit"));
+    merge_step.addDirectoryArg(b.path("kcov-exe-unit"));
     merge_step.addDirectoryArg(b.path("kcov-int"));
 
     const kcov_unit = b.addSystemCommand(&.{ "kcov", "--include-path=src,test" });
