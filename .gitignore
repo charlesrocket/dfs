@@ -6,6 +6,8 @@
 /meta/
 /docs/
 
+/test/dest
+
 /coverage/
 /kcov-*
 
