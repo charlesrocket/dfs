@@ -15,8 +15,8 @@ synced: ?u64,
 
 pub fn new(src: []const u8, dest: []const u8) @This() {
     return .{
-        .dest = dest,
         .src = src,
+        .dest = dest,
         .synced = null,
     };
 }
@@ -31,7 +31,12 @@ pub fn metaFilePath(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
     defer allocator.free(data_dir);
 
     const dest = try Util.ensureLeadingSlash(allocator, self.dest);
-    defer allocator.free(dest);
+
+    defer {
+        if (!std.mem.eql(u8, dest, self.dest)) {
+            allocator.free(dest);
+        }
+    }
 
     return try std.fmt.allocPrint(
         allocator,
@@ -106,7 +111,10 @@ pub fn processFile(
     json: bool,
 ) !void {
     counter.total += 1;
-    const template_file = std.fs.cwd().openFile(self.src, .{}) catch {
+    const source_abs = try std.fs.realpathAlloc(allocator, self.src);
+    defer allocator.free(source_abs);
+
+    const template_file = std.fs.openFileAbsolute(source_abs, .{}) catch {
         counter.errors += 1;
         std.debug.print(
             "{s}Not found:{s} {s}\n",
@@ -248,7 +256,7 @@ pub fn processFile(
     const last_modified_rend = self.lastMod(File.Render) orelse 0;
 
     if ((last_sync < last_modified_rend) and
-        (last_modified_rend > last_modified_src))
+        (last_modified_rend > last_modified_src) and (meta_file != null))
     {
         const rendered_file = try std.fs.cwd().openFile(self.dest, .{});
         defer rendered_file.close();
@@ -329,16 +337,25 @@ pub fn processFile(
         defer allocator.free(result);
 
         if (!dry_run) {
-            const output_file = if (std.mem.startsWith(u8, self.dest, "/"))
-                try std.fs.createFileAbsolute(self.dest, .{
-                    .read = false,
-                    .truncate = true,
-                })
-            else
-                try std.fs.cwd().createFile(self.dest, .{
-                    .read = false,
-                    .truncate = true,
-                });
+            const dir_name = std.fs.path.dirname(self.dest) orelse
+                return error.InvalidPath;
+
+            const target_dir_abs = try std.fs.realpathAlloc(allocator, dir_name);
+            defer allocator.free(target_dir_abs);
+
+            try Util.createDirRecursively(allocator, dir_name);
+
+            const target_path = try std.fs.path.join(
+                allocator,
+                &.{ target_dir_abs, std.fs.path.basename(self.dest) },
+            );
+
+            defer allocator.free(target_path);
+
+            const output_file = try std.fs.createFileAbsolute(target_path, .{
+                .read = false,
+                .truncate = true,
+            });
 
             try output_file.writeAll(result);
             defer output_file.close();

@@ -220,26 +220,14 @@ pub fn main() !void {
         config.source = try src.val.getAs([]const u8);
     }
 
-    const real_source = try std.fs.path.resolve(
-        allocator,
-        &[_][]const u8{config.source},
-    );
+    const source_abs = try std.fs.realpathAlloc(allocator, config.source);
+    defer allocator.free(source_abs);
 
-    const real_destination = try std.fs.path.resolve(
-        allocator,
-        &[_][]const u8{config.destination},
-    );
+    const source_with_slash = try Util.ensureTrailingSlash(allocator, source_abs);
+    const dest_with_slash = try Util.ensureTrailingSlash(allocator, config.destination);
 
     defer {
-        allocator.free(real_source);
-        allocator.free(real_destination);
-    }
-
-    const source_with_slash = try Util.ensureTrailingSlash(allocator, real_source);
-    const dest_with_slash = try Util.ensureTrailingSlash(allocator, real_destination);
-
-    defer {
-        if (!std.mem.eql(u8, source_with_slash, config.source))
+        if (!std.mem.eql(u8, source_with_slash, source_abs))
             allocator.free(source_with_slash);
 
         if (!std.mem.eql(u8, dest_with_slash, config.destination))
@@ -285,14 +273,52 @@ pub fn main() !void {
 
         var counter = Util.Counter.new(dry_run);
         var files = std.ArrayListUnmanaged(Dotfile).empty;
-        defer files.deinit(allocator);
 
-        try Util.walk(&files, allocator, config, &counter, ignore_list.items);
+        defer {
+            for (files.items) |file| {
+                file.deinit(allocator);
+            }
 
-        const owned_files = try files.toOwnedSlice(allocator);
-        defer allocator.free(owned_files);
+            files.deinit(allocator);
+        }
 
-        for (owned_files) |file| {
+        var src_dir = try std.fs.openDirAbsolute(
+            source_with_slash,
+            .{ .iterate = true },
+        );
+
+        defer src_dir.close();
+
+        // get target files from the source directory
+        var walker = try src_dir.walk(allocator);
+        defer walker.deinit();
+
+        const ignore_items = ignore_list.items;
+
+        while (try walker.next()) |entry| {
+            if (Util.isIgnored(entry.basename, ignore_items)) continue;
+
+            switch (entry.kind) {
+                .file => {
+                    const src_path = try std.fs.path.join(
+                        allocator,
+                        &.{ source_abs, entry.path },
+                    );
+
+                    const dest_path = try std.fs.path.join(
+                        allocator,
+                        &.{ dest_with_slash, entry.path },
+                    );
+
+                    const file = Dotfile.new(src_path, dest_path);
+
+                    try files.append(allocator, file);
+                },
+                else => continue,
+            }
+        }
+
+        for (files.items) |file| {
             try file.processFile(
                 allocator,
                 stdout,
@@ -301,12 +327,6 @@ pub fn main() !void {
                 verbose,
                 json,
             );
-        }
-
-        defer {
-            for (owned_files) |file| {
-                file.deinit(allocator);
-            }
         }
 
         if (json) {
