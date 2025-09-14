@@ -306,7 +306,21 @@ pub fn processFile(
         counter.updated += 1;
         counter.template += 1;
     } else {
-        const result = try lib.applyTemplate(allocator, template_content);
+        const result = lib.applyTemplate(allocator, template_content) catch {
+            counter.errors += 1;
+
+            if (!json and (dry_run or verbose)) {
+                try stdout.print("{s}{s}ERROR | {s}{s}\n", .{
+                    cli.red,
+                    cli.bold,
+                    self.dest,
+                    cli.reset,
+                });
+            }
+
+            return;
+        };
+
         defer allocator.free(result);
 
         if (!dry_run) {

@@ -313,6 +313,12 @@ pub fn main() !void {
                 cli.reset,
             });
 
+            try stdout.print("ERRORS: {s}{d}{s}\n", .{
+                cli.underline,
+                counter.errors,
+                cli.reset,
+            });
+
             try stdout.print("{s}{s}DONE{s}\n", .{
                 cli.bold,
                 cli.green,

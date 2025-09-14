@@ -100,7 +100,8 @@ test "sync" {
         \\
         \\--- --- ---
         \\
-        \\PROCESSED FILES: 1
+        \\PROCESSED FILES: 2
+        \\ERRORS: 1
         \\DONE
         \\
     ;
