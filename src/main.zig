@@ -59,17 +59,6 @@ fn init(
     std.process.exit(0);
 }
 
-fn ensureTrailingSlash(
-    allocator: std.mem.Allocator,
-    path: []const u8,
-) ![]const u8 {
-    if (std.mem.endsWith(u8, path, "/")) {
-        return path;
-    }
-
-    return try std.fmt.allocPrint(allocator, "{s}/", .{path});
-}
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -231,14 +220,31 @@ pub fn main() !void {
         config.source = try src.val.getAs([]const u8);
     }
 
-    const source_with_slash = try ensureTrailingSlash(allocator, config.source);
-    const dest_with_slash = try ensureTrailingSlash(allocator, config.destination);
+    const real_source = try std.fs.path.resolve(
+        allocator,
+        &[_][]const u8{config.source},
+    );
 
-    defer if (!std.mem.eql(u8, source_with_slash, config.source))
-        allocator.free(source_with_slash);
+    const real_destination = try std.fs.path.resolve(
+        allocator,
+        &[_][]const u8{config.destination},
+    );
 
-    defer if (!std.mem.eql(u8, dest_with_slash, config.destination))
-        allocator.free(dest_with_slash);
+    defer {
+        allocator.free(real_source);
+        allocator.free(real_destination);
+    }
+
+    const source_with_slash = try Util.ensureTrailingSlash(allocator, real_source);
+    const dest_with_slash = try Util.ensureTrailingSlash(allocator, real_destination);
+
+    defer {
+        if (!std.mem.eql(u8, source_with_slash, config.source))
+            allocator.free(source_with_slash);
+
+        if (!std.mem.eql(u8, dest_with_slash, config.destination))
+            allocator.free(dest_with_slash);
+    }
 
     if (main_cmd.matchSubCmd("sync")) |sync_cmd| {
         var ignore_list = std.ArrayList([]const u8).init(allocator);

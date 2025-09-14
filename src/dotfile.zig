@@ -26,15 +26,23 @@ pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
     allocator.free(self.dest);
 }
 
-pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+pub fn metaFilePath(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
     const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
     defer allocator.free(data_dir);
 
-    const sync_dest = try std.fmt.bufPrint(&buf, "{s}{s}.zon", .{
-        data_dir,
-        self.dest,
-    });
+    const dest = try Util.ensureLeadingSlash(allocator, self.dest);
+    defer allocator.free(dest);
+
+    return try std.fmt.allocPrint(
+        allocator,
+        "{s}{s}.zon",
+        .{ data_dir, dest },
+    );
+}
+
+pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
+    const sync_dest = try self.metaFilePath(allocator);
+    defer allocator.free(sync_dest);
 
     const index = std.mem.lastIndexOfScalar(u8, sync_dest, '/');
     const sync_dir = sync_dest[0 .. index.? + 1];
@@ -152,15 +160,11 @@ pub fn processFile(
     }
 
     var last_sync: usize = 0;
+
     const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
     defer allocator.free(data_dir);
 
-    const meta_file_path = try std.fmt.allocPrint(
-        allocator,
-        "{s}{s}.zon",
-        .{ data_dir, self.dest },
-    );
-
+    const meta_file_path = try self.metaFilePath(allocator);
     defer allocator.free(meta_file_path);
 
     const dir_path = std.fs.path.dirname(self.dest) orelse
@@ -308,6 +312,7 @@ pub fn processFile(
     } else {
         const result = lib.applyTemplate(allocator, template_content) catch {
             counter.errors += 1;
+            try self.recordLastSync(allocator);
 
             if (!json and (dry_run or verbose)) {
                 try stdout.print("{s}{s}ERROR | {s}{s}\n", .{
@@ -410,6 +415,15 @@ test processFile {
     ;
 
     try std.testing.expectEqualStrings(expected_content, file_content);
+
+    _ = try dotfile.processFile(
+        std.testing.allocator,
+        buff.writer(),
+        &counter,
+        false,
+        false,
+        false,
+    );
 }
 
 const std = @import("std");
