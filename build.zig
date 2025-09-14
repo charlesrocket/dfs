@@ -71,23 +71,20 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    const test_options = b.addOptions();
+    test_options.addOptionPath("exe_path", exe.getEmittedBin());
+
     const lib_unit_tests = b.addTest(.{
         .root_module = lib_mod,
     });
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+
     const exe_unit_tests = b.addTest(.{
         .root_module = exe_mod,
     });
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-
-    const test_step = b.step("test", "Run all tests");
-    test_step.dependOn(&run_lib_unit_tests.step);
-    test_step.dependOn(&run_exe_unit_tests.step);
-
-    const test_options = b.addOptions();
-    test_options.addOptionPath("exe_path", exe.getEmittedBin());
 
     const integration_tests = b.addTest(.{
         .root_source_file = b.path("test/cli.zig"),
@@ -95,22 +92,33 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const run_integration_tests = b.addRunArtifact(integration_tests);
     integration_tests.root_module.addOptions("build_options", test_options);
-    test_step.dependOn(&b.addRunArtifact(integration_tests).step);
+
+    const test_step = b.step("test", "Run all tests");
+    test_step.dependOn(&run_lib_unit_tests.step);
+    test_step.dependOn(&run_exe_unit_tests.step);
+    test_step.dependOn(&run_integration_tests.step);
 
     const merge_step = b.addSystemCommand(&.{ "kcov", "--merge" });
     merge_step.addDirectoryArg(b.path("coverage"));
     merge_step.addDirectoryArg(b.path("kcov-unit"));
     merge_step.addDirectoryArg(b.path("kcov-int"));
 
-    const kcov_unit = b.addSystemCommand(&.{ "kcov", "--include-path=src" });
+    const kcov_unit = b.addSystemCommand(&.{ "kcov", "--include-path=src,test" });
     kcov_unit.addDirectoryArg(b.path("kcov-unit"));
     kcov_unit.addArtifactArg(lib_unit_tests);
     merge_step.step.dependOn(&kcov_unit.step);
 
-    const kcov_int = b.addSystemCommand(&.{ "kcov", "--include-path=src" });
+    const kcov_exe_unit = b.addSystemCommand(&.{ "kcov", "--include-path=src,test" });
+    kcov_exe_unit.addDirectoryArg(b.path("kcov-exe-unit"));
+    kcov_exe_unit.addArtifactArg(exe_unit_tests);
+    merge_step.step.dependOn(&kcov_exe_unit.step);
+
+    const kcov_int = b.addSystemCommand(&.{ "kcov", "--include-path=src,test" });
     kcov_int.addDirectoryArg(b.path("kcov-int"));
     kcov_int.addArtifactArg(integration_tests);
+
     merge_step.step.dependOn(&kcov_int.step);
 
     const coverage_step = b.step("coverage", "Generate test coverage (kcov)");
