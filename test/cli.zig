@@ -100,6 +100,7 @@ test "sync" {
         \\
         \\--- --- ---
         \\
+        \\ERROR | test/dest/testfile-invalid
         \\PROCESSED FILES: 2
         \\ERRORS: 1
         \\DONE
