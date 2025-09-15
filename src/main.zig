@@ -65,6 +65,7 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
     const stdout = std.io.getStdOut().writer();
+    const stderr = std.io.getStdErr().writer();
 
     const main_cmd = try setup_cmd.init(allocator, .{});
     defer main_cmd.deinit();
@@ -193,20 +194,20 @@ pub fn main() !void {
 
         defer std.zon.parse.free(allocator, example_config);
 
-        try stdout.print("{s}INVALID CONFIG{s}: {s}\n\n", .{
+        try stderr.print("{s}INVALID CONFIG{s}: {s}\n\n", .{
             cli.red,
             cli.reset,
             config_path,
         });
 
-        _ = try stdout.write("Example:\n\n");
+        _ = try stderr.write("Example:\n\n");
         _ = try std.zon.stringify.serialize(
             example_config,
             .{},
-            stdout,
+            stderr,
         );
 
-        _ = try stdout.write("\n");
+        _ = try stderr.write("\n");
         std.process.exit(1);
     };
 
