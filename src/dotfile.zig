@@ -448,6 +448,8 @@ test processFile {
         false,
         false,
     );
+
+    try std.fs.cwd().deleteTree("test/dest2");
 }
 
 const std = @import("std");

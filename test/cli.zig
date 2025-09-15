@@ -4,8 +4,8 @@ const Proc = struct {
     err: []u8,
 };
 
-fn runner(args: [4][]const u8) !Proc {
-    var proc = std.process.Child.init(&args, allocator);
+fn runner(args: []const []const u8) !Proc {
+    var proc = std.process.Child.init(args, allocator);
 
     proc.stdout_behavior = .Pipe;
     proc.stderr_behavior = .Pipe;
@@ -71,6 +71,43 @@ fn stripAnsi(alloc: std.mem.Allocator, input: []const u8) ![]u8 {
 }
 
 test "sync" {
+    const argv = [3][]const u8{
+        exe_path,
+        "-c=test/conf.zon",
+        "sync",
+    };
+
+    const proc = try runner(&argv);
+
+    const expected_conf =
+        \\____________ _____
+        \\|  _  \  ___/  ___|
+        \\| | | | |_  \ `--.
+        \\| | | |  _|  `--. \
+        \\| |/ /| |   /\__/ /
+        \\|___/ \_|   \____/
+        \\
+        \\SYNC STARTED
+        \\PROCESSED FILES: 2
+        \\ERRORS: 1
+        \\DONE
+        \\
+    ;
+
+    const out = try stripAnsi(allocator, proc.out);
+    defer {
+        allocator.free(out);
+        allocator.free(proc.out);
+        allocator.free(proc.err);
+    }
+
+    try std.fs.cwd().deleteTree("test/dest");
+
+    try std.testing.expectEqualStrings(expected_conf, out);
+    try std.testing.expectEqual(proc.term.Exited, 0);
+}
+
+test "sync-dry" {
     const argv = [4][]const u8{
         exe_path,
         "-c=test/conf.zon",
@@ -78,7 +115,7 @@ test "sync" {
         "--dry",
     };
 
-    const proc = try runner(argv);
+    const proc = try runner(&argv);
 
     const expected_conf =
         \\____________ _____
@@ -113,6 +150,8 @@ test "sync" {
         allocator.free(proc.out);
         allocator.free(proc.err);
     }
+
+    try std.fs.cwd().deleteTree("test/dest");
 
     try std.testing.expectEqualStrings(expected_conf, out);
     try std.testing.expectEqual(proc.term.Exited, 0);
