@@ -220,6 +220,16 @@ pub fn main() !void {
         config.source = try src.val.getAs([]const u8);
     }
 
+    errdefer {
+        stdout.print("{s}Source not found:{s} {s}\n", .{
+            cli.red,
+            cli.reset,
+            config.source,
+        }) catch unreachable;
+
+        std.process.exit(1);
+    }
+
     const source_abs = try std.fs.realpathAlloc(allocator, config.source);
     defer allocator.free(source_abs);
 

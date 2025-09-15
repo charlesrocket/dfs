@@ -124,8 +124,8 @@ pub fn processFile(
     const template_file = std.fs.openFileAbsolute(source_abs, .{}) catch {
         counter.errors += 1;
         std.debug.print(
-            "{s}Not found:{s} {s}\n",
-            .{ cli.red, cli.reset, self.src },
+            "{s}{s}ERROR | Not found:{s} {s}\n",
+            .{ cli.red, cli.bold, cli.reset, self.src },
         );
 
         return;
@@ -249,8 +249,8 @@ pub fn processFile(
             counter.errors += 1;
 
             return std.debug.print(
-                "{s}ERROR | Failed to parse ZON file:{s} {s}\n",
-                .{ cli.red, cli.reset, meta_file_path },
+                "{s}{s}ERROR | Failed to parse ZON file:{s} {s}\n",
+                .{ cli.red, cli.bold, cli.reset, meta_file_path },
             );
         };
 
