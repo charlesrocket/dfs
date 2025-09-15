@@ -157,6 +157,61 @@ test "sync-dry" {
     try std.testing.expectEqual(proc.term.Exited, 0);
 }
 
+test "config bad" {
+    const argv = [3][]const u8{
+        exe_path,
+        "-c=test/conf-bad.zon",
+        "sync",
+    };
+
+    const proc = try runner(&argv);
+
+    const expected_err =
+        \\Example:
+        \\
+        \\.{
+        \\    .source = "/tmp/src/dotfiles",
+        \\    .destination = "/tmp/test",
+        \\    .ignore_list = .{},
+        \\}
+        \\
+    ;
+
+    const out = try stripAnsi(allocator, proc.out);
+    defer {
+        allocator.free(out);
+        allocator.free(proc.out);
+        allocator.free(proc.err);
+    }
+
+    try std.testing.expectStringEndsWith(proc.err, expected_err);
+    try std.testing.expectEqual(proc.term.Exited, 1);
+}
+
+test "config not found" {
+    const argv = [3][]const u8{
+        exe_path,
+        "-c=test/foo.zon",
+        "sync",
+    };
+
+    const proc = try runner(&argv);
+
+    const expected_err =
+        \\Run `dfs init`.
+    ;
+
+    const out = try stripAnsi(allocator, proc.out);
+    defer {
+        allocator.free(out);
+        allocator.free(proc.out);
+        allocator.free(proc.err);
+    }
+
+    try std.testing.expectStringEndsWith(proc.err, expected_err);
+    try std.testing.expectEqual(proc.term.Exited, 1);
+}
+
 const std = @import("std");
 const allocator = std.testing.allocator;
 
