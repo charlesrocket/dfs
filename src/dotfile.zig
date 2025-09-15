@@ -82,15 +82,22 @@ pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
     );
 }
 
-pub fn lastMod(self: @This(), file: File) ?u64 {
+pub fn lastMod(
+    self: @This(),
+    allocator: std.mem.Allocator,
+    file: File,
+) ?u64 {
     const target = switch (file) {
         .Template => self.src,
         .Render => self.dest,
     };
 
-    const path = std.fs.path.dirname(target);
-    const dir = std.fs.cwd().openDir(path.?, .{}) catch return null;
-    const stat = dir.statFile(target) catch return null;
+    const abs = std.fs.realpathAlloc(allocator, target) catch return 0;
+    defer allocator.free(abs);
+
+    const path = std.fs.path.dirname(abs);
+    const dir = std.fs.openDirAbsolute(path.?, .{}) catch unreachable;
+    const stat = dir.statFile(abs) catch unreachable;
 
     // compress the integer
     const result = @divFloor(
@@ -252,11 +259,11 @@ pub fn processFile(
         last_sync = @intCast(meta.synced);
     }
 
-    const last_modified_src = self.lastMod(File.Template) orelse 0;
-    const last_modified_rend = self.lastMod(File.Render) orelse 0;
+    const last_modified_src = self.lastMod(allocator, File.Template) orelse 0;
+    const last_modified_rend = self.lastMod(allocator, File.Render) orelse 0;
 
     if ((last_sync < last_modified_rend) and
-        (last_modified_rend > last_modified_src) and (meta_file != null))
+        (last_modified_rend > last_modified_src))
     {
         const rendered_file = try std.fs.cwd().openFile(self.dest, .{});
         defer rendered_file.close();
@@ -402,7 +409,7 @@ pub fn processFile(
 }
 
 test processFile {
-    var dotfile = new("test/root/testfile1", "test/dest/testfile-unit");
+    var dotfile = new("test/root/testfile1", "test/dest2/testfile-unit");
     var counter = Util.Counter.new(false);
     var buff = std.ArrayList(u8).init(std.testing.allocator);
     defer buff.deinit();
@@ -416,7 +423,7 @@ test processFile {
         false,
     );
 
-    const file = try std.fs.cwd().openFile("test/dest/testfile-unit", .{});
+    const file = try std.fs.cwd().openFile("test/dest2/testfile-unit", .{});
     const file_content = try file.readToEndAlloc(
         std.testing.allocator,
         1024,
