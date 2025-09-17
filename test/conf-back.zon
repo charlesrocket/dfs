@@ -1,0 +1,5 @@
+.{
+    .source = "test/root-back",
+    .destination = "test/dest-back",
+    .ignore_list = .{},
+}

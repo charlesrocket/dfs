@@ -95,6 +95,7 @@ test "sync" {
     ;
 
     const out = try stripAnsi(allocator, proc.out);
+
     defer {
         allocator.free(out);
         allocator.free(proc.out);
@@ -145,6 +146,7 @@ test "sync-dry" {
     ;
 
     const out = try stripAnsi(allocator, proc.out);
+
     defer {
         allocator.free(out);
         allocator.free(proc.out);
@@ -155,6 +157,88 @@ test "sync-dry" {
 
     try std.testing.expectEqualStrings(expected_conf, out);
     try std.testing.expectEqual(proc.term.Exited, 0);
+}
+
+test "sync-back" {
+    const argv = [3][]const u8{
+        exe_path,
+        "-c=test/conf-back.zon",
+        "sync",
+    };
+
+    const orig_template =
+        \\# TEST
+        \\Foo
+        \\{> if SYSTEM.os == unsupported <}
+        \\val="Zoot"
+        \\{> else <}
+        \\val="Bar"
+        \\{> end <}
+        \\
+    ;
+
+    try std.fs.cwd().makeDir("test/root-back");
+
+    const orig = try std.fs.cwd().createFile(
+        "test/root-back/testfile1",
+        .{ .read = true },
+    );
+
+    try orig.writeAll(orig_template);
+    orig.close();
+
+    const proc1 = try runner(&argv);
+
+    std.time.sleep(1000000000);
+
+    const file = try std.fs.cwd().createFile(
+        "test/dest-back/testfile1",
+        .{ .read = true, .truncate = true },
+    );
+
+    try file.writeAll(
+        \\# TEST
+        \\Foo
+        \\val="TEST"
+        \\
+    );
+
+    file.close();
+
+    const proc2 = try runner(&argv);
+
+    const expected_template =
+        \\# TEST
+        \\Foo
+        \\{> if SYSTEM.os == unsupported <}
+        \\val="Zoot"
+        \\{> else <}
+        \\val="TEST"
+        \\{> end <}
+        \\
+    ;
+
+    const template = try std.fs.cwd().openFile("test/root-back/testfile1", .{});
+    const template_content = try template.readToEndAlloc(
+        std.testing.allocator,
+        1024,
+    );
+
+    defer std.testing.allocator.free(template_content);
+
+    defer {
+        allocator.free(proc1.out);
+        allocator.free(proc1.err);
+        allocator.free(proc2.out);
+        allocator.free(proc2.err);
+    }
+
+    defer std.fs.cwd().deleteTree("test/dest-back") catch unreachable;
+    defer std.fs.cwd().deleteTree("test/root-back") catch unreachable;
+
+    try std.testing.expectEqualStrings(expected_template, template_content);
+    try std.testing.expectEqual(proc1.term.Exited, 0);
+    try std.testing.expectEqual(proc2.term.Exited, 0);
 }
 
 test "config bad" {
