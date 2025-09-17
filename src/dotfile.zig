@@ -157,10 +157,21 @@ pub fn processFile(
 
             try Util.createDirRecursively(allocator, dir_path);
 
-            const dest_file = try std.fs.createFileAbsolute(self.dest, .{
+            const dir_path_abs = try std.fs.realpathAlloc(allocator, dir_path);
+            defer allocator.free(dir_path_abs);
+
+            const target_path = try std.fs.path.join(
+                allocator,
+                &.{ dir_path_abs, std.fs.path.basename(self.dest) },
+            );
+
+            defer allocator.free(target_path);
+
+            const dest_file = try std.fs.createFileAbsolute(target_path, .{
                 .read = false,
                 .truncate = true,
             });
+
             defer dest_file.close();
 
             try dest_file.writeAll(template_content);
@@ -169,6 +180,7 @@ pub fn processFile(
 
         counter.updated += 1;
         counter.binary += 1;
+
         return;
     }
 

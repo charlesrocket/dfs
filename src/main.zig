@@ -221,20 +221,10 @@ pub fn main() !void {
         config.source = try src.val.getAs([]const u8);
     }
 
-    errdefer {
-        stdout.print("{s}Source not found:{s} {s}\n", .{
-            cli.red,
-            cli.reset,
-            config.source,
-        }) catch unreachable;
-
-        std.process.exit(1);
-    }
-
     const source_abs = try std.fs.realpathAlloc(allocator, config.source);
     defer allocator.free(source_abs);
 
-    const source_with_slash = try Util.ensureTrailingSlash(allocator, source_abs);
+    const source_with_slash = try Util.ensureTrailingSlash(allocator, config.source);
     const dest_with_slash = try Util.ensureTrailingSlash(allocator, config.destination);
 
     defer {
@@ -294,7 +284,7 @@ pub fn main() !void {
         }
 
         var src_dir = try std.fs.openDirAbsolute(
-            source_with_slash,
+            source_abs,
             .{ .iterate = true },
         );
 
@@ -313,7 +303,7 @@ pub fn main() !void {
                 .file => {
                     const src_path = try std.fs.path.join(
                         allocator,
-                        &.{ source_abs, entry.path },
+                        &.{ source_with_slash, entry.path },
                     );
 
                     const dest_path = try std.fs.path.join(
