@@ -88,7 +88,7 @@ test "sync" {
         \\|___/ \_|   \____/
         \\
         \\SYNC STARTED
-        \\PROCESSED FILES: 2
+        \\PROCESSED FILES: 3
         \\ERRORS: 1
         \\DONE
         \\
@@ -139,7 +139,8 @@ test "sync-dry" {
         \\--- --- ---
         \\
         \\ERROR | test/dest/testfile-invalid
-        \\PROCESSED FILES: 2
+        \\FILE | test/root/test.png >>> test/dest/test.png
+        \\PROCESSED FILES: 3
         \\ERRORS: 1
         \\DONE
         \\
