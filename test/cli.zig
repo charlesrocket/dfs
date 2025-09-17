@@ -79,7 +79,7 @@ test "sync" {
 
     const proc = try runner(&argv);
 
-    const expected_conf =
+    const expected =
         \\____________ _____
         \\|  _  \  ___/  ___|
         \\| | | | |_  \ `--.
@@ -104,21 +104,42 @@ test "sync" {
 
     try std.fs.cwd().deleteTree("test/dest");
 
-    try std.testing.expectEqualStrings(expected_conf, out);
+    try std.testing.expectEqualStrings(expected, out);
     try std.testing.expectEqual(proc.term.Exited, 0);
 }
 
 test "sync-dry" {
     const argv = [4][]const u8{
         exe_path,
-        "-c=test/conf.zon",
+        "-c=test/conf-dry.zon",
         "sync",
         "--dry",
     };
 
+    const template =
+        \\# TEST
+        \\Foo
+        \\{> if SYSTEM.os == unsupported <}
+        \\val="Zoot"
+        \\{> else <}
+        \\val="Dry"
+        \\{> end <}
+        \\
+    ;
+
+    try std.fs.cwd().makeDir("test/root-dry");
+
+    const orig = try std.fs.cwd().createFile(
+        "test/root-dry/testfile1",
+        .{ .read = true },
+    );
+
+    try orig.writeAll(template);
+    orig.close();
+
     const proc = try runner(&argv);
 
-    const expected_conf =
+    const expected =
         \\____________ _____
         \\|  _  \  ___/  ___|
         \\| | | | |_  \ `--.
@@ -129,19 +150,17 @@ test "sync-dry" {
         \\SYNC STARTED
         \\DRY RUN
         \\
-        \\FILE | test/dest/testfile1
+        \\FILE | test/dest-dry/testfile1
         \\DATA | render:
         \\
         \\# TEST
         \\Foo
-        \\val="Bar"
+        \\val="Dry"
         \\
         \\--- --- ---
         \\
-        \\ERROR | test/dest/testfile-invalid
-        \\FILE | test/root/test.png >>> test/dest/test.png
-        \\PROCESSED FILES: 3
-        \\ERRORS: 1
+        \\PROCESSED FILES: 1
+        \\ERRORS: 0
         \\DONE
         \\
     ;
@@ -154,9 +173,10 @@ test "sync-dry" {
         allocator.free(proc.err);
     }
 
-    try std.fs.cwd().deleteTree("test/dest");
+    try std.fs.cwd().deleteTree("test/dest-dry");
+    try std.fs.cwd().deleteTree("test/root-dry");
 
-    try std.testing.expectEqualStrings(expected_conf, out);
+    try std.testing.expectEqualStrings(expected, out);
     try std.testing.expectEqual(proc.term.Exited, 0);
 }
 

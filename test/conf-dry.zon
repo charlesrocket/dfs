@@ -1,0 +1,5 @@
+.{
+    .source = "test/root-dry",
+    .destination = "test/dest-dry",
+    .ignore_list = .{},
+}
