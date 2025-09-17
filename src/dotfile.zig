@@ -95,9 +95,7 @@ pub fn lastMod(
     const abs = std.fs.realpathAlloc(allocator, target) catch return 0;
     defer allocator.free(abs);
 
-    const path = std.fs.path.dirname(abs);
-    const dir = std.fs.openDirAbsolute(path.?, .{}) catch unreachable;
-    const stat = dir.statFile(abs) catch unreachable;
+    const stat = std.fs.cwd().statFile(abs) catch unreachable;
 
     // compress the integer
     const result = @divFloor(
