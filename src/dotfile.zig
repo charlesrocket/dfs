@@ -429,6 +429,8 @@ test processFile {
         1024,
     );
 
+    file.close();
+
     defer std.testing.allocator.free(file_content);
 
     const expected_content =
