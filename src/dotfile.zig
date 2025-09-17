@@ -286,7 +286,7 @@ pub fn processFile(
 
         if (!dry_run) {
             const updated_template = try std.fs.createFileAbsolute(
-                self.src,
+                source_abs,
                 .{
                     .read = false,
                     .truncate = true,
