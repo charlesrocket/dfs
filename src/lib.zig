@@ -705,6 +705,40 @@ test parseBody {
     try testing.expectEqualStrings("content for if\n", body_else.slice);
 }
 
+test findAnchorLiteral {
+    const template =
+        \\{> if SYSTEM.os == foo <}
+        \\content
+        \\{> end <}
+        \\anchor text here
+        \\{> if SYSTEM.arch == bar <}
+    ;
+
+    const anchor = try findAnchorLiteral(template, 10);
+    try testing.expectEqualStrings("\nanchor text here\n", anchor);
+
+    const template_nested =
+        \\{> if outer == true <}
+        \\{> if inner == true <}
+        \\inner content
+        \\{> end <}
+        \\{> end <}
+        \\final anchor
+    ;
+
+    const anchor_nested = try findAnchorLiteral(template_nested, 14);
+    try testing.expectEqualStrings("\nfinal anchor", anchor_nested);
+
+    const template_noanchor =
+        \\{> if SYSTEM.os == zoot <}
+        \\content
+        \\{> end <}
+    ;
+
+    const anchor_without = try findAnchorLiteral(template_noanchor, 27);
+    try testing.expectEqualStrings("", anchor_without);
+}
+
 test extractChangeChunk {
     const rendered = "prefix changed content suffix unchanged";
     const anchor_lit = " suffix unchanged";
