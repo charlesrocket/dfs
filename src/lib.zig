@@ -121,7 +121,8 @@ fn parseTag(template: []const u8, i: usize) !Tag {
     };
 }
 
-fn parseBody(template: []const u8, tpl_len: usize, start: usize) !Body {
+fn parseBody(template: []const u8, start: usize) !Body {
+    const tpl_len = template.len;
     var i = start;
     var depth: usize = 0;
 
@@ -157,9 +158,9 @@ fn nextTag(template: []const u8, start: usize) ?usize {
 
 fn findAnchorLiteral(
     template: []const u8,
-    tpl_len: usize,
     body_end: usize,
 ) ![]const u8 {
+    const tpl_len = template.len;
     var scan = body_end;
     var depth: usize = 0;
     var anchor_start: usize = tpl_len;
@@ -196,11 +197,10 @@ fn findAnchorLiteral(
 
 fn extractChangeChunk(
     rendered: []const u8,
-    rnd_len: usize,
     rnd_i: usize,
     anchor_lit: []const u8,
 ) Chunk {
-    var change_end = rnd_len;
+    var change_end = rendered.len;
 
     if (anchor_lit.len > 0) {
         if (std.mem.indexOf(u8, rendered[rnd_i..], anchor_lit)) |pos| {
@@ -448,7 +448,7 @@ pub fn reverseTemplate(
                     }
 
                     // parse the body for this branch
-                    const body = try parseBody(template, tpl_len, group_tpl_i);
+                    const body = try parseBody(template, group_tpl_i);
 
                     // decide whether this branch is active
                     var active = false;
@@ -470,13 +470,11 @@ pub fn reverseTemplate(
                         // extract changed render content for the active branch
                         const anchor_lit = try findAnchorLiteral(
                             template,
-                            tpl_len,
                             body.after,
                         );
 
                         const change_chunk = extractChangeChunk(
                             render,
-                            rnd_len,
                             rnd_i,
                             anchor_lit,
                         );
@@ -662,7 +660,7 @@ test parseBody {
         \\{> end <}
     ;
 
-    const body = try parseBody(template, template.len, 0);
+    const body = try parseBody(template, 0);
 
     try testing.expectEqualStrings("content content content\n", body.slice);
     try testing.expectEqual(@as(usize, 24), body.after);
@@ -675,7 +673,7 @@ test parseBody {
         \\more outer
         \\{> end <}
     ;
-    const body_nested = try parseBody(template_nested, template_nested.len, 0);
+    const body_nested = try parseBody(template_nested, 0);
 
     const expected =
         \\outer content
@@ -693,7 +691,7 @@ test parseBody {
         \\{> elif SYSTEM.arch == arm64 <}
         \\content for elif
     ;
-    const body_if = try parseBody(template_if, template_if.len, 0);
+    const body_if = try parseBody(template_if, 0);
 
     try testing.expectEqualStrings("content for if\n", body_if.slice);
 
@@ -702,10 +700,11 @@ test parseBody {
         \\{> else <}
         \\content for else
     ;
-    const body_else = try parseBody(template_else, template_else.len, 0);
+    const body_else = try parseBody(template_else, 0);
 
     try testing.expectEqualStrings("content for if\n", body_else.slice);
 }
+
 test splitWhitespace {
     const result1 = splitWhitespace("  zoot  ");
     try testing.expectEqual(@as(usize, 2), result1.lead);
