@@ -818,6 +818,31 @@ test indexOfTag {
     try testing.expectEqual(@as(?usize, null), indexOfTag(template, 25));
 }
 
+test normalizeTrailing {
+    const result_add = try testing.allocator.dupe(u8, "content");
+    const template_add = "template\n\r";
+    const normalized_add = try normalizeTrailing(testing.allocator, result_add, template_add);
+    defer testing.allocator.free(normalized_add);
+
+    try testing.expectEqualStrings("content\n\r", normalized_add);
+
+    const result_remove = try testing.allocator.dupe(u8, "content\n\r\n");
+    const template_remove = "template";
+    const normalized_remove = try normalizeTrailing(testing.allocator, result_remove, template_remove);
+    defer testing.allocator.free(normalized_remove);
+
+    try testing.expectEqualStrings("content", normalized_remove);
+
+    const result_none = try testing.allocator.dupe(u8, "content\n");
+    const template_none = "template\n";
+    const normalized_none = try normalizeTrailing(testing.allocator, result_none, template_none);
+    defer testing.allocator.free(normalized_none);
+
+    // same slice
+    try testing.expect(normalized_none.ptr == result_none.ptr);
+    try testing.expectEqualStrings("content\n", normalized_none);
+}
+
 test trimTag {
     try testing.expectEqualStrings("test", trimTag("  test  "));
     try testing.expectEqualStrings("if SYSTEM.os == netbsd", trimTag("\n\r if SYSTEM.os == netbsd \t\n"));
