@@ -1288,6 +1288,74 @@ test "blocks (linux)" {
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
+test "blocks-mixed (fbsd)" {
+    if (builtin.os.tag != .freebsd or
+        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+
+    var gpa = std.testing.allocator;
+
+    const template =
+        \\FOO
+        \\val="{> if SYSTEM.os == freebsd <}Inline{> else <}Bar{> end <}"
+        \\{> if SYSTEM.arch == x86_64 <}
+        \\val="test0"
+        \\{> else <}
+        \\val="test1"
+        \\{> end <}
+        \\
+        \\val="{> if SYSTEM.hostname == not_my_machine <}HOST2{> else <}HOST1{> end <}"
+        \\
+    ;
+
+    const render = try applyTemplate(gpa, template);
+    defer gpa.free(render);
+
+    const expected =
+        \\FOO
+        \\val="Inline"
+        \\val="test0"
+        \\
+        \\val="HOST1"
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(render, expected);
+}
+
+test "blocks-mixed (linux)" {
+    if (builtin.os.tag != .linux or
+        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+
+    var gpa = std.testing.allocator;
+
+    const template =
+        \\FOO
+        \\val="{> if SYSTEM.os == linux <}Inline{> else <}Bar{> end <}"
+        \\{> if SYSTEM.arch == x86_64 <}
+        \\val="test0"
+        \\{> else <}
+        \\val="test1"
+        \\{> end <}
+        \\
+        \\val="{> if SYSTEM.hostname == not_my_machine <}HOST2{> else <}HOST1{> end <}"
+        \\
+    ;
+
+    const render = try applyTemplate(gpa, template);
+    defer gpa.free(render);
+
+    const expected =
+        \\FOO
+        \\val="Inline"
+        \\val="test0"
+        \\
+        \\val="HOST1"
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(render, expected);
+}
+
 const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
