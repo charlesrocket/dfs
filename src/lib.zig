@@ -705,6 +705,32 @@ test parseBody {
     try testing.expectEqualStrings("content for if\n", body_else.slice);
 }
 
+test extractChangeChunk {
+    const rendered = "prefix changed content suffix unchanged";
+    const anchor_lit = " suffix unchanged";
+
+    const chunk = extractChangeChunk(rendered, 7, anchor_lit);
+
+    try testing.expectEqualStrings("changed content", chunk.slice);
+    try testing.expectEqual(@as(usize, 22), chunk.end);
+
+    const rendered_no_anch = "all content changed";
+    const anchor_lit_no_anch = "";
+
+    const chunk_no_anch = extractChangeChunk(rendered_no_anch, 4, anchor_lit_no_anch);
+
+    try testing.expectEqualStrings("content changed", chunk_no_anch.slice);
+    try testing.expectEqual(@as(usize, 19), chunk_no_anch.end);
+
+    const rendered_anchor_not_found = "content without the anchor";
+    const anchor_lit_not_found = "missing anchor";
+
+    const chunk_anchor_not_found = extractChangeChunk(rendered_anchor_not_found, 8, anchor_lit_not_found);
+
+    try testing.expectEqualStrings("without the anchor", chunk_anchor_not_found.slice);
+    try testing.expectEqual(@as(usize, 26), chunk_anchor_not_found.end);
+}
+
 test splitWhitespace {
     const result1 = splitWhitespace("  zoot  ");
     try testing.expectEqual(@as(usize, 2), result1.lead);
