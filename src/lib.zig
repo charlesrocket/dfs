@@ -765,6 +765,38 @@ test extractChangeChunk {
     try testing.expectEqual(@as(usize, 26), chunk_anchor_not_found.end);
 }
 
+test copyWithWhitespace {
+    var out = std.ArrayList(u8).init(testing.allocator);
+    defer out.deinit();
+
+    const body = "\n\r  original content  \n\r";
+    const change = "new content";
+
+    try copyWithWhitespace(&out, body, change);
+
+    try testing.expectEqualStrings("\n\rnew content\n\r", out.items);
+
+    var out_none = std.ArrayList(u8).init(testing.allocator);
+    defer out_none.deinit();
+
+    const body_none = "original";
+    const change_none = "new";
+
+    try copyWithWhitespace(&out_none, body_none, change_none);
+
+    try testing.expectEqualStrings("new", out_none.items);
+
+    var out_leading = std.ArrayList(u8).init(testing.allocator);
+    defer out_leading.deinit();
+
+    const body_leading = "\n\roriginal";
+    const change_leading = "new";
+
+    try copyWithWhitespace(&out_leading, body_leading, change_leading);
+
+    try testing.expectEqualStrings("\n\rnew", out_leading.items);
+}
+
 test splitWhitespace {
     const result1 = splitWhitespace("  zoot  ");
     try testing.expectEqual(@as(usize, 2), result1.lead);
