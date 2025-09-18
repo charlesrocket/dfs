@@ -706,6 +706,19 @@ test parseBody {
 
     try testing.expectEqualStrings("content for if\n", body_else.slice);
 }
+test splitWhitespace {
+    const result1 = splitWhitespace("  zoot  ");
+    try testing.expectEqual(@as(usize, 2), result1.lead);
+    try testing.expectEqual(@as(usize, 2), result1.trail);
+
+    const result2 = splitWhitespace("zoot");
+    try testing.expectEqual(@as(usize, 0), result2.lead);
+    try testing.expectEqual(@as(usize, 0), result2.trail);
+
+    const result3 = splitWhitespace("\t\ttest\t");
+    try testing.expectEqual(@as(usize, 2), result3.lead);
+    try testing.expectEqual(@as(usize, 1), result3.trail);
+}
 
 test indexOfTag {
     const template = "prefix{>tagA<}suffix{>tagB<}";
