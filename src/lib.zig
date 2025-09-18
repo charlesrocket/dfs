@@ -79,7 +79,7 @@ fn interpret(allocator: std.mem.Allocator, tokens: []Token) ![]u8 {
                 i += 1;
             },
             .tag => |tag| {
-                if (std.mem.startsWith(u8, tag, "if ")) {
+                if (std.mem.startsWith(u8, tag, "if")) {
                     i = try evalIfGroup(allocator, tokens, i, &w);
                 } else {
                     // outside of an if-group tags are not allowed
@@ -129,12 +129,12 @@ fn parseBody(template: []const u8, tpl_len: usize, start: usize) !Body {
         if (std.mem.startsWith(u8, template[i..], TAG_START)) {
             const t = try parseTag(template, i);
 
-            if (std.mem.startsWith(u8, t.trim, "if ")) {
+            if (std.mem.startsWith(u8, t.trim, "if")) {
                 depth += 1;
             } else if (std.mem.eql(u8, t.trim, "end")) {
                 if (depth == 0) break;
                 depth -= 1;
-            } else if ((std.mem.startsWith(u8, t.trim, "elif ") or
+            } else if ((std.mem.startsWith(u8, t.trim, "elif") or
                 std.mem.eql(u8, t.trim, "else")) and depth == 0)
             {
                 break;
@@ -172,7 +172,7 @@ fn findAnchorLiteral(
 
             const t2 = trimTag(template[s2 .. s2 + e2]);
 
-            if (std.mem.startsWith(u8, t2, "if ")) {
+            if (std.mem.startsWith(u8, t2, "if")) {
                 depth += 1;
             } else if (std.mem.eql(u8, t2, "end")) {
                 if (depth == 0) {
@@ -278,9 +278,9 @@ fn evalIfGroup(
         var active: bool = false;
 
         // decide whether this branch is active
-        if (std.mem.startsWith(u8, cur_tag, "if ")) {
+        if (std.mem.startsWith(u8, cur_tag, "if")) {
             active = evalCondition(allocator, cur_tag[3..]) and !branch_taken;
-        } else if (std.mem.startsWith(u8, cur_tag, "elif ")) {
+        } else if (std.mem.startsWith(u8, cur_tag, "elif")) {
             active = evalCondition(allocator, cur_tag[5..]) and !branch_taken;
         } else if (std.mem.eql(u8, cur_tag, "else")) {
             active = !branch_taken;
@@ -425,7 +425,7 @@ pub fn reverseTemplate(
             const tag = try parseTag(template, tpl_i);
 
             // check if this is the start of a conditional group
-            if (std.mem.startsWith(u8, tag.trim, "if ")) {
+            if (std.mem.startsWith(u8, tag.trim, "if")) {
                 // process the entire if-elif-else-end group
                 var group_tpl_i = tpl_i;
                 var branch_taken = false;
@@ -453,10 +453,10 @@ pub fn reverseTemplate(
                     // decide whether this branch is active
                     var active = false;
 
-                    if (std.mem.startsWith(u8, group_tag.trim, "if ")) {
+                    if (std.mem.startsWith(u8, group_tag.trim, "if")) {
                         active = evalCondition(allocator, group_tag.trim[3..]) and
                             !branch_taken;
-                    } else if (std.mem.startsWith(u8, group_tag.trim, "elif ")) {
+                    } else if (std.mem.startsWith(u8, group_tag.trim, "elif")) {
                         active = evalCondition(allocator, group_tag.trim[5..]) and
                             !branch_taken;
                     } else if (std.mem.eql(u8, group_tag.trim, "else")) {
@@ -631,6 +631,22 @@ test tokenize {
     try std.testing.expectEqualStrings("else", tokenized[3].tag);
     try std.testing.expectEqualStrings("val=\"HOST1\"", tokenized[4].text);
     try std.testing.expectEqualStrings("end", tokenized[5].tag);
+}
+
+test parseTag {
+    const template = "prefix{> if SYSTEM.os == openbsd <}suffix";
+    const template_whitespace = "{>   elif SYSTEM.arch == x86_64   <}";
+    const template_invalid = "prefix{> if SYSTEM.os == openbsd <suffix";
+    const tag = try parseTag(template, 6);
+    const tag_whitespace = try parseTag(template_whitespace, 0);
+    const tag_invalid = parseTag(template_invalid, 6);
+
+    try testing.expectEqualStrings(" if SYSTEM.os == openbsd ", tag.raw);
+    try testing.expectEqualStrings("if SYSTEM.os == openbsd", tag.trim);
+    try testing.expectEqual(@as(usize, 35), tag.after);
+    try testing.expectEqualStrings("   elif SYSTEM.arch == x86_64   ", tag_whitespace.raw);
+    try testing.expectEqualStrings("elif SYSTEM.arch == x86_64", tag_whitespace.trim);
+    try testing.expectError(error.InvalidTemplateEndTag, tag_invalid);
 }
 
 test applyTemplate {
