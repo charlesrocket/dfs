@@ -700,6 +700,13 @@ test parseBody {
     try testing.expectEqualStrings("content for if\n", body_else.slice);
 }
 
+test indexOfTag {
+    const template = "prefix{>tagA<}suffix{>tagB<}";
+    try testing.expectEqual(@as(?usize, 6), indexOfTag(template, 0));
+    try testing.expectEqual(@as(?usize, 20), indexOfTag(template, 10));
+    try testing.expectEqual(@as(?usize, null), indexOfTag(template, 25));
+}
+
 test trimTag {
     try testing.expectEqualStrings("test", trimTag("  test  "));
     try testing.expectEqualStrings("if SYSTEM.os == netbsd", trimTag("\n\r if SYSTEM.os == netbsd \t\n"));
@@ -707,7 +714,7 @@ test trimTag {
     try testing.expectEqualStrings("end", trimTag("end"));
 }
 
-test trimTrailingNewlines{
+test trimTrailingNewlines {
     try testing.expectEqualStrings("zoot", trimTrailingNewlines("zoot\n\r\n"));
     try testing.expectEqualStrings("hello\nworld", trimTrailingNewlines("hello\nworld\r\n"));
     try testing.expectEqualStrings("", trimTrailingNewlines("\n\r\n"));
