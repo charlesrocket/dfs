@@ -700,6 +700,21 @@ test parseBody {
     try testing.expectEqualStrings("content for if\n", body_else.slice);
 }
 
+test trimTag {
+    try testing.expectEqualStrings("test", trimTag("  test  "));
+    try testing.expectEqualStrings("if SYSTEM.os == netbsd", trimTag("\n\r if SYSTEM.os == netbsd \t\n"));
+    try testing.expectEqualStrings("", trimTag("   \t\r\n   "));
+    try testing.expectEqualStrings("end", trimTag("end"));
+}
+
+test trimTrailingNewlines{
+    try testing.expectEqualStrings("zoot", trimTrailingNewlines("zoot\n\r\n"));
+    try testing.expectEqualStrings("hello\nworld", trimTrailingNewlines("hello\nworld\r\n"));
+    try testing.expectEqualStrings("", trimTrailingNewlines("\n\r\n"));
+    try testing.expectEqualStrings("test", trimTrailingNewlines("test"));
+    try testing.expectEqualStrings("\nhello", trimTrailingNewlines("\nhello\n"));
+}
+
 test applyTemplate {
     if (builtin.os.tag != .freebsd or
         builtin.cpu.arch != .x86_64) return error.SkipZigTest;
