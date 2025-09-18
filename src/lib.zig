@@ -858,6 +858,42 @@ test trimTrailingNewlines {
     try testing.expectEqualStrings("\nhello", trimTrailingNewlines("\nhello\n"));
 }
 
+test evalIfGroup {
+    var tokens_invalid_end = [_]Token{
+        .{ .tag = "if SYSTEM.os == foo" },
+        .{ .text = "content" },
+    };
+
+    var out_invalid_end = std.ArrayList(u8).init(testing.allocator);
+    defer out_invalid_end.deinit();
+
+    const result_invalid_end = evalIfGroup(testing.allocator, &tokens_invalid_end, 0, out_invalid_end.writer());
+    try testing.expectError(error.InvalidTemplateEndTag, result_invalid_end);
+
+    var tokens_invalid_tag = [_]Token{
+        .{ .tag = "if SYSTEM.os == foo" },
+        .{ .text = "content" },
+        .{ .text = "unexpected text" },
+    };
+
+    var out_invalid_tag = std.ArrayList(u8).init(testing.allocator);
+    defer out_invalid_tag.deinit();
+
+    const result_invalid_tag = evalIfGroup(testing.allocator, &tokens_invalid_tag, 0, out_invalid_tag.writer());
+    try testing.expectError(error.InvalidTemplateTag, result_invalid_tag);
+
+    var tokens_invalid_template = [_]Token{
+        .{ .tag = "unknown_tag" },
+        .{ .tag = "end" },
+    };
+
+    var out_invalid_template = std.ArrayList(u8).init(testing.allocator);
+    defer out_invalid_template.deinit();
+
+    const result_invalid_template = evalIfGroup(testing.allocator, &tokens_invalid_template, 0, out_invalid_template.writer());
+    try testing.expectError(error.InvalidTemplateTag, result_invalid_template);
+}
+
 test applyTemplate {
     if (builtin.os.tag != .freebsd or
         builtin.cpu.arch != .x86_64) return error.SkipZigTest;
