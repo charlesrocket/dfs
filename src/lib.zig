@@ -649,6 +649,57 @@ test parseTag {
     try testing.expectError(error.InvalidTemplateEndTag, tag_invalid);
 }
 
+test parseBody {
+    const template =
+        \\content content content
+        \\{> end <}
+    ;
+
+    const body = try parseBody(template, template.len, 0);
+
+    try testing.expectEqualStrings("content content content\n", body.slice);
+    try testing.expectEqual(@as(usize, 24), body.after);
+
+    const template_nested =
+        \\outer content
+        \\{> if SYSTEM.os == linux <}
+        \\inner content
+        \\{> end <}
+        \\more outer
+        \\{> end <}
+    ;
+    const body_nested = try parseBody(template_nested, template_nested.len, 0);
+
+    const expected =
+        \\outer content
+        \\{> if SYSTEM.os == linux <}
+        \\inner content
+        \\{> end <}
+        \\more outer
+        \\
+    ;
+
+    try testing.expectEqualStrings(expected, body_nested.slice);
+
+    const template_if =
+        \\content for if
+        \\{> elif SYSTEM.arch == arm64 <}
+        \\content for elif
+    ;
+    const body_if = try parseBody(template_if, template_if.len, 0);
+
+    try testing.expectEqualStrings("content for if\n", body_if.slice);
+
+    const template_else =
+        \\content for if
+        \\{> else <}
+        \\content for else
+    ;
+    const body_else = try parseBody(template_else, template_else.len, 0);
+
+    try testing.expectEqualStrings("content for if\n", body_else.slice);
+}
+
 test applyTemplate {
     if (builtin.os.tag != .freebsd or
         builtin.cpu.arch != .x86_64) return error.SkipZigTest;
