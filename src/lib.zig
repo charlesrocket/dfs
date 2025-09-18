@@ -2,6 +2,10 @@
 //!
 //! Dfs is a template engine with reverse translation.
 
+// {> x <}
+const TAG_START = "{>";
+const TAG_END = "<}";
+
 const Token = union(enum) {
     text: []const u8,
     tag: []const u8,
@@ -30,7 +34,7 @@ fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
     var i: usize = 0;
 
     while (i < template.len) {
-        const start_tag = std.mem.indexOfPos(u8, template, i, "{>");
+        const start_tag = std.mem.indexOfPos(u8, template, i, TAG_START);
 
         if (start_tag == null) {
             try tokens.append(.{ .text = template[i..] });
@@ -48,7 +52,7 @@ fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
             u8,
             template,
             tag_start + 2,
-            "<}",
+            TAG_END,
         ) orelse
             return error.InvalidTemplate;
 
@@ -89,7 +93,7 @@ fn interpret(allocator: std.mem.Allocator, tokens: []Token) ![]u8 {
 }
 
 fn indexOfTag(s: []const u8, start: usize) ?usize {
-    if (std.mem.indexOf(u8, s[start..], "{>")) |pos| {
+    if (std.mem.indexOf(u8, s[start..], TAG_START)) |pos| {
         return start + pos;
     }
 
@@ -105,7 +109,7 @@ fn countTrail(s: []const u8) usize {
 
 fn parseTag(template: []const u8, i: usize) !Tag {
     const start = i + 2;
-    const rel_end = std.mem.indexOf(u8, template[start..], "<}") orelse
+    const rel_end = std.mem.indexOf(u8, template[start..], TAG_END) orelse
         return error.InvalidTemplateEndTag;
 
     const raw = template[start .. start + rel_end];
@@ -122,7 +126,7 @@ fn parseBody(template: []const u8, tpl_len: usize, start: usize) !Body {
     var depth: usize = 0;
 
     while (i < tpl_len) {
-        if (std.mem.startsWith(u8, template[i..], "{>")) {
+        if (std.mem.startsWith(u8, template[i..], TAG_START)) {
             const t = try parseTag(template, i);
 
             if (std.mem.startsWith(u8, t.trim, "if ")) {
@@ -144,7 +148,7 @@ fn parseBody(template: []const u8, tpl_len: usize, start: usize) !Body {
 }
 
 fn nextTag(template: []const u8, start: usize) ?usize {
-    if (std.mem.indexOf(u8, template[start..], "{>")) |pos| {
+    if (std.mem.indexOf(u8, template[start..], TAG_START)) |pos| {
         return start + pos;
     } else {
         return null;
@@ -161,9 +165,9 @@ fn findAnchorLiteral(
     var anchor_start: usize = tpl_len;
 
     while (scan < tpl_len) {
-        if (std.mem.startsWith(u8, template[scan..], "{>")) {
+        if (std.mem.startsWith(u8, template[scan..], TAG_START)) {
             const s2 = scan + 2;
-            const e2 = std.mem.indexOf(u8, template[s2..], "<}") orelse
+            const e2 = std.mem.indexOf(u8, template[s2..], TAG_END) orelse
                 return error.InvalidTemplateEndTag;
 
             const t2 = trimTag(template[s2 .. s2 + e2]);
@@ -183,7 +187,7 @@ fn findAnchorLiteral(
     }
 
     if (anchor_start >= tpl_len) return template[tpl_len..tpl_len];
-    if (std.mem.indexOf(u8, template[anchor_start..], "{>")) |off| {
+    if (std.mem.indexOf(u8, template[anchor_start..], TAG_START)) |off| {
         return template[anchor_start .. anchor_start + off];
     } else {
         return template[anchor_start..tpl_len];
@@ -417,7 +421,7 @@ pub fn reverseTemplate(
     var rnd_i: usize = 0; // rendered index
 
     while (tpl_i < tpl_len) {
-        if (std.mem.startsWith(u8, template[tpl_i..], "{>")) {
+        if (std.mem.startsWith(u8, template[tpl_i..], TAG_START)) {
             const tag = try parseTag(template, tpl_i);
 
             // check if this is the start of a conditional group
@@ -431,9 +435,9 @@ pub fn reverseTemplate(
                     const group_tag = try parseTag(template, group_tpl_i);
 
                     // output the tag
-                    try out.appendSlice("{>");
+                    try out.appendSlice(TAG_START);
                     try out.appendSlice(group_tag.raw);
-                    try out.appendSlice("<}");
+                    try out.appendSlice(TAG_END);
 
                     group_tpl_i = group_tag.after;
 
