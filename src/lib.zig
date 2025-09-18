@@ -23,7 +23,7 @@ const Chunk = struct {
     end: usize,
 };
 
-fn tokenize(template: []const u8, allocator: std.mem.Allocator) ![]Token {
+fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
     var tokens = std.ArrayList(Token).init(allocator);
     errdefer tokens.deinit();
 
@@ -61,7 +61,7 @@ fn tokenize(template: []const u8, allocator: std.mem.Allocator) ![]Token {
     return try tokens.toOwnedSlice();
 }
 
-fn interpret(tokens: []Token, allocator: std.mem.Allocator) ![]u8 {
+fn interpret(allocator: std.mem.Allocator, tokens: []Token) ![]u8 {
     var out = std.ArrayList(u8).init(allocator);
     defer out.deinit();
 
@@ -396,10 +396,10 @@ pub fn applyTemplate(
     allocator: std.mem.Allocator,
     template: []const u8,
 ) ![]u8 {
-    const tokens = try tokenize(template, allocator);
+    const tokens = try tokenize(allocator, template);
     defer allocator.free(tokens);
 
-    return try interpret(tokens, allocator);
+    return try interpret(allocator, tokens);
 }
 
 pub fn reverseTemplate(
@@ -591,16 +591,16 @@ test interpret {
         \\
     ;
 
-    const tokenized_invalid = try tokenize(template_invalid, std.testing.allocator);
+    const tokenized_invalid = try tokenize(std.testing.allocator, template_invalid);
     defer std.testing.allocator.free(tokenized_invalid);
 
-    const interpreted_invalid = interpret(tokenized_invalid, std.testing.allocator);
+    const interpreted_invalid = interpret(std.testing.allocator, tokenized_invalid);
     try std.testing.expectError(error.InvalidTemplateGroup, interpreted_invalid);
 
-    const tokenized = try tokenize(template, std.testing.allocator);
+    const tokenized = try tokenize(std.testing.allocator, template);
     defer std.testing.allocator.free(tokenized);
 
-    const interpreted = try interpret(tokenized, std.testing.allocator);
+    const interpreted = try interpret(std.testing.allocator, tokenized);
     defer std.testing.allocator.free(interpreted);
 
     try std.testing.expectEqualStrings("FOO\nval=\"HOST1\"\n", interpreted);
@@ -611,14 +611,14 @@ test tokenize {
         \\FOO{> xx
     ;
 
-    const failure = tokenize(template_invalid, std.testing.allocator);
+    const failure = tokenize(std.testing.allocator, template_invalid);
     try std.testing.expectError(error.InvalidTemplate, failure);
 
     const template =
         \\FOO{> if SYSTEM.hostname == somepc <}val="HOST2"{> else <}val="HOST1"{> end <}
     ;
 
-    const tokenized = try tokenize(template, std.testing.allocator);
+    const tokenized = try tokenize(std.testing.allocator, template);
     defer std.testing.allocator.free(tokenized);
 
     try std.testing.expectEqualStrings("FOO", tokenized[0].text);
