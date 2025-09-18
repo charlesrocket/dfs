@@ -858,6 +858,19 @@ test trimTrailingNewlines {
     try testing.expectEqualStrings("\nhello", trimTrailingNewlines("\nhello\n"));
 }
 
+test evalCondition {
+    const current_os = @tagName(builtin.target.os.tag);
+    const condition = std.fmt.allocPrint(
+        testing.allocator,
+        "SYSTEM.os == {s}",
+        .{current_os},
+    ) catch unreachable;
+
+    defer testing.allocator.free(condition);
+
+    try testing.expect(evalCondition(testing.allocator, condition));
+}
+
 test evalIfGroup {
     var tokens_invalid_end = [_]Token{
         .{ .tag = "if SYSTEM.os == foo" },
