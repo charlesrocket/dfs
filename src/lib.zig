@@ -633,6 +633,13 @@ test tokenize {
     try std.testing.expectEqualStrings("end", tokenized[5].tag);
 }
 
+test nextTag {
+    const template = "text{>tagA<}more{>tagB<}end";
+    try testing.expectEqual(@as(?usize, 4), nextTag(template, 0));
+    try testing.expectEqual(@as(?usize, 16), nextTag(template, 10));
+    try testing.expectEqual(@as(?usize, null), nextTag(template, 22));
+}
+
 test parseTag {
     const template = "prefix{> if SYSTEM.os == openbsd <}suffix";
     const template_whitespace = "{>   elif SYSTEM.arch == x86_64   <}";
