@@ -71,6 +71,8 @@ fn stripAnsi(alloc: std.mem.Allocator, input: []const u8) ![]u8 {
 }
 
 test "sync" {
+    try std.fs.cwd().deleteTree("test/dest");
+
     const argv = [3][]const u8{
         exe_path,
         "-c=test/conf.zon",
@@ -109,6 +111,9 @@ test "sync" {
 }
 
 test "sync-dry" {
+    try std.fs.cwd().deleteTree("test/dest-dry");
+    try std.fs.cwd().deleteTree("test/root-dry");
+
     const argv = [4][]const u8{
         exe_path,
         "-c=test/conf-dry.zon",
@@ -171,16 +176,18 @@ test "sync-dry" {
         allocator.free(out);
         allocator.free(proc.out);
         allocator.free(proc.err);
+        std.fs.cwd().deleteTree("test/dest-dry") catch unreachable;
+        std.fs.cwd().deleteTree("test/root-dry") catch unreachable;
     }
-
-    try std.fs.cwd().deleteTree("test/dest-dry");
-    try std.fs.cwd().deleteTree("test/root-dry");
 
     try std.testing.expectEqualStrings(expected, out);
     try std.testing.expectEqual(proc.term.Exited, 0);
 }
 
 test "sync-back" {
+    defer std.fs.cwd().deleteTree("test/dest-back") catch unreachable;
+    defer std.fs.cwd().deleteTree("test/root-back") catch unreachable;
+
     const argv = [3][]const u8{
         exe_path,
         "-c=test/conf-back.zon",
@@ -283,6 +290,7 @@ test "config bad" {
     ;
 
     const out = try stripAnsi(allocator, proc.out);
+
     defer {
         allocator.free(out);
         allocator.free(proc.out);
@@ -307,6 +315,7 @@ test "config not found" {
     ;
 
     const out = try stripAnsi(allocator, proc.out);
+
     defer {
         allocator.free(out);
         allocator.free(proc.out);
