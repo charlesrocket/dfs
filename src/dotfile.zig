@@ -140,63 +140,6 @@ pub fn processFile(
     defer allocator.free(template_content);
 
     const is_text = Util.isText(template_content);
-
-    if (!is_text) {
-        counter.binary += 1;
-
-        if (!json and (dry_run or verbose)) {
-            try stdout.print("{s}{s}FILE | {s} >>> {s}{s}\n", .{
-                cli.blue,
-                cli.bold,
-                self.src,
-                self.dest,
-                cli.reset,
-            });
-        } else {
-            const dir_path = std.fs.path.dirname(self.dest) orelse
-                return error.InvalidPath;
-
-            try Util.createDirRecursively(allocator, dir_path);
-
-            const dir_path_abs = try std.fs.realpathAlloc(allocator, dir_path);
-            defer allocator.free(dir_path_abs);
-
-            const target_path = try std.fs.path.join(
-                allocator,
-                &.{ dir_path_abs, std.fs.path.basename(self.dest) },
-            );
-
-            defer allocator.free(target_path);
-
-            const dest_file = std.fs.openFileAbsolute(target_path, .{
-                .mode = .read_write,
-            }) catch try std.fs.createFileAbsolute(target_path, .{
-                .read = true,
-                .truncate = true,
-            });
-
-            const dest_file_size: usize = @intCast((try dest_file.stat()).size);
-            const dest_file_content = try dest_file.readToEndAlloc(
-                allocator,
-                dest_file_size,
-            );
-
-            defer {
-                allocator.free(dest_file_content);
-                dest_file.close();
-            }
-
-            if (!std.mem.eql(u8, template_content, dest_file_content)) {
-                try dest_file.writeAll(template_content);
-                counter.updated += 1;
-            }
-
-            try self.recordLastSync(allocator);
-        }
-
-        return;
-    }
-
     var last_sync: usize = 0;
 
     const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
@@ -298,31 +241,38 @@ pub fn processFile(
             rendered_size,
         );
 
-        defer allocator.free(rendered_content);
+        defer if (is_text) allocator.free(rendered_content);
 
-        const new_template = try lib.reverseTemplate(
+        const new_template = if (is_text) try lib.reverseTemplate(
             allocator,
             rendered_content,
             template_content,
-        );
+        ) else rendered_content;
 
         defer allocator.free(new_template);
 
         if (!dry_run) {
-            if (!std.mem.eql(u8, template_content, new_template)) {
-                counter.updated += 1;
+            const updated_template = try std.fs.createFileAbsolute(
+                source_abs,
+                .{
+                    .read = false,
+                    .truncate = true,
+                },
+            );
 
-                const updated_template = try std.fs.createFileAbsolute(
-                    source_abs,
-                    .{
-                        .read = false,
-                        .truncate = true,
-                    },
-                );
+            defer updated_template.close();
 
-                defer updated_template.close();
+            if (is_text) {
+                if (!std.mem.eql(u8, template_content, new_template)) {
+                    counter.updated += 1;
 
-                try updated_template.writeAll(new_template);
+                    try updated_template.writeAll(new_template);
+                }
+            } else {
+                if (!std.mem.eql(u8, template_content, rendered_content)) {
+                    counter.updated += 1;
+                    try updated_template.writeAll(rendered_content);
+                }
             }
 
             try self.recordLastSync(allocator);
@@ -353,8 +303,11 @@ pub fn processFile(
             }
         }
     } else {
-        counter.render += 1;
-        const result = lib.applyTemplate(allocator, template_content) catch {
+        if (is_text) counter.render += 1 else counter.binary += 1;
+        const result = if (is_text) lib.applyTemplate(
+            allocator,
+            template_content,
+        ) catch {
             counter.errors += 1;
             try self.recordLastSync(allocator);
 
@@ -368,9 +321,9 @@ pub fn processFile(
             }
 
             return;
-        };
+        } else template_content;
 
-        defer allocator.free(result);
+        defer if (is_text) allocator.free(result);
 
         if (!dry_run) {
             const dir_name = std.fs.path.dirname(self.dest) orelse
@@ -388,7 +341,6 @@ pub fn processFile(
 
             defer allocator.free(target_path);
 
-            // TODO refactor to fn
             const output_file = std.fs.openFileAbsolute(target_path, .{
                 .mode = .read_write,
             }) catch try std.fs.createFileAbsolute(target_path, .{
@@ -416,13 +368,22 @@ pub fn processFile(
         }
 
         if (!json and (dry_run or verbose)) {
-            try stdout.print("{s}{s}FILE | {s}{s}\n", .{
-                cli.yellow,
-                cli.bold,
-                self.dest,
-                cli.reset,
-            });
-
+            if (!is_text) {
+                try stdout.print("{s}{s}FILE | {s} >>> {s}{s}\n", .{
+                    cli.blue,
+                    cli.bold,
+                    self.src,
+                    self.dest,
+                    cli.reset,
+                });
+            } else {
+                try stdout.print("{s}{s}FILE | {s}{s}\n", .{
+                    cli.yellow,
+                    cli.bold,
+                    self.dest,
+                    cli.reset,
+                });
+            }
             if (dry_run) {
                 if (is_text)
                     try stdout.print(
@@ -437,12 +398,13 @@ pub fn processFile(
                     )
                 else
                     try stdout.print(
-                        "{s}{s}DATA | render: {s}binary{s}\n\n",
+                        "{s}{s}DATA | render: {s}binary{s}\n{s}",
                         .{
                             cli.blue,
                             cli.bold,
                             cli.italic,
                             cli.reset,
+                            assets.separator,
                         },
                     );
             }

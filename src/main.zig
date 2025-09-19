@@ -296,8 +296,17 @@ pub fn main() !void {
 
         const ignore_items = ignore_list.items;
 
-        while (try walker.next()) |entry| {
-            if (Util.isIgnored(entry.basename, ignore_items)) continue;
+        walk: while (try walker.next()) |entry| {
+            if (Util.isIgnored(entry.basename, ignore_items)) {
+                if (entry.kind == .directory) {
+                    // remove from stack, with prejudice
+                    var item = walker.stack.pop().?;
+                    // don't let this be the root directory
+                    item.iter.dir.close();
+                }
+
+                continue :walk;
+            }
 
             switch (entry.kind) {
                 .file => {
@@ -315,7 +324,7 @@ pub fn main() !void {
 
                     try files.append(allocator, file);
                 },
-                else => continue,
+                else => continue :walk,
             }
         }
 
