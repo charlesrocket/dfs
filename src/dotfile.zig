@@ -142,6 +142,8 @@ pub fn processFile(
     const is_text = Util.isText(template_content);
 
     if (!is_text) {
+        counter.binary += 1;
+
         if (!json and (dry_run or verbose)) {
             try stdout.print("{s}{s}FILE | {s} >>> {s}{s}\n", .{
                 cli.blue,
@@ -151,7 +153,6 @@ pub fn processFile(
                 cli.reset,
             });
         } else {
-            // ensure destination directory exists
             const dir_path = std.fs.path.dirname(self.dest) orelse
                 return error.InvalidPath;
 
@@ -167,19 +168,31 @@ pub fn processFile(
 
             defer allocator.free(target_path);
 
-            const dest_file = try std.fs.createFileAbsolute(target_path, .{
-                .read = false,
+            const dest_file = std.fs.openFileAbsolute(target_path, .{
+                .mode = .read_write,
+            }) catch try std.fs.createFileAbsolute(target_path, .{
+                .read = true,
                 .truncate = true,
             });
 
-            defer dest_file.close();
+            const dest_file_size: usize = @intCast((try dest_file.stat()).size);
+            const dest_file_content = try dest_file.readToEndAlloc(
+                allocator,
+                dest_file_size,
+            );
 
-            try dest_file.writeAll(template_content);
+            defer {
+                allocator.free(dest_file_content);
+                dest_file.close();
+            }
+
+            if (!std.mem.eql(u8, template_content, dest_file_content)) {
+                try dest_file.writeAll(template_content);
+                counter.updated += 1;
+            }
+
             try self.recordLastSync(allocator);
         }
-
-        counter.updated += 1;
-        counter.binary += 1;
 
         return;
     }
@@ -198,7 +211,6 @@ pub fn processFile(
     try Util.createDirRecursively(allocator, dir_path);
     try Util.createDirRecursively(allocator, data_dir);
 
-    // TODO maybe this is a bit too much
     var meta_file: ?std.fs.File = std.fs.cwd().openFile(
         meta_file_path,
         .{},
@@ -275,6 +287,8 @@ pub fn processFile(
     if ((last_sync < last_modified_rend) and
         (last_modified_rend > last_modified_src))
     {
+        counter.template += 1;
+
         const rendered_file = try std.fs.cwd().openFile(self.dest, .{});
         defer rendered_file.close();
 
@@ -295,18 +309,25 @@ pub fn processFile(
         defer allocator.free(new_template);
 
         if (!dry_run) {
-            const updated_template = try std.fs.createFileAbsolute(
-                source_abs,
-                .{
-                    .read = false,
-                    .truncate = true,
-                },
-            );
+            if (!std.mem.eql(u8, template_content, new_template)) {
+                counter.updated += 1;
 
-            defer updated_template.close();
-            try updated_template.writeAll(new_template);
+                const updated_template = try std.fs.createFileAbsolute(
+                    source_abs,
+                    .{
+                        .read = false,
+                        .truncate = true,
+                    },
+                );
+
+                defer updated_template.close();
+
+                try updated_template.writeAll(new_template);
+            }
+
             try self.recordLastSync(allocator);
         }
+
         if (!json and (dry_run or verbose)) {
             try stdout.print(
                 "{s}{s}FILE | {s}{s}\n",
@@ -331,10 +352,8 @@ pub fn processFile(
                 );
             }
         }
-
-        counter.updated += 1;
-        counter.template += 1;
     } else {
+        counter.render += 1;
         const result = lib.applyTemplate(allocator, template_content) catch {
             counter.errors += 1;
             try self.recordLastSync(allocator);
@@ -369,13 +388,29 @@ pub fn processFile(
 
             defer allocator.free(target_path);
 
-            const output_file = try std.fs.createFileAbsolute(target_path, .{
-                .read = false,
+            // TODO refactor to fn
+            const output_file = std.fs.openFileAbsolute(target_path, .{
+                .mode = .read_write,
+            }) catch try std.fs.createFileAbsolute(target_path, .{
+                .read = true,
                 .truncate = true,
             });
 
-            try output_file.writeAll(result);
-            defer output_file.close();
+            const output_file_size: usize = @intCast((try output_file.stat()).size);
+            const output_file_content = try output_file.readToEndAlloc(
+                allocator,
+                output_file_size,
+            );
+
+            defer {
+                allocator.free(output_file_content);
+                output_file.close();
+            }
+
+            if (!std.mem.eql(u8, output_file_content, result)) {
+                try output_file.writeAll(result);
+                counter.updated += 1;
+            }
 
             try self.recordLastSync(allocator);
         }
@@ -412,9 +447,6 @@ pub fn processFile(
                     );
             }
         }
-
-        counter.updated += 1;
-        counter.render += 1;
     }
 }
 
