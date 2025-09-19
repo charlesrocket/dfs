@@ -221,14 +221,18 @@ pub fn main() !void {
         config.source = try src.val.getAs([]const u8);
     }
 
-    const source_abs = try std.fs.realpathAlloc(allocator, config.source);
-    defer allocator.free(source_abs);
+    const source_with_slash = try Util.ensureTrailingSlash(
+        allocator,
+        config.source,
+    );
 
-    const source_with_slash = try Util.ensureTrailingSlash(allocator, config.source);
-    const dest_with_slash = try Util.ensureTrailingSlash(allocator, config.destination);
+    const dest_with_slash = try Util.ensureTrailingSlash(
+        allocator,
+        config.destination,
+    );
 
     defer {
-        if (!std.mem.eql(u8, source_with_slash, source_abs))
+        if (!std.mem.eql(u8, source_with_slash, config.source))
             allocator.free(source_with_slash);
 
         if (!std.mem.eql(u8, dest_with_slash, config.destination))
@@ -283,8 +287,8 @@ pub fn main() !void {
             files.deinit(allocator);
         }
 
-        var src_dir = try std.fs.openDirAbsolute(
-            source_abs,
+        var src_dir = try std.fs.cwd().openDir(
+            config.source,
             .{ .iterate = true },
         );
 
