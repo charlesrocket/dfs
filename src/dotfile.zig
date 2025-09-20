@@ -245,6 +245,8 @@ pub fn processFile(
 
         defer allocator.free(new_template);
 
+        if (new_template.len == 0) return error.emptyTemplate;
+
         if (!dry_run) {
             const updated_template = try std.fs.cwd().createFile(
                 self.src,
