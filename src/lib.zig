@@ -908,32 +908,36 @@ test evalIfGroup {
 }
 
 test applyTemplate {
-    if (builtin.os.tag != .freebsd or
-        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
-
+    const os = @tagName(builtin.target.os.tag);
+    const arch = @tagName(builtin.cpu.arch);
     var gpa = std.testing.allocator;
 
-    const template =
-        \\{> if SYSTEM.os == linux <}
+    const template = std.fmt.allocPrint(
+        testing.allocator,
+        \\{{> if SYSTEM.os == foo <}}
         \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
+        \\{{> elif SYSTEM.os == {s} <}}
         \\val="Bar"
-        \\{> else <}
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
-        \\{> if SYSTEM.arch == x86_64 <}
+        \\{{> end <}}
+        \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0"
-        \\{> else <}
+        \\{{> else <}}
         \\val="test1"
-        \\{> end <}
+        \\{{> end <}}
         \\
-        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\{{> if SYSTEM.hostname == not_my_machine <}}
         \\val="HOST2"
-        \\{> else <}
+        \\{{> else <}}
         \\val="HOST1"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{ os, arch },
+    ) catch unreachable;
+
+    defer testing.allocator.free(template);
 
     const rendered_expected =
         \\val="Bar"
@@ -945,36 +949,42 @@ test applyTemplate {
 
     const rendered = try applyTemplate(gpa, template);
     defer gpa.free(rendered);
+
     try std.testing.expectEqualStrings(rendered_expected, rendered);
 }
 
 test reverseTemplate {
-    if (builtin.os.tag != .freebsd or
-        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    const os = @tagName(builtin.target.os.tag);
+    const arch = @tagName(builtin.cpu.arch);
 
     var gpa = std.testing.allocator;
 
-    const template =
-        \\{> if SYSTEM.os == linux <}
+    const template = std.fmt.allocPrint(
+        testing.allocator,
+        \\{{> if SYSTEM.os == lifoox <}}
         \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
+        \\{{> elif SYSTEM.os == {s} <}}
         \\val="Bar"
-        \\{> else <}
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
-        \\{> if SYSTEM.arch == x86_64 <}
+        \\{{> end <}}
+        \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0"
-        \\{> else <}
+        \\{{> else <}}
         \\val="test1"
-        \\{> end <}
+        \\{{> end <}}
         \\
-        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\{{> if SYSTEM.hostname == not_my_machine <}}
         \\val="HOST2"
-        \\{> else <}
+        \\{{> else <}}
         \\val="HOST1"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{ os, arch },
+    ) catch unreachable;
+
+    defer testing.allocator.free(template);
 
     const rendered_user_edit =
         \\val="Zoot"
@@ -987,46 +997,55 @@ test reverseTemplate {
     const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
     defer gpa.free(reversed);
 
-    const expected_template =
-        \\{> if SYSTEM.os == linux <}
+    const expected_template = std.fmt.allocPrint(
+        testing.allocator,
+        \\{{> if SYSTEM.os == lifoox <}}
         \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
+        \\{{> elif SYSTEM.os == {s} <}}
         \\val="Zoot"
-        \\{> else <}
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
-        \\{> if SYSTEM.arch == x86_64 <}
+        \\{{> end <}}
+        \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0-back"
-        \\{> else <}
+        \\{{> else <}}
         \\val="test1"
-        \\{> end <}
+        \\{{> end <}}
         \\
-        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\{{> if SYSTEM.hostname == not_my_machine <}}
         \\val="HOST2"
-        \\{> else <}
+        \\{{> else <}}
         \\val="HOST3"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{ os, arch },
+    ) catch unreachable;
+
+    defer testing.allocator.free(expected_template);
 
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
-test "forward (fbsd)" {
-    if (builtin.os.tag != .freebsd) return error.SkipZigTest;
-
+test "forward" {
+    const os = @tagName(builtin.target.os.tag);
     var gpa = std.testing.allocator;
 
-    const template =
-        \\{> if SYSTEM.os == linux <}
+    const template = std.fmt.allocPrint(
+        testing.allocator,
+        \\{{> if SYSTEM.os == foo <}}
         \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
+        \\{{> elif SYSTEM.os == {s} <}}
         \\val="Bar"
-        \\{> else <}
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{os},
+    ) catch unreachable;
+
+    defer testing.allocator.free(template);
 
     const rendered_expected =
         \\val="Bar"
@@ -1038,15 +1057,19 @@ test "forward (fbsd)" {
     try std.testing.expectEqualStrings(rendered_expected, rendered);
 }
 
-test "forward-inline (fbsd)" {
-    if (builtin.os.tag != .freebsd) return error.SkipZigTest;
-
+test "forward-inline" {
+    const os = @tagName(builtin.target.os.tag);
     var gpa = std.testing.allocator;
 
-    const template =
-        \\{> if SYSTEM.os == linux <}val="Foo"{> elif SYSTEM.os == freebsd <}val="Bar"{> else <}val="Else"{> end <}
+    const template = std.fmt.allocPrint(
+        testing.allocator,
+        \\{{> if SYSTEM.os == foo <}}val="Foo"{{> elif SYSTEM.os == {s} <}}val="Bar"{{> else <}}val="Else"{{> end <}}
         \\
-    ;
+    ,
+        .{os},
+    ) catch unreachable;
+
+    defer testing.allocator.free(template);
 
     const rendered_expected =
         \\val="Bar"
@@ -1058,67 +1081,25 @@ test "forward-inline (fbsd)" {
     try std.testing.expectEqualStrings(rendered_expected, rendered);
 }
 
-test "forward (linux)" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
-
+test "back-template" {
+    const os = @tagName(builtin.target.os.tag);
     var gpa = std.testing.allocator;
 
-    const template =
-        \\{> if SYSTEM.os == linux <}
+    const template = std.fmt.allocPrint(
+        testing.allocator,
+        \\{{> if SYSTEM.os == foo <}}
         \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
+        \\{{> elif SYSTEM.os == {s} <}}
         \\val="Bar"
-        \\{> else <}
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{os},
+    ) catch unreachable;
 
-    const rendered_expected =
-        \\val="Foo"
-        \\
-    ;
-
-    const rendered = try applyTemplate(gpa, template);
-    defer gpa.free(rendered);
-    try std.testing.expectEqualStrings(rendered_expected, rendered);
-}
-
-test "forward-inline (linux)" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
-
-    var gpa = std.testing.allocator;
-
-    const template =
-        \\{> if SYSTEM.os == linux <}val="Foo"{> elif SYSTEM.os == freebsd <}val="Bar"{> else <}val="Else"{> end <}
-        \\
-    ;
-
-    const rendered_expected =
-        \\val="Foo"
-        \\
-    ;
-
-    const rendered = try applyTemplate(gpa, template);
-    defer gpa.free(rendered);
-    try std.testing.expectEqualStrings(rendered_expected, rendered);
-}
-
-test "back-template (fbsd)" {
-    if (builtin.os.tag != .freebsd) return error.SkipZigTest;
-
-    var gpa = std.testing.allocator;
-
-    const template =
-        \\{> if SYSTEM.os == linux <}
-        \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
-        \\val="Bar"
-        \\{> else <}
-        \\val="Else"
-        \\{> end <}
-        \\
-    ;
+    defer testing.allocator.free(template);
 
     const rendered_user_edit =
         \\val="Zoot"
@@ -1128,76 +1109,48 @@ test "back-template (fbsd)" {
     const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
     defer gpa.free(reversed);
 
-    const expected_template =
-        \\{> if SYSTEM.os == linux <}
+    const expected_template = std.fmt.allocPrint(
+        testing.allocator,
+        \\{{> if SYSTEM.os == foo <}}
         \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
+        \\{{> elif SYSTEM.os == {s} <}}
         \\val="Zoot"
-        \\{> else <}
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{os},
+    ) catch unreachable;
+
+    defer testing.allocator.free(expected_template);
+
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
-test "back-no_template (fbsd)" {
-    if (builtin.os.tag != .freebsd) return error.SkipZigTest;
-
+test "back-no_template" {
+    const os = @tagName(builtin.target.os.tag);
     var gpa = std.testing.allocator;
 
-    const template =
+    const template = std.fmt.allocPrint(
+        testing.allocator,
         \\FOO
-        \\{> if SYSTEM.os == linux <}
+        \\{{> if SYSTEM.os == {s} <}}
         \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
+        \\{{> elif SYSTEM.os == foo <}}
         \\val="Bar"
-        \\{> else <}
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{os},
+    ) catch unreachable;
+
+    defer testing.allocator.free(template);
 
     const rendered_user_edit =
         \\BAR
-        \\val="Bar"
-        \\
-    ;
-
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
-
-    const expected_template =
-        \\BAR
-        \\{> if SYSTEM.os == linux <}
-        \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
-        \\val="Bar"
-        \\{> else <}
-        \\val="Else"
-        \\{> end <}
-        \\
-    ;
-    try std.testing.expectEqualStrings(expected_template, reversed);
-}
-
-test "back-template (linux)" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
-
-    var gpa = std.testing.allocator;
-
-    const template =
-        \\{> if SYSTEM.os == linux <}
-        \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
-        \\val="Bar"
-        \\{> else <}
-        \\val="Else"
-        \\{> end <}
-        \\
-    ;
-
-    const rendered_user_edit =
         \\val="Zoot"
         \\
     ;
@@ -1205,75 +1158,90 @@ test "back-template (linux)" {
     const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
     defer gpa.free(reversed);
 
-    const expected_template =
-        \\{> if SYSTEM.os == linux <}
+    const expected_template = std.fmt.allocPrint(
+        testing.allocator,
+        \\BAR
+        \\{{> if SYSTEM.os == {s} <}}
         \\val="Zoot"
-        \\{> elif SYSTEM.os == freebsd <}
+        \\{{> elif SYSTEM.os == foo <}}
         \\val="Bar"
-        \\{> else <}
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{os},
+    ) catch unreachable;
+
+    defer testing.allocator.free(expected_template);
+
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
-test "back-no_template (linux)" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
-
+test "mixed" {
+    const os = @tagName(builtin.target.os.tag);
     var gpa = std.testing.allocator;
 
-    const template =
+    const template = std.fmt.allocPrint(
+        testing.allocator,
         \\FOO
-        \\{> if SYSTEM.os == linux <}
+        \\{{> if SYSTEM.os == foo <}}
         \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
+        \\{{> elif SYSTEM.os == {s} <}}
         \\val="Bar"
-        \\{> else <}
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{os},
+    ) catch unreachable;
+
+    defer testing.allocator.free(template);
 
     const rendered_user_edit =
         \\BAR
-        \\val="Bar"
+        \\val="Zoot"
         \\
     ;
 
     const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
     defer gpa.free(reversed);
 
-    const expected_template =
+    const expected_template = std.fmt.allocPrint(
+        testing.allocator,
         \\BAR
-        \\{> if SYSTEM.os == linux <}
-        \\val="Bar"
-        \\{> elif SYSTEM.os == freebsd <}
-        \\val="Bar"
-        \\{> else <}
+        \\{{> if SYSTEM.os == foo <}}
+        \\val="Foo"
+        \\{{> elif SYSTEM.os == {s} <}}
+        \\val="Zoot"
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{os},
+    ) catch unreachable;
+
+    defer testing.allocator.free(expected_template);
+
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
-test "mixed (fbsd)" {
-    if (builtin.os.tag != .freebsd) return error.SkipZigTest;
-
+test "mixed-inlie" {
+    const os = @tagName(builtin.target.os.tag);
     var gpa = std.testing.allocator;
 
-    const template =
+    const template = std.fmt.allocPrint(
+        testing.allocator,
         \\FOO
-        \\{> if SYSTEM.os == linux <}
-        \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
-        \\val="Bar"
-        \\{> else <}
-        \\val="Else"
-        \\{> end <}
+        \\{{> if SYSTEM.os == foo <}}val="Foo"{{> elif SYSTEM.os == {s} <}}val="Bar"{{> else <}}val="Else"{{> end <}}
         \\
-    ;
+    ,
+        .{os},
+    ) catch unreachable;
+
+    defer testing.allocator.free(template);
 
     const rendered_user_edit =
         \\BAR
@@ -1284,113 +1252,17 @@ test "mixed (fbsd)" {
     const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
     defer gpa.free(reversed);
 
-    const expected_template =
+    const expected_template = std.fmt.allocPrint(
+        testing.allocator,
         \\BAR
-        \\{> if SYSTEM.os == linux <}
-        \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
-        \\val="Zoot"
-        \\{> else <}
-        \\val="Else"
-        \\{> end <}
+        \\{{> if SYSTEM.os == foo <}}val="Foo"{{> elif SYSTEM.os == {s} <}}val="Zoot"{{> else <}}val="Else"{{> end <}}
         \\
-    ;
-    try std.testing.expectEqualStrings(expected_template, reversed);
-}
+    ,
+        .{os},
+    ) catch unreachable;
 
-test "mixed (linux)" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    defer testing.allocator.free(expected_template);
 
-    var gpa = std.testing.allocator;
-
-    const template =
-        \\FOO
-        \\{> if SYSTEM.os == linux <}
-        \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
-        \\val="Bar"
-        \\{> else <}
-        \\val="Else"
-        \\{> end <}
-        \\
-    ;
-
-    const rendered_user_edit =
-        \\BAR
-        \\val="Zoot"
-        \\
-    ;
-
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
-
-    const expected_template =
-        \\BAR
-        \\{> if SYSTEM.os == linux <}
-        \\val="Zoot"
-        \\{> elif SYSTEM.os == freebsd <}
-        \\val="Bar"
-        \\{> else <}
-        \\val="Else"
-        \\{> end <}
-        \\
-    ;
-    try std.testing.expectEqualStrings(expected_template, reversed);
-}
-
-test "mixed-inlie (fbsd)" {
-    if (builtin.os.tag != .freebsd) return error.SkipZigTest;
-
-    var gpa = std.testing.allocator;
-
-    const template =
-        \\FOO
-        \\{> if SYSTEM.os == linux <}val="Foo"{> elif SYSTEM.os == freebsd <}val="Bar"{> else <}val="Else"{> end <}
-        \\
-    ;
-
-    const rendered_user_edit =
-        \\BAR
-        \\val="Zoot"
-        \\
-    ;
-
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
-
-    const expected_template =
-        \\BAR
-        \\{> if SYSTEM.os == linux <}val="Foo"{> elif SYSTEM.os == freebsd <}val="Zoot"{> else <}val="Else"{> end <}
-        \\
-    ;
-    try std.testing.expectEqualStrings(expected_template, reversed);
-}
-
-test "mixed-inlie (linux)" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
-
-    var gpa = std.testing.allocator;
-
-    const template =
-        \\FOO
-        \\{> if SYSTEM.os == linux <}val="Foo"{> elif SYSTEM.os == freebsd <}val="Bar"{> else <}val="Else"{> end <}
-        \\
-    ;
-
-    const rendered_user_edit =
-        \\BAR
-        \\val="Zoot"
-        \\
-    ;
-
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
-
-    const expected_template =
-        \\BAR
-        \\{> if SYSTEM.os == linux <}val="Zoot"{> elif SYSTEM.os == freebsd <}val="Bar"{> else <}val="Else"{> end <}
-        \\
-    ;
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
@@ -1429,37 +1301,42 @@ test "mixed-else" {
         \\{> end <}
         \\
     ;
+
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
-test "blocks (fbsd)" {
-    if (builtin.os.tag != .freebsd or
-        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
-
+test "blocks" {
+    const os = @tagName(builtin.target.os.tag);
+    const arch = @tagName(builtin.cpu.arch);
     var gpa = std.testing.allocator;
 
-    const template =
+    const template = std.fmt.allocPrint(
+        testing.allocator,
         \\FOO
-        \\{> if SYSTEM.os == linux <}
+        \\{{> if SYSTEM.os == foo <}}
         \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
+        \\{{> elif SYSTEM.os == {s} <}}
         \\val="Bar"
-        \\{> else <}
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
-        \\{> if SYSTEM.arch == x86_64 <}
+        \\{{> end <}}
+        \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0"
-        \\{> else <}
+        \\{{> else <}}
         \\val="test1"
-        \\{> end <}
+        \\{{> end <}}
         \\
-        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\{{> if SYSTEM.hostname == not_my_machine <}}
         \\val="HOST2"
-        \\{> else <}
+        \\{{> else <}}
         \\val="HOST1"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{ os, arch },
+    ) catch unreachable;
+
+    defer testing.allocator.free(template);
 
     const rendered_user_edit =
         \\BAR
@@ -1473,151 +1350,59 @@ test "blocks (fbsd)" {
     const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
     defer gpa.free(reversed);
 
-    const expected_template =
+    const expected_template = std.fmt.allocPrint(
+        testing.allocator,
         \\BAR
-        \\{> if SYSTEM.os == linux <}
+        \\{{> if SYSTEM.os == foo <}}
         \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
+        \\{{> elif SYSTEM.os == {s} <}}
         \\val="Zoot"
-        \\{> else <}
+        \\{{> else <}}
         \\val="Else"
-        \\{> end <}
-        \\{> if SYSTEM.arch == x86_64 <}
+        \\{{> end <}}
+        \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0-back"
-        \\{> else <}
+        \\{{> else <}}
         \\val="test1"
-        \\{> end <}
+        \\{{> end <}}
         \\
-        \\{> if SYSTEM.hostname == not_my_machine <}
+        \\{{> if SYSTEM.hostname == not_my_machine <}}
         \\val="HOST2"
-        \\{> else <}
+        \\{{> else <}}
         \\val="HOST3"
-        \\{> end <}
+        \\{{> end <}}
         \\
-    ;
+    ,
+        .{ os, arch },
+    ) catch unreachable;
+
+    defer testing.allocator.free(expected_template);
 
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
-test "blocks (linux)" {
-    if (builtin.os.tag != .linux or
-        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
-
+test "blocks-mixed" {
+    const os = @tagName(builtin.target.os.tag);
+    const arch = @tagName(builtin.cpu.arch);
     var gpa = std.testing.allocator;
 
-    const template =
+    const template = std.fmt.allocPrint(
+        testing.allocator,
         \\FOO
-        \\{> if SYSTEM.os == linux <}
-        \\val="Foo"
-        \\{> elif SYSTEM.os == freebsd <}
-        \\val="Bar"
-        \\{> else <}
-        \\val="Else"
-        \\{> end <}
-        \\{> if SYSTEM.arch == x86_64 <}
+        \\val="{{> if SYSTEM.os == {s} <}}Inline{{> else <}}Bar{{> end <}}"
+        \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0"
-        \\{> else <}
+        \\{{> else <}}
         \\val="test1"
-        \\{> end <}
+        \\{{> end <}}
         \\
-        \\{> if SYSTEM.hostname == not_my_machine <}
-        \\val="HOST2"
-        \\{> else <}
-        \\val="HOST1"
-        \\{> end <}
+        \\val="{{> if SYSTEM.hostname == not_my_machine <}}HOST2{{> else <}}HOST1{{> end <}}"
         \\
-    ;
+    ,
+        .{ os, arch },
+    ) catch unreachable;
 
-    const rendered_user_edit =
-        \\BAR
-        \\val="Zoot"
-        \\val="test0-back"
-        \\
-        \\val="HOST3"
-        \\
-    ;
-
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
-
-    const expected_template =
-        \\BAR
-        \\{> if SYSTEM.os == linux <}
-        \\val="Zoot"
-        \\{> elif SYSTEM.os == freebsd <}
-        \\val="Bar"
-        \\{> else <}
-        \\val="Else"
-        \\{> end <}
-        \\{> if SYSTEM.arch == x86_64 <}
-        \\val="test0-back"
-        \\{> else <}
-        \\val="test1"
-        \\{> end <}
-        \\
-        \\{> if SYSTEM.hostname == not_my_machine <}
-        \\val="HOST2"
-        \\{> else <}
-        \\val="HOST3"
-        \\{> end <}
-        \\
-    ;
-
-    try std.testing.expectEqualStrings(expected_template, reversed);
-}
-
-test "blocks-mixed (fbsd)" {
-    if (builtin.os.tag != .freebsd or
-        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
-
-    var gpa = std.testing.allocator;
-
-    const template =
-        \\FOO
-        \\val="{> if SYSTEM.os == freebsd <}Inline{> else <}Bar{> end <}"
-        \\{> if SYSTEM.arch == x86_64 <}
-        \\val="test0"
-        \\{> else <}
-        \\val="test1"
-        \\{> end <}
-        \\
-        \\val="{> if SYSTEM.hostname == not_my_machine <}HOST2{> else <}HOST1{> end <}"
-        \\
-    ;
-
-    const render = try applyTemplate(gpa, template);
-    defer gpa.free(render);
-
-    const expected =
-        \\FOO
-        \\val="Inline"
-        \\val="test0"
-        \\
-        \\val="HOST1"
-        \\
-    ;
-
-    try std.testing.expectEqualStrings(render, expected);
-}
-
-test "blocks-mixed (linux)" {
-    if (builtin.os.tag != .linux or
-        builtin.cpu.arch != .x86_64) return error.SkipZigTest;
-
-    var gpa = std.testing.allocator;
-
-    const template =
-        \\FOO
-        \\val="{> if SYSTEM.os == linux <}Inline{> else <}Bar{> end <}"
-        \\{> if SYSTEM.arch == x86_64 <}
-        \\val="test0"
-        \\{> else <}
-        \\val="test1"
-        \\{> end <}
-        \\
-        \\val="{> if SYSTEM.hostname == not_my_machine <}HOST2{> else <}HOST1{> end <}"
-        \\
-    ;
+    defer testing.allocator.free(template);
 
     const render = try applyTemplate(gpa, template);
     defer gpa.free(render);
