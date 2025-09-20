@@ -287,7 +287,6 @@ pub fn main() !void {
             files.deinit(allocator);
         }
 
-        std.debug.print("{s}\n", .{source_with_slash});
         var src_dir = try std.fs.cwd().openDir(
             source_with_slash,
             .{ .iterate = true },

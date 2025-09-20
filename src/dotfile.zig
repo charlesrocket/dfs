@@ -220,7 +220,8 @@ pub fn processFile(
     const last_modified_src = self.lastMod(File.Template) orelse 0;
     const last_modified_rend = self.lastMod(File.Render) orelse 0;
 
-    if ((last_sync < last_modified_rend) and
+    if ((meta_file != null) and
+        (last_sync < last_modified_rend) and
         (last_modified_rend > last_modified_src))
     {
         counter.template += 1;
