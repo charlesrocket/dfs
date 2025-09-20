@@ -221,12 +221,12 @@ pub fn main() !void {
         config.source = try src.val.getAs([]const u8);
     }
 
-    const source_with_slash = try Util.ensureTrailingSlash(
+    const source_with_slash = try Config.pathFormat(
         allocator,
         config.source,
     );
 
-    const dest_with_slash = try Util.ensureTrailingSlash(
+    const dest_with_slash = try Config.pathFormat(
         allocator,
         config.destination,
     );
@@ -287,8 +287,9 @@ pub fn main() !void {
             files.deinit(allocator);
         }
 
+        std.debug.print("{s}\n", .{source_with_slash});
         var src_dir = try std.fs.cwd().openDir(
-            config.source,
+            source_with_slash,
             .{ .iterate = true },
         );
 

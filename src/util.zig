@@ -133,17 +133,6 @@ pub fn ensureLeadingSlash(
     return try std.fmt.allocPrint(allocator, "/{s}", .{path});
 }
 
-pub fn ensureTrailingSlash(
-    allocator: std.mem.Allocator,
-    path: []const u8,
-) ![]const u8 {
-    if (std.mem.endsWith(u8, path, "/")) {
-        return path;
-    }
-
-    return try std.fmt.allocPrint(allocator, "{s}/", .{path});
-}
-
 pub fn isIgnored(value: []const u8, ignore_list: [][]const u8) bool {
     for (ignore_list) |el| {
         if (std.mem.eql(u8, el, value)) {
