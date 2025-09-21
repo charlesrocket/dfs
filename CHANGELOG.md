@@ -2,6 +2,75 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2025-09-21
+
+### Bug Fixes
+
+- [**breaking**] Rename errors
+- Switch to gpa
+- Catch template errors
+- Fix meta file path
+- Switch to `std.fs.Dir.walk()`
+- Fix `dotfile.lastMod()`
+- Fix file errors
+- Get stderr
+- Use absolute template path
+- Fix `lastMod()`
+- Keep relative source string
+- Improve write ops
+- Improve change detection
+- Drop `fs.realpathAlloc()`
+- Properly handle first sync
+- Catch empty templates
+
+### Features
+
+- Support env vars
+
+### Miscellaneous tasks
+
+- Ignore `dest*`
+
+### Refactor
+
+- Fix signatures
+- Define tag
+- Drop redundant `len`
+
+### Styling
+
+- Fix formatting
+
+### Testing
+
+- Add token tests
+- Ignore `dest`
+- Add `processFile`
+- Fix unit cases
+- Fix `sync`
+- Fix merge step
+- Add `sync-dry`
+- Add config cases
+- Fix `processFile`
+- Add `sync-back`
+- Add binary file
+- Fix `sync-dry`
+- Add `blocks-mixed`
+- Add `parseTag`
+- Add `parseBody`
+- Add trimming cases
+- Add `indexOfTag`
+- Add `nextTag`
+- Add `splitWhitespace`
+- Add `extractChangeChunk`
+- Add `findAnchorLiteral`
+- Fix `sync` cases
+- Add `copyWithWhitespace`
+- Add `normalizeTrailing`
+- Add `evalIfGroup`
+- Add `evalCondition`
+- Merge cases
+
 ## [0.2.0] - 2025-09-12
 
 ### Bug Fixes
