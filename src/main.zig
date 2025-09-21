@@ -347,9 +347,21 @@ pub fn main() !void {
             try counter.json(stdout);
             _ = try stdout.write("\n");
         } else {
-            try stdout.print("PROCESSED FILES: {s}{d}{s}\n", .{
+            try stdout.print("{s}{s}SYNC COMPLETED{s}\n", .{
+                cli.magenta,
+                cli.bold,
+                cli.reset,
+            });
+
+            try stdout.print("PROCESSED: {s}{d}{s}\n", .{
                 cli.underline,
                 counter.total,
+                cli.reset,
+            });
+
+            try stdout.print("UPDATED: {s}{d}{s}\n", .{
+                cli.underline,
+                counter.updated,
                 cli.reset,
             });
 

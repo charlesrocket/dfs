@@ -90,7 +90,9 @@ test "sync" {
         \\|___/ \_|   \____/
         \\
         \\SYNC STARTED
-        \\PROCESSED FILES: 3
+        \\SYNC COMPLETED
+        \\PROCESSED: 3
+        \\UPDATED: 2
         \\ERRORS: 1
         \\DONE
         \\
@@ -164,7 +166,9 @@ test "sync-dry" {
         \\
         \\--- --- ---
         \\
-        \\PROCESSED FILES: 1
+        \\SYNC COMPLETED
+        \\PROCESSED: 1
+        \\UPDATED: 0
         \\ERRORS: 0
         \\DONE
         \\
