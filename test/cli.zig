@@ -284,7 +284,7 @@ test "config bad" {
         \\Example:
         \\
         \\.{
-        \\    .source = "/tmp/src/dotfiles",
+        \\    .source = "$HOME/src/dotfiles",
         \\    .destination = "/tmp/test",
         \\    .ignore_list = .{},
         \\}
