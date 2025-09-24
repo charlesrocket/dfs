@@ -189,7 +189,7 @@ pub fn main() !void {
     ) catch {
         const example_config = try Config.Configuration.new(
             allocator,
-            "/tmp/src/dotfiles",
+            "$HOME/src/dotfiles",
             "/tmp/test",
         );
 
