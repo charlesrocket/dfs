@@ -182,6 +182,7 @@ pub fn processFile(
 
     defer allocator.free(template_content);
 
+    const template_mode = try template_file.mode();
     const is_text = Util.isText(template_content);
     var last_sync: usize = 0;
 
@@ -303,6 +304,7 @@ pub fn processFile(
                 .{
                     .read = false,
                     .truncate = true,
+                    .mode = template_mode,
                 },
             );
 
@@ -382,6 +384,7 @@ pub fn processFile(
             }) catch try std.fs.cwd().createFile(self.dest, .{
                 .read = true,
                 .truncate = true,
+                .mode = template_mode,
             });
 
             const output_file_size: usize = @intCast((try output_file.stat()).size);
