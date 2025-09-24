@@ -837,20 +837,105 @@ test validate {
     try testing.expectEqual(@as(usize, 1), result_unclosed.err.line);
     try testing.expectEqual(@as(usize, 4), result_unclosed.err.column);
 
-    const template_orphaned =
+    const template_empty = "FOO{><}BAR";
+    const result_empty = validate(template_empty);
+
+    try testing.expect(result_empty.isError());
+    try testing.expectEqual(ValidationError.EmptyTag, result_empty.err.err);
+
+    const template_whitespace_only = "FOO{>   \t\n  <}BAR";
+    const result_whitespace_only = validate(template_whitespace_only);
+
+    try testing.expect(result_whitespace_only.isError());
+    try testing.expectEqual(ValidationError.EmptyTag, result_whitespace_only.err.err);
+
+    const template_orphaned_else =
         \\FOO
         \\{> else <}
         \\val="HOST1"
         \\{> end <}
     ;
 
-    const result_orphaned = validate(template_orphaned);
+    const result_orphaned_else = validate(template_orphaned_else);
 
-    try testing.expect(result_orphaned.isError());
-    try testing.expectEqual(ValidationError.OrphanedElseElif, result_orphaned.err.err);
-    try testing.expectEqual(@as(usize, 2), result_orphaned.err.line);
+    try testing.expect(result_orphaned_else.isError());
+    try testing.expectEqual(ValidationError.OrphanedElseElif, result_orphaned_else.err.err);
+    try testing.expectEqual(@as(usize, 2), result_orphaned_else.err.line);
 
-    const template_valid =
+    // Test OrphanedElseElif - orphaned elif
+    const template_orphaned_elif =
+        \\FOO
+        \\{> elif SYSTEM.os == freebsd <}
+        \\val="HOST1"
+        \\{> end <}
+    ;
+
+    const result_orphaned_elif = validate(template_orphaned_elif);
+
+    try testing.expect(result_orphaned_elif.isError());
+    try testing.expectEqual(ValidationError.OrphanedElseElif, result_orphaned_elif.err.err);
+
+    const template_mismatched = "{> end <}";
+    const result_mismatched = validate(template_mismatched);
+
+    try testing.expect(result_mismatched.isError());
+    try testing.expectEqual(ValidationError.MismatchedEnd, result_mismatched.err.err);
+
+    const template_unclosed_if =
+        \\FOO
+        \\{> if SYSTEM.os == openbsd <}
+        \\val="test"
+    ;
+
+    const result_unclosed_if = validate(template_unclosed_if);
+
+    try testing.expect(result_unclosed_if.isError());
+    try testing.expectEqual(ValidationError.MismatchedEnd, result_unclosed_if.err.err);
+
+    const template_bad_if_format = "{> ifSYSTEM.os == linux <}content{> end <}";
+    const result_bad_if_format = validate(template_bad_if_format);
+
+    try testing.expect(result_bad_if_format.isError());
+    try testing.expectEqual(ValidationError.InvalidCondition, result_bad_if_format.err.err);
+
+    const template_bad_elif_format =
+        \\{> if SYSTEM.os == foo <}
+        \\content1
+        \\{> elifSYSTEM.os == bar <}
+        \\content2
+        \\{> end <}
+    ;
+
+    const result_bad_elif_format = validate(template_bad_elif_format);
+
+    try testing.expect(result_bad_elif_format.isError());
+    try testing.expectEqual(ValidationError.InvalidCondition, result_bad_elif_format.err.err);
+
+    const template_bad_condition_parts = "{> if SYSTEM.os <}content{> end <}";
+    const result_bad_condition_parts = validate(template_bad_condition_parts);
+
+    try testing.expect(result_bad_condition_parts.isError());
+    try testing.expectEqual(ValidationError.InvalidCondition, result_bad_condition_parts.err.err);
+
+    const template_bad_lhs = "{> if INVALID.var == value <}content{> end <}";
+    const result_bad_lhs = validate(template_bad_lhs);
+
+    try testing.expect(result_bad_lhs.isError());
+    try testing.expectEqual(ValidationError.InvalidCondition, result_bad_lhs.err.err);
+
+    const template_bad_operator = "{> if SYSTEM.os >= linux <}content{> end <}";
+    const result_bad_operator = validate(template_bad_operator);
+
+    try testing.expect(result_bad_operator.isError());
+    try testing.expectEqual(ValidationError.InvalidCondition, result_bad_operator.err.err);
+
+    const template_unknown_tag = "{> unknown_tag <}";
+    const result_unknown_tag = validate(template_unknown_tag);
+
+    try testing.expect(result_unknown_tag.isError());
+    try testing.expectEqual(ValidationError.InvalidTag, result_unknown_tag.err.err);
+
+    const template_valid_simple =
         \\FOO
         \\{> if SYSTEM.hostname == baal <}
         \\val="HOST2"
@@ -859,21 +944,100 @@ test validate {
         \\{> end <}
     ;
 
-    const result_valid = validate(template_valid);
+    const result_valid_simple = validate(template_valid_simple);
 
-    try testing.expect(!result_valid.isError());
+    try testing.expect(!result_valid_simple.isError());
 
-    const template_bad_condition = "{> if badformat <}";
-    const result_bad_condition = validate(template_bad_condition);
+    const template_valid_chain =
+        \\{> if SYSTEM.os == netbsd <}
+        \\netbsd_content
+        \\{> elif SYSTEM.os == windows <}
+        \\windows_content
+        \\{> elif SYSTEM.os == freebsd <}
+        \\freebsd_content
+        \\{> else <}
+        \\other_content
+        \\{> end <}
+    ;
 
-    try testing.expect(result_bad_condition.isError());
-    try testing.expectEqual(ValidationError.InvalidCondition, result_bad_condition.err.err);
+    const result_valid_chain = validate(template_valid_chain);
 
-    const template_mismatched = "{> end <}";
-    const result_mismatched = validate(template_mismatched);
+    try testing.expect(!result_valid_chain.isError());
 
-    try testing.expect(result_mismatched.isError());
-    try testing.expectEqual(ValidationError.MismatchedEnd, result_mismatched.err.err);
+    const template_valid_nested =
+        \\{> if SYSTEM.os == freebsd <}
+        \\{> if SYSTEM.arch == x86_64 <}
+        \\freebsd_x64
+        \\{> else <}
+        \\freebsd_other
+        \\{> end <}
+        \\{> end <}
+    ;
+
+    const result_valid_nested = validate(template_valid_nested);
+
+    try testing.expect(!result_valid_nested.isError());
+
+    const template_valid_multiple =
+        \\{> if SYSTEM.os == freebsd <}
+        \\first_block
+        \\{> end <}
+        \\some text
+        \\{> if SYSTEM.arch == arm64 <}
+        \\second_block
+        \\{> end <}
+    ;
+
+    const result_valid_multiple = validate(template_valid_multiple);
+
+    try testing.expect(!result_valid_multiple.isError());
+
+    const template_valid_all_vars =
+        \\{> if SYSTEM.os == openbsd <}os_content{> end <}
+        \\{> if SYSTEM.hostname == host <}host_content{> end <}
+        \\{> if SYSTEM.arch == x86_64 <}arch_content{> end <}
+    ;
+
+    const result_valid_all_vars = validate(template_valid_all_vars);
+
+    try testing.expect(!result_valid_all_vars.isError());
+
+    const template_valid_operators =
+        \\{> if SYSTEM.os == linux <}equal{> end <}
+        \\{> if SYSTEM.os != windows <}not_equal{> end <}
+    ;
+
+    const result_valid_operators = validate(template_valid_operators);
+
+    try testing.expect(!result_valid_operators.isError());
+
+    const template_multiline =
+        \\line 1
+        \\line 2
+        \\line 3 {> invalid_tag <}
+        \\line 4
+    ;
+
+    const result_multiline = validate(template_multiline);
+
+    try testing.expect(result_multiline.isError());
+    try testing.expectEqual(ValidationError.InvalidTag, result_multiline.err.err);
+    try testing.expectEqual(@as(usize, 3), result_multiline.err.line);
+    try testing.expectEqual(@as(usize, 8), result_multiline.err.column);
+
+    const template_line_tracking =
+        \\first line
+        \\second line
+        \\third line
+        \\{> else <}
+        \\fifth line
+    ;
+
+    const result_line_tracking = validate(template_line_tracking);
+
+    try testing.expect(result_line_tracking.isError());
+    try testing.expectEqual(ValidationError.OrphanedElseElif, result_line_tracking.err.err);
+    try testing.expectEqual(@as(usize, 4), result_line_tracking.err.line);
 }
 
 test interpret {
@@ -887,7 +1051,7 @@ test interpret {
 
     const template =
         \\FOO
-        \\{> if SYSTEM.hostname == somepc <}
+        \\{> if SYSTEM.hostname == baal <}
         \\val="HOST2"
         \\{> else <}
         \\val="HOST1"
@@ -919,14 +1083,14 @@ test tokenize {
     try std.testing.expectError(error.InvalidTemplate, failure);
 
     const template =
-        \\FOO{> if SYSTEM.hostname == somepc <}val="HOST2"{> else <}val="HOST1"{> end <}
+        \\FOO{> if SYSTEM.hostname == gibson <}val="HOST2"{> else <}val="HOST1"{> end <}
     ;
 
     const tokenized = try tokenize(std.testing.allocator, template);
     defer std.testing.allocator.free(tokenized);
 
     try std.testing.expectEqualStrings("FOO", tokenized[0].text);
-    try std.testing.expectEqualStrings("if SYSTEM.hostname == somepc", tokenized[1].tag);
+    try std.testing.expectEqualStrings("if SYSTEM.hostname == gibson", tokenized[1].tag);
     try std.testing.expectEqualStrings("val=\"HOST2\"", tokenized[2].text);
     try std.testing.expectEqualStrings("else", tokenized[3].tag);
     try std.testing.expectEqualStrings("val=\"HOST1\"", tokenized[4].text);
