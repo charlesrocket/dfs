@@ -239,21 +239,24 @@ pub fn main() !void {
             allocator.free(dest_with_slash);
     }
 
-    if (main_cmd.matchSubCmd("sync")) |sync_cmd| {
-        var ignore_list = std.ArrayList([]const u8).init(allocator);
-        defer ignore_list.deinit();
+    const sync_cmd = main_cmd.checkSubCmd("sync");
+    const validate_cmd = main_cmd.checkSubCmd("validate");
 
-        for (IGNORE_LIST) |item| {
-            try ignore_list.append(item);
-        }
+    var ignore_list = std.ArrayList([]const u8).init(allocator);
+    defer ignore_list.deinit();
 
-        for (config.ignore_list) |item| {
-            try ignore_list.append(item);
-        }
+    for (IGNORE_LIST) |item| {
+        try ignore_list.append(item);
+    }
 
-        var verbose = false;
+    for (config.ignore_list) |item| {
+        try ignore_list.append(item);
+    }
 
-        if (!json) {
+    var verbose = false;
+
+    if (!json) {
+        if (sync_cmd) {
             try stdout.print("{s}\n{s}{s}SYNC STARTED{s}\n", .{
                 assets.logo,
                 cli.magenta,
@@ -262,9 +265,19 @@ pub fn main() !void {
             });
         }
 
-        if (sync_cmd.checkFlag("verbose")) verbose = true;
+        if (validate_cmd) {
+            try stdout.print("{s}\n{s}{s}VALIDATION STARTED{s}\n", .{
+                assets.help_prefix,
+                cli.magenta,
+                cli.bold,
+                cli.reset,
+            });
+        }
+    }
 
-        if ((try sync_cmd.getOpts(.{})).get("dry")) |dry_opt| {
+    if (main_cmd.matchSubCmd("sync")) |cmd| {
+        if (cmd.checkFlag("verbose")) verbose = true;
+        if ((try cmd.getOpts(.{})).get("dry")) |dry_opt| {
             dry_run = dry_opt.val.isSet();
 
             if (!json and dry_run) {
@@ -275,63 +288,75 @@ pub fn main() !void {
                 });
             }
         }
+    }
 
-        var counter = Util.Counter.new(dry_run);
-        var files = std.ArrayListUnmanaged(Dotfile).empty;
+    var counter = Util.Counter.new(dry_run);
+    var files = std.ArrayListUnmanaged(Dotfile).empty;
 
-        defer {
-            for (files.items) |file| {
-                file.deinit(allocator);
-            }
-
-            files.deinit(allocator);
+    defer {
+        for (files.items) |file| {
+            file.deinit(allocator);
         }
 
-        var src_dir = try std.fs.cwd().openDir(
-            source_with_slash,
-            .{ .iterate = true },
-        );
+        files.deinit(allocator);
+    }
 
-        defer src_dir.close();
+    var src_dir = try std.fs.cwd().openDir(
+        source_with_slash,
+        .{ .iterate = true },
+    );
 
-        // get target files from the source directory
-        var walker = try src_dir.walk(allocator);
-        defer walker.deinit();
+    defer src_dir.close();
 
-        const ignore_items = ignore_list.items;
+    // get target files from the source directory
+    var walker = try src_dir.walk(allocator);
+    defer walker.deinit();
 
-        walk: while (try walker.next()) |entry| {
-            if (Util.isIgnored(entry.basename, ignore_items)) {
-                if (entry.kind == .directory) {
-                    // remove from stack, with prejudice
-                    var item = walker.stack.pop().?;
-                    // don't let this be the root directory
-                    item.iter.dir.close();
-                }
+    const ignore_items = ignore_list.items;
 
-                continue :walk;
+    walk: while (try walker.next()) |entry| {
+        if (Util.isIgnored(entry.basename, ignore_items)) {
+            if (entry.kind == .directory) {
+                // remove from stack, with prejudice
+                var item = walker.stack.pop().?;
+                // don't let this be the root directory
+                item.iter.dir.close();
             }
 
-            switch (entry.kind) {
-                .file => {
-                    const src_path = try std.fs.path.join(
-                        allocator,
-                        &.{ source_with_slash, entry.path },
-                    );
-
-                    const dest_path = try std.fs.path.join(
-                        allocator,
-                        &.{ dest_with_slash, entry.path },
-                    );
-
-                    const file = Dotfile.new(src_path, dest_path);
-
-                    try files.append(allocator, file);
-                },
-                else => continue :walk,
-            }
+            continue :walk;
         }
 
+        switch (entry.kind) {
+            .file => {
+                const src_path = try std.fs.path.join(
+                    allocator,
+                    &.{ source_with_slash, entry.path },
+                );
+
+                const dest_path = try std.fs.path.join(
+                    allocator,
+                    &.{ dest_with_slash, entry.path },
+                );
+
+                const file = Dotfile.new(src_path, dest_path);
+
+                try files.append(allocator, file);
+            },
+            else => continue :walk,
+        }
+    }
+
+    if (validate_cmd and !sync_cmd) {
+        for (files.items) |file| {
+            _ = file.validate(
+                allocator,
+                &counter,
+                json,
+            );
+        }
+    }
+
+    if (sync_cmd and !validate_cmd) {
         for (files.items) |file| {
             try file.processFile(
                 allocator,
@@ -342,17 +367,13 @@ pub fn main() !void {
                 json,
             );
         }
+    }
 
-        if (json) {
-            try counter.json(stdout);
-            _ = try stdout.write("\n");
-        } else {
-            try stdout.print("{s}{s}SYNC COMPLETED{s}\n", .{
-                cli.magenta,
-                cli.bold,
-                cli.reset,
-            });
-
+    if (json) {
+        try counter.json(stdout);
+        _ = try stdout.write("\n");
+    } else {
+        if (sync_cmd) {
             try stdout.print("PROCESSED: {s}{d}{s}\n", .{
                 cli.underline,
                 counter.total,
@@ -370,13 +391,15 @@ pub fn main() !void {
                 counter.errors,
                 cli.reset,
             });
-
-            try stdout.print("{s}{s}DONE{s}\n", .{
-                cli.bold,
-                cli.green,
-                cli.reset,
-            });
         }
+    }
+
+    if (!json) {
+        try stdout.print("{s}{s}DONE{s}\n", .{
+            cli.bold,
+            cli.green,
+            cli.reset,
+        });
     }
 }
 

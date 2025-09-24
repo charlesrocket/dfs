@@ -101,7 +101,6 @@ pub const setup_cmd: CommandT = .{
             \\Initialize the configuration. The deployed layout mirrors
             \\    the source completely (except assets in the ignore list).
             \\    So it is recommended to structure the source repository as $HOME.
-            \\
             \\    (requires git)
             ,
         },
@@ -136,6 +135,10 @@ pub const setup_cmd: CommandT = .{
                     .long_name = "verbose",
                 },
             },
+        },
+        .{
+            .name = "validate",
+            .description = "Run template validation.",
         },
     },
     .opts = &.{

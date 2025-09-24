@@ -90,7 +90,6 @@ test "sync" {
         \\|___/ \_|   \____/
         \\
         \\SYNC STARTED
-        \\SYNC COMPLETED
         \\PROCESSED: 3
         \\UPDATED: 2
         \\ERRORS: 1
@@ -166,7 +165,6 @@ test "sync-dry" {
         \\
         \\--- --- ---
         \\
-        \\SYNC COMPLETED
         \\PROCESSED: 1
         \\UPDATED: 0
         \\ERRORS: 0

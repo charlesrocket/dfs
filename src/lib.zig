@@ -27,6 +27,34 @@ const Chunk = struct {
     end: usize,
 };
 
+pub const ValidationError = error{
+    UnclosedTag,
+    InvalidTag,
+    MismatchedEnd,
+    OrphanedElseElif,
+    InvalidCondition,
+    EmptyTag,
+};
+
+const ValidationInfo = struct {
+    err: ValidationError,
+    line: usize,
+    column: usize,
+    message: []const u8,
+};
+
+const ValidationResult = union(enum) {
+    ok: void,
+    err: ValidationInfo,
+
+    pub fn isError(self: ValidationResult) bool {
+        return switch (self) {
+            .ok => false,
+            .err => true,
+        };
+    }
+};
+
 fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
     var tokens = std.ArrayList(Token).init(allocator);
     errdefer tokens.deinit();
@@ -572,6 +600,280 @@ fn trimTrailingNewlines(s: []const u8) []const u8 {
     }
 
     return s[0..end];
+}
+
+pub fn validate(template: []const u8) ValidationResult {
+    var i: usize = 0;
+    var line: usize = 1;
+    var column: usize = 1;
+    var if_depth: usize = 0;
+    var has_if_in_group: bool = false;
+
+    while (i < template.len) {
+        if (std.mem.startsWith(u8, template[i..], TAG_START)) {
+            const tag_start = i + TAG_START.len;
+
+            // find end of tag
+            const tag_end_pos = std.mem.indexOfPos(
+                u8,
+                template,
+                tag_start,
+                TAG_END,
+            ) orelse {
+                return ValidationResult{
+                    .err = .{
+                        .err = ValidationError.UnclosedTag,
+                        .line = line,
+                        .column = column,
+                        .message = "Unclosed tag",
+                    },
+                };
+            };
+
+            const raw_tag = template[tag_start..tag_end_pos];
+
+            if (raw_tag.len == 0) {
+                return ValidationResult{
+                    .err = .{
+                        .err = ValidationError.EmptyTag,
+                        .line = line,
+                        .column = column,
+                        .message = "Empty tag",
+                    },
+                };
+            }
+
+            const tag = trimTag(raw_tag);
+
+            if (tag.len == 0) {
+                return ValidationResult{
+                    .err = .{
+                        .err = ValidationError.EmptyTag,
+                        .line = line,
+                        .column = column,
+                        .message = "Empty tag after trimming whitespace",
+                    },
+                };
+            }
+
+            // validate tag content
+            if (std.mem.startsWith(u8, tag, "if")) {
+                if (tag.len < 4 or tag[2] != ' ') {
+                    return ValidationResult{
+                        .err = .{
+                            .err = ValidationError.InvalidCondition,
+                            .line = line,
+                            .column = column,
+                            .message = "Invalid 'if' condition format",
+                        },
+                    };
+                }
+
+                const condition = tag[3..];
+
+                if (!isValidCondition(condition)) {
+                    return ValidationResult{
+                        .err = .{
+                            .err = ValidationError.InvalidCondition,
+                            .line = line,
+                            .column = column,
+                            .message = "Invalid condition syntax",
+                        },
+                    };
+                }
+
+                if_depth += 1;
+                has_if_in_group = true;
+            } else if (std.mem.startsWith(u8, tag, "elif")) {
+                if (if_depth == 0 or !has_if_in_group) {
+                    return ValidationResult{
+                        .err = .{
+                            .err = ValidationError.OrphanedElseElif,
+                            .line = line,
+                            .column = column,
+                            .message = "Orphaned 'elif' without matching 'if'",
+                        },
+                    };
+                }
+
+                if (tag.len < 6 or tag[4] != ' ') {
+                    return ValidationResult{
+                        .err = .{
+                            .err = ValidationError.InvalidCondition,
+                            .line = line,
+                            .column = column,
+                            .message = "Invalid 'elif' condition format",
+                        },
+                    };
+                }
+
+                const condition = tag[5..];
+
+                if (!isValidCondition(condition)) {
+                    return ValidationResult{
+                        .err = .{
+                            .err = ValidationError.InvalidCondition,
+                            .line = line,
+                            .column = column,
+                            .message = "Invalid 'elif' condition syntax",
+                        },
+                    };
+                }
+            } else if (std.mem.eql(u8, tag, "else")) {
+                if (if_depth == 0 or !has_if_in_group) {
+                    return ValidationResult{
+                        .err = .{
+                            .err = ValidationError.OrphanedElseElif,
+                            .line = line,
+                            .column = column,
+                            .message = "Orphaned 'else' without matching 'if'",
+                        },
+                    };
+                }
+            } else if (std.mem.eql(u8, tag, "end")) {
+                if (if_depth == 0) {
+                    return ValidationResult{
+                        .err = .{
+                            .err = ValidationError.MismatchedEnd,
+                            .line = line,
+                            .column = column,
+                            .message = "Mismatched 'end' tag without matching 'if'",
+                        },
+                    };
+                }
+
+                if_depth -= 1;
+
+                if (if_depth == 0) {
+                    has_if_in_group = false;
+                }
+            } else {
+                return ValidationResult{
+                    .err = .{
+                        .err = ValidationError.InvalidTag,
+                        .line = line,
+                        .column = column,
+                        .message = "Unknown or invalid tag",
+                    },
+                };
+            }
+
+            // update position tracking
+            var j = i;
+            while (j < tag_end_pos + TAG_END.len and j < template.len) {
+                if (template[j] == '\n') {
+                    line += 1;
+                    column = 1;
+                } else {
+                    column += 1;
+                }
+
+                j += 1;
+            }
+
+            i = tag_end_pos + TAG_END.len;
+        } else {
+            if (template[i] == '\n') {
+                line += 1;
+                column = 1;
+            } else {
+                column += 1;
+            }
+
+            i += 1;
+        }
+    }
+
+    // check for unclosed `if` blocks
+    if (if_depth > 0) {
+        return ValidationResult{
+            .err = .{
+                .err = ValidationError.MismatchedEnd,
+                .line = line,
+                .column = column,
+                .message = "Unclosed 'if' block(s) at end of template",
+            },
+        };
+    }
+
+    return ValidationResult{ .ok = {} };
+}
+
+fn isValidCondition(condition: []const u8) bool {
+    var parts: [3][]const u8 = undefined;
+    var part_count: usize = 0;
+    var iter = std.mem.splitAny(u8, condition, " \t");
+
+    while (iter.next()) |part| {
+        if (part_count >= 3) return false;
+        parts[part_count] = part;
+        part_count += 1;
+    }
+
+    if (part_count != 3) return false;
+
+    const lhs = parts[0];
+    const op = parts[1];
+    const rhs = parts[2];
+
+    // validate left-hand side
+    if (!(std.mem.eql(u8, lhs, "SYSTEM.os") or
+        std.mem.eql(u8, lhs, "SYSTEM.hostname") or
+        std.mem.eql(u8, lhs, "SYSTEM.arch"))) return false;
+
+    // validate operator
+    if (!(std.mem.eql(u8, op, "==") or std.mem.eql(u8, op, "!="))) return false;
+
+    // right-hand side must not be empty
+    return rhs.len > 0;
+}
+
+test validate {
+    const template_unclosed = "FOO{> xx";
+    const result_unclosed = validate(template_unclosed);
+
+    try testing.expect(result_unclosed.isError());
+    try testing.expectEqual(ValidationError.UnclosedTag, result_unclosed.err.err);
+    try testing.expectEqual(@as(usize, 1), result_unclosed.err.line);
+    try testing.expectEqual(@as(usize, 4), result_unclosed.err.column);
+
+    const template_orphaned =
+        \\FOO
+        \\{> else <}
+        \\val="HOST1"
+        \\{> end <}
+    ;
+
+    const result_orphaned = validate(template_orphaned);
+
+    try testing.expect(result_orphaned.isError());
+    try testing.expectEqual(ValidationError.OrphanedElseElif, result_orphaned.err.err);
+    try testing.expectEqual(@as(usize, 2), result_orphaned.err.line);
+
+    const template_valid =
+        \\FOO
+        \\{> if SYSTEM.hostname == baal <}
+        \\val="HOST2"
+        \\{> else <}
+        \\val="HOST1"
+        \\{> end <}
+    ;
+
+    const result_valid = validate(template_valid);
+
+    try testing.expect(!result_valid.isError());
+
+    const template_bad_condition = "{> if badformat <}";
+    const result_bad_condition = validate(template_bad_condition);
+
+    try testing.expect(result_bad_condition.isError());
+    try testing.expectEqual(ValidationError.InvalidCondition, result_bad_condition.err.err);
+
+    const template_mismatched = "{> end <}";
+    const result_mismatched = validate(template_mismatched);
+
+    try testing.expect(result_mismatched.isError());
+    try testing.expectEqual(ValidationError.MismatchedEnd, result_mismatched.err.err);
 }
 
 test interpret {

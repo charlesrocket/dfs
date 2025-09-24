@@ -45,6 +45,56 @@ pub fn metaFilePath(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
     );
 }
 
+pub fn validate(
+    self: @This(),
+    allocator: std.mem.Allocator,
+    counter: *Util.Counter,
+    json: bool,
+) void {
+    counter.total += 1;
+    const template_file = std.fs.cwd().openFile(self.src, .{}) catch {
+        counter.errors += 1;
+        std.debug.print(
+            "{s}{s}ERROR | Not found:{s} {s}\n",
+            .{ cli.red, cli.bold, cli.reset, self.src },
+        );
+
+        return;
+    };
+
+    defer template_file.close();
+
+    const template_size: usize = @intCast((template_file.stat() catch unreachable).size);
+    const template_content = template_file.readToEndAlloc(
+        allocator,
+        template_size,
+    ) catch unreachable;
+
+    defer allocator.free(template_content);
+
+    if (!Util.isText(template_content)) return;
+
+    const result = lib.validate(template_content);
+
+    if (result.isError()) {
+        counter.errors += 1;
+
+        if (!json) {
+            std.debug.print("{s}Invalid template{s} {s}\n", .{
+                cli.red,
+                cli.reset,
+                self.src,
+            });
+
+            std.debug.print("Error at line {}, column {}: {s}\n", .{
+                result.err.line,
+                result.err.column,
+                result.err.message,
+            });
+        }
+    }
+}
+
 pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
     const sync_dest = try self.metaFilePath(allocator);
     defer allocator.free(sync_dest);
