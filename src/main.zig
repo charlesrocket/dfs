@@ -160,9 +160,10 @@ pub fn main() !void {
 
     defer config_file.close();
 
+    const config_size: usize = @intCast((try config_file.stat()).size);
     const config_content_t = try config_file.readToEndAlloc(
         allocator,
-        1024,
+        config_size,
     );
 
     defer allocator.free(config_content_t);
