@@ -110,6 +110,17 @@ pub fn main() !void {
         custom_config_path = try dest.val.getAs([]const u8);
     }
 
+    if (main_cmd.checkSubCmd("purge")) {
+        try stdout.print("{s}\nErasing application data...\n", .{
+            assets.help_prefix,
+        });
+
+        const data = try Config.getXdgDir(allocator, Config.XdgDir.Data);
+        defer allocator.free(data);
+
+        try std.fs.cwd().deleteTree(data);
+    }
+
     if (main_cmd.checkSubCmd("init")) {
         try init(allocator, stdout, custom_config_path);
     } else if (main_cmd.matchSubCmd("bootstrap")) |bootstrap_cmd| {
@@ -315,35 +326,37 @@ pub fn main() !void {
 
     const ignore_items = ignore_list.items;
 
-    walk: while (try walker.next()) |entry| {
-        if (Util.isIgnored(entry.basename, ignore_items)) {
-            if (entry.kind == .directory) {
-                // remove from stack, with prejudice
-                var item = walker.stack.pop().?;
-                // don't let this be the root directory
-                item.iter.dir.close();
+    if (sync_cmd or validate_cmd) {
+        walk: while (try walker.next()) |entry| {
+            if (Util.isIgnored(entry.basename, ignore_items)) {
+                if (entry.kind == .directory) {
+                    // remove from stack, with prejudice
+                    var item = walker.stack.pop().?;
+                    // don't let this be the root directory
+                    item.iter.dir.close();
+                }
+
+                continue :walk;
             }
 
-            continue :walk;
-        }
+            switch (entry.kind) {
+                .file => {
+                    const src_path = try std.fs.path.join(
+                        allocator,
+                        &.{ source_with_slash, entry.path },
+                    );
 
-        switch (entry.kind) {
-            .file => {
-                const src_path = try std.fs.path.join(
-                    allocator,
-                    &.{ source_with_slash, entry.path },
-                );
+                    const dest_path = try std.fs.path.join(
+                        allocator,
+                        &.{ dest_with_slash, entry.path },
+                    );
 
-                const dest_path = try std.fs.path.join(
-                    allocator,
-                    &.{ dest_with_slash, entry.path },
-                );
+                    const file = Dotfile.new(src_path, dest_path);
 
-                const file = Dotfile.new(src_path, dest_path);
-
-                try files.append(allocator, file);
-            },
-            else => continue :walk,
+                    try files.append(allocator, file);
+                },
+                else => continue :walk,
+            }
         }
     }
 

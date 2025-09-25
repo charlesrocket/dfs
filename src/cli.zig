@@ -140,6 +140,10 @@ pub const setup_cmd: CommandT = .{
             .name = "validate",
             .description = "Run template validation.",
         },
+        .{
+            .name = "purge",
+            .description = "Delete application data (meta, backups)",
+        },
     },
     .opts = &.{
         .{
