@@ -26,7 +26,7 @@ pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
     allocator.free(self.dest);
 }
 
-pub fn metaFilePath(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
+fn metaFilePath(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
     const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
     defer allocator.free(data_dir);
 
@@ -43,6 +43,53 @@ pub fn metaFilePath(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
         "{s}{s}.zon",
         .{ data_dir, dest },
     );
+}
+
+fn backupPath(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
+    const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
+    defer allocator.free(data_dir);
+
+    // epoch for now
+    const id = std.time.timestamp();
+    const dest = try Util.ensureLeadingSlash(allocator, self.dest);
+
+    defer {
+        if (!std.mem.eql(u8, dest, self.dest)) {
+            allocator.free(dest);
+        }
+    }
+
+    return try std.fmt.allocPrint(
+        allocator,
+        "{s}/_backups/{d}{s}",
+        .{ data_dir, id, dest },
+    );
+}
+
+pub fn backup(self: @This(), allocator: std.mem.Allocator) !void {
+    const backup_dest = try self.backupPath(allocator);
+    const index = std.mem.lastIndexOfScalar(u8, backup_dest, '/');
+    const backup_target = backup_dest[0 .. index.? + 1];
+
+    try Util.createDirRecursively(allocator, backup_target);
+
+    var backup_dir = try std.fs.cwd().openDir(backup_target, .{
+        .access_sub_paths = true,
+        .iterate = false,
+        .no_follow = false,
+    });
+
+    defer {
+        allocator.free(backup_dest);
+        backup_dir.close();
+    }
+
+    std.fs.cwd().copyFile(
+        self.dest,
+        std.fs.cwd(),
+        backup_dest,
+        .{ .override_mode = 0o600 },
+    ) catch return;
 }
 
 pub fn validate(
@@ -216,6 +263,7 @@ pub fn processFile(
         const meta_dest = meta_file_path[0..index.?];
 
         if (!dry_run) {
+            try self.backup(allocator);
             try Util.createDirRecursively(allocator, meta_dest);
             _ = try std.fs.createFileAbsolute(
                 meta_file_path,
