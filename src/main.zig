@@ -325,7 +325,10 @@ pub fn main() !void {
         (!sync_cmd or !validate_cmd);
 
     const main_node = std.Progress.start(
-        .{ .disable_printing = no_progress },
+        .{
+            .disable_printing = no_progress,
+            .initial_delay_ns = 80,
+        },
     );
 
     // get target files from the source directory
