@@ -320,6 +320,14 @@ pub fn main() !void {
 
     defer src_dir.close();
 
+    // progress
+    const no_progress = (json or verbose or dry_run) and
+        (!sync_cmd or !validate_cmd);
+
+    const main_node = std.Progress.start(
+        .{ .disable_printing = no_progress },
+    );
+
     // get target files from the source directory
     var walker = try src_dir.walk(allocator);
     defer walker.deinit();
@@ -327,6 +335,13 @@ pub fn main() !void {
     const ignore_items = ignore_list.items;
 
     if (sync_cmd or validate_cmd) {
+        const scan_node = main_node.start(
+            "Scanning",
+            files.items.len,
+        );
+
+        defer scan_node.end();
+
         walk: while (try walker.next()) |entry| {
             if (Util.isIgnored(entry.basename, ignore_items)) {
                 if (entry.kind == .directory) {
@@ -338,6 +353,8 @@ pub fn main() !void {
 
                 continue :walk;
             }
+
+            scan_node.completeOne();
 
             switch (entry.kind) {
                 .file => {
@@ -361,16 +378,32 @@ pub fn main() !void {
     }
 
     if (validate_cmd and !sync_cmd) {
+        const validate_node = main_node.start(
+            "Validating templates",
+            files.items.len,
+        );
+
+        defer validate_node.end();
+
         for (files.items) |file| {
             _ = file.validate(
                 allocator,
                 &counter,
                 json,
             );
+
+            validate_node.completeOne();
         }
     }
 
     if (sync_cmd and !validate_cmd) {
+        const sync_node = main_node.start(
+            "Syncing",
+            files.items.len,
+        );
+
+        defer sync_node.end();
+
         for (files.items) |file| {
             try file.processFile(
                 allocator,
@@ -380,8 +413,12 @@ pub fn main() !void {
                 verbose,
                 json,
             );
+
+            sync_node.completeOne();
         }
     }
+
+    main_node.end();
 
     if (json) {
         try counter.json(stdout);
