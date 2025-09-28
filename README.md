@@ -14,6 +14,16 @@ zig build --release=fast
 
 `dfs -h`
 
+### Configuration
+
+```zig
+.{
+    .source = "$HOME/src/dotfiles",
+    .destination = "$HOME",
+    .ignore_list = .{},
+}
+```
+
 ### Template syntax
 
 ```
