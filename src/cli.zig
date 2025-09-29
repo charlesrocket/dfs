@@ -206,29 +206,26 @@ fn genVals(T: type, default: ?usize) []const u8 {
 
 pub fn getUserInput(
     allocator: std.mem.Allocator,
+    stdin: *std.io.Reader,
+    stdout: *std.io.Writer,
     input: UserInput,
-) !std.ArrayList(u8) {
-    const stdin = std.io.getStdIn().reader();
-    const stdout = std.io.getStdOut().writer();
-
+) !std.array_list.Managed(u8) {
     var buf: [2048]u8 = undefined;
-    var list = std.ArrayList(u8).init(allocator);
+    var list = std.array_list.Managed(u8).init(allocator);
 
-    try stdout.print("Enter {s}: ", .{switch (input) {
-        .Url => "repository URL",
-        .Source => "repository destination",
-        .Destination => "configuration destination",
-    }});
+    try stdout.print("Enter {s}: ", .{
+        switch (input) {
+            .Url => "repository URL",
+            .Source => "repository destination",
+            .Destination => "configuration destination",
+        },
+    });
 
-    if (try stdin.readUntilDelimiterOrEof(buf[0..], '\n')) |user_input| {
-        for (user_input) |c| {
-            try list.append(c);
-        }
+    var writer = std.io.Writer.fixed(&buf);
+    const len = try stdin.streamDelimiter(&writer, '\n');
+    try list.appendSlice(buf[0..len]);
 
-        return list;
-    } else {
-        return error.Foo;
-    }
+    return list;
 }
 
 const main = @import("main.zig");

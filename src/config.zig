@@ -51,12 +51,13 @@ pub const Configuration = struct {
 
         defer f.close();
 
-        var writer = f.writer();
+        var buf: [1024]u8 = undefined;
+        var writer = f.writer(&buf).interface;
 
         _ = try std.zon.stringify.serialize(
             self,
             .{},
-            writer,
+            &writer,
         );
 
         _ = try writer.write("\n");

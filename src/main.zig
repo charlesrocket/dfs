@@ -22,7 +22,8 @@ pub const MAC_SPECIFIC = [_][]const u8{
 
 fn init(
     allocator: std.mem.Allocator,
-    stdout: @TypeOf(std.io.getStdOut().writer()),
+    stdin: *std.Io.Reader,
+    stdout: *std.Io.Writer,
     custom_config: ?[]const u8,
 ) !void {
     try stdout.print("{s}{s}{s}\nInitializing configuration...\n", .{
@@ -31,9 +32,26 @@ fn init(
         cli.reset,
     });
 
-    var repo_usr = try cli.getUserInput(allocator, cli.UserInput.Url);
-    var src_usr = try cli.getUserInput(allocator, cli.UserInput.Source);
-    var dest_usr = try cli.getUserInput(allocator, cli.UserInput.Destination);
+    var repo_usr = try cli.getUserInput(
+        allocator,
+        stdin,
+        stdout,
+        cli.UserInput.Url,
+    );
+
+    var src_usr = try cli.getUserInput(
+        allocator,
+        stdin,
+        stdout,
+        cli.UserInput.Source,
+    );
+
+    var dest_usr = try cli.getUserInput(
+        allocator,
+        stdin,
+        stdout,
+        cli.UserInput.Destination,
+    );
 
     const repo = try repo_usr.toOwnedSlice();
     const src = try src_usr.toOwnedSlice();
@@ -64,8 +82,17 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     const allocator = gpa.allocator();
-    const stdout = std.io.getStdOut().writer();
-    const stderr = std.io.getStdErr().writer();
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+
+    var stdin_buffer: [1024]u8 = undefined;
+    var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
+    const stdin = &stdin_reader.interface;
+
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    const stderr = &stderr_writer.interface;
 
     const main_cmd = try setup_cmd.init(allocator, .{});
     defer main_cmd.deinit();
@@ -122,7 +149,7 @@ pub fn main() !void {
     }
 
     if (main_cmd.checkSubCmd("init")) {
-        try init(allocator, stdout, custom_config_path);
+        try init(allocator, stdin, stdout, custom_config_path);
     } else if (main_cmd.matchSubCmd("bootstrap")) |bootstrap_cmd| {
         const bootstrap_opts = try bootstrap_cmd.getOpts(.{});
         const url = try bootstrap_opts.get("url").?.val.getAs([]const u8);
