@@ -86,10 +86,14 @@ pub fn build(b: *std.Build) void {
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
-    const integration_tests = b.addTest(.{
+    const integration_tests_mod = b.createModule(.{
         .root_source_file = b.path("test/cli.zig"),
         .target = target,
         .optimize = optimize,
+    });
+
+    const integration_tests = b.addTest(.{
+        .root_module = integration_tests_mod,
     });
 
     const run_integration_tests = b.addRunArtifact(integration_tests);
