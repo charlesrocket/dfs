@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2025-09-30
+
+### Bug Fixes
+
+- Update summary
+- Handle file permissions
+- Set config size
+- Update `example_config`
+- Set initial delay
+- Update `description`
+- Update I/O
+- Update `opt_usage`
+- Update for zig 0.15
+- Update arrays
+
+### Documentation
+
+- Add `Usage`
+- Add `Configuration`
+
+### Features
+
+- Add validator
+- Add backups
+- Add `purge` command
+- Add progress status
+
+### Operations
+
+- Bump zig to 0.15.1
+- Update `coverage`
+
+### Testing
+
+- Improve `validate`
+- Fix config
+- Update runner
+- Fix `sync-back`
+
+### Build
+
+- Update `cova` + `ghext`
+- Add `integration_tests_mod`
+- Fix coverage
+
 ## [0.3.0] - 2025-09-21
 
 ### Bug Fixes
