@@ -219,7 +219,7 @@ test "sync-back" {
 
     const proc1 = try runner(&argv);
 
-    std.time.sleep(1000000000);
+    std.Thread.sleep(1000000000);
 
     const file = try std.fs.cwd().createFile(
         "test/dest-back/testfile1",
