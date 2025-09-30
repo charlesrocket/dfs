@@ -21,11 +21,10 @@ pub const Counter = struct {
 
     pub fn json(
         self: *Counter,
-        stdout: @TypeOf(std.io.getStdOut().writer()),
+        stdout: *std.Io.Writer,
     ) !void {
-        const options = std.json.StringifyOptions{};
-
-        try std.json.stringify(self, options, stdout);
+        var sj: std.json.Stringify = .{ .writer = stdout, .options = .{} };
+        try sj.write(self);
     }
 };
 
@@ -53,30 +52,19 @@ pub fn bootstrap(allocator: std.mem.Allocator, url: []const u8) !void {
 
     defer file.close();
 
-    const parsed = try std.Uri.parse(url);
-    const buf = try allocator.alloc(u8, 1024 * 8);
-    defer allocator.free(buf);
+    var result_body = std.Io.Writer.Allocating.init(allocator);
+    defer result_body.deinit();
 
-    var req = try client.open(.GET, parsed, .{
-        .server_header_buffer = buf,
+    const response = try client.fetch(.{
+        .location = .{ .url = url },
+        .response_writer = &result_body.writer,
     });
 
-    defer req.deinit();
-
-    try req.send();
-    try req.finish();
-    try req.wait();
-
-    if (req.response.status != .ok) {
+    if (response.status.class() != .success) {
         return error.UnexpectedRequestStatus;
     }
 
-    var read_buf: [4096]u8 = undefined;
-    while (true) {
-        const n = try req.read(&read_buf);
-        if (n == 0) break;
-        try file.writeAll(read_buf[0..n]);
-    }
+    try file.writeAll(result_body.written());
 }
 
 pub fn createDirRecursively(
@@ -84,7 +72,7 @@ pub fn createDirRecursively(
     path: []const u8,
 ) !void {
     var parts = try std.fs.path.componentIterator(path);
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer = std.array_list.Managed(u8).init(allocator);
     defer buffer.deinit();
 
     const sep = std.fs.path.sep;

@@ -22,9 +22,8 @@ pub const MAC_SPECIFIC = [_][]const u8{
 
 fn init(
     allocator: std.mem.Allocator,
-    stdin: *std.Io.Reader,
     stdout: *std.Io.Writer,
-    custom_config: ?[]const u8,
+    config_path: []const u8,
 ) !void {
     try stdout.print("{s}{s}{s}\nInitializing configuration...\n", .{
         assets.help_prefix,
@@ -32,30 +31,35 @@ fn init(
         cli.reset,
     });
 
-    var repo_usr = try cli.getUserInput(
+    try stdout.flush();
+
+    const repo_usr = try cli.getUserInput(
         allocator,
-        stdin,
         stdout,
         cli.UserInput.Url,
     );
 
-    var src_usr = try cli.getUserInput(
+    const src_usr = try cli.getUserInput(
         allocator,
-        stdin,
         stdout,
         cli.UserInput.Source,
     );
 
-    var dest_usr = try cli.getUserInput(
+    const dest_usr = try cli.getUserInput(
         allocator,
-        stdin,
         stdout,
         cli.UserInput.Destination,
     );
 
-    const repo = try repo_usr.toOwnedSlice();
-    const src = try src_usr.toOwnedSlice();
-    const dest = try dest_usr.toOwnedSlice();
+    defer {
+        repo_usr.deinit();
+        src_usr.deinit();
+        dest_usr.deinit();
+    }
+
+    const repo = repo_usr.items;
+    const src = src_usr.items;
+    const dest = dest_usr.items;
 
     var config = try Config.Configuration.new(allocator, src, dest);
     const command = [_][]const u8{
@@ -63,7 +67,7 @@ fn init(
         "clone",
         "--recurse-submodules",
         repo,
-        src,
+        try Config.pathFormat(allocator, src),
     };
 
     var proc = std.process.Child.init(&command, allocator);
@@ -71,9 +75,10 @@ fn init(
     try proc.spawn();
     _ = try proc.wait();
 
-    try config.write(allocator, custom_config);
+    try config.write(allocator, config_path);
     _ = try stdout.write("COMPLETED\n");
 
+    try stdout.flush();
     std.process.exit(0);
 }
 
@@ -82,13 +87,10 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     const allocator = gpa.allocator();
+
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;
-
-    var stdin_buffer: [1024]u8 = undefined;
-    var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
-    const stdin = &stdin_reader.interface;
 
     var stderr_buffer: [1024]u8 = undefined;
     var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
@@ -120,12 +122,18 @@ pub fn main() !void {
 
     const opts = try main_cmd.getOpts(.{});
 
+    if (usage_help_called) {
+        try stdout.flush();
+        std.process.exit(0);
+    }
+
     if (main_cmd.checkFlag("version")) {
         try stdout.print(
             "{s}{s}{s}",
             .{ "dfs version ", VERSION, "\n" },
         );
 
+        try stdout.flush();
         std.process.exit(0);
     }
 
@@ -137,43 +145,13 @@ pub fn main() !void {
         custom_config_path = try dest.val.getAs([]const u8);
     }
 
-    if (main_cmd.checkSubCmd("purge")) {
-        try stdout.print("{s}\nErasing application data...\n", .{
-            assets.help_prefix,
-        });
-
-        const data = try Config.getXdgDir(allocator, Config.XdgDir.Data);
-        defer allocator.free(data);
-
-        try std.fs.cwd().deleteTree(data);
-    }
-
-    if (main_cmd.checkSubCmd("init")) {
-        try init(allocator, stdin, stdout, custom_config_path);
-    } else if (main_cmd.matchSubCmd("bootstrap")) |bootstrap_cmd| {
-        const bootstrap_opts = try bootstrap_cmd.getOpts(.{});
-        const url = try bootstrap_opts.get("url").?.val.getAs([]const u8);
-
-        try stdout.print("{s}\nFetching external config...\n", .{
-            assets.help_prefix,
-        });
-
-        try Util.bootstrap(allocator, url);
-        try stdout.print("{s}DONE{s}\n", .{
-            cli.bold,
-            cli.reset,
-        });
-
-        std.process.exit(0);
-    }
-
-    const conf_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
-    defer allocator.free(conf_home);
+    const config_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
+    defer allocator.free(config_home);
 
     const config_default = try std.fmt.allocPrint(
         allocator,
         "{s}/dfs.zon",
-        .{conf_home},
+        .{config_home},
     );
 
     defer allocator.free(config_default);
@@ -183,14 +161,50 @@ pub fn main() !void {
     else
         custom_config_path.?;
 
+    if (main_cmd.checkSubCmd("purge")) {
+        try stdout.print("{s}\nErasing application data...\n", .{
+            assets.help_prefix,
+        });
+
+        const data = try Config.getXdgDir(allocator, Config.XdgDir.Data);
+        defer allocator.free(data);
+
+        try std.fs.cwd().deleteTree(data);
+        try stdout.print("COMPLETED\n", .{});
+    }
+
+    if (main_cmd.checkSubCmd("init")) {
+        try init(allocator, stdout, config_path);
+        try stdout.flush();
+        std.process.exit(0);
+    } else if (main_cmd.matchSubCmd("bootstrap")) |bootstrap_cmd| {
+        const bootstrap_opts = try bootstrap_cmd.getOpts(.{});
+        const url = try bootstrap_opts.get("url").?.val.getAs([]const u8);
+
+        try stdout.print("{s}\nFetching external config...\n", .{
+            assets.help_prefix,
+        });
+
+        try stdout.flush();
+        try Util.bootstrap(allocator, url);
+        try stdout.print("{s}DONE{s}\n", .{
+            cli.bold,
+            cli.reset,
+        });
+
+        try stdout.flush();
+        std.process.exit(0);
+    }
+
     const config_file = std.fs.cwd().openFile(config_path, .{}) catch |err|
         switch (err) {
             error.FileNotFound => {
-                std.debug.print("{s}Config not found!{s}\nRun `dfs init`.", .{
+                try stderr.print("{s}Config not found!{s}\nRun `dfs init`.", .{
                     cli.red,
                     cli.reset,
                 });
 
+                try stderr.flush();
                 std.process.exit(1);
             },
             else => return err,
@@ -206,7 +220,7 @@ pub fn main() !void {
 
     defer allocator.free(config_content_t);
 
-    var config_content = std.ArrayList(u8).init(allocator);
+    var config_content = std.array_list.Managed(u8).init(allocator);
     defer config_content.deinit();
 
     for (config_content_t) |c| {
@@ -247,6 +261,7 @@ pub fn main() !void {
         );
 
         _ = try stderr.write("\n");
+        try stderr.flush();
         std.process.exit(1);
     };
 
@@ -281,7 +296,7 @@ pub fn main() !void {
     const sync_cmd = main_cmd.checkSubCmd("sync");
     const validate_cmd = main_cmd.checkSubCmd("validate");
 
-    var ignore_list = std.ArrayList([]const u8).init(allocator);
+    var ignore_list = std.array_list.Managed([]const u8).init(allocator);
     defer ignore_list.deinit();
 
     for (IGNORE_LIST) |item| {
@@ -422,6 +437,8 @@ pub fn main() !void {
                 json,
             );
 
+            try stderr.flush();
+            try stdout.flush();
             validate_node.completeOne();
         }
     }
@@ -444,6 +461,7 @@ pub fn main() !void {
                 json,
             );
 
+            try stdout.flush();
             sync_node.completeOne();
         }
     }
@@ -475,13 +493,15 @@ pub fn main() !void {
         }
     }
 
-    if (!json) {
+    if (!json and (sync_cmd or validate_cmd)) {
         try stdout.print("{s}{s}DONE{s}\n", .{
             cli.bold,
             cli.green,
             cli.reset,
         });
     }
+
+    try stdout.flush();
 }
 
 test {

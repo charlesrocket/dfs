@@ -164,8 +164,8 @@ pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
         .synced = std.time.timestamp(),
     };
 
-    var writer = f.writer();
-    try writer.print(
+    const result = try std.fmt.allocPrint(
+        allocator,
         ".{{\n" ++
             "    .src = \"{s}\",\n" ++
             "    .dest = \"{s}\",\n" ++
@@ -177,6 +177,10 @@ pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
             record.synced,
         },
     );
+
+    defer allocator.free(result);
+
+    try f.writeAll(result);
 }
 
 pub fn lastMod(
@@ -285,7 +289,7 @@ pub fn processFile(
 
         defer allocator.free(meta_content_t);
 
-        var meta_content = std.ArrayList(u8).init(allocator);
+        var meta_content = std.array_list.Managed(u8).init(allocator);
         defer meta_content.deinit();
 
         for (meta_content_t) |c| {
@@ -471,6 +475,7 @@ pub fn processFile(
                     cli.reset,
                 });
             }
+
             if (dry_run) {
                 if (is_text)
                     try stdout.print(
@@ -502,7 +507,7 @@ pub fn processFile(
 test processFile {
     var dotfile = new("test/root/testfile1", "test/dest2/testfile-unit");
     var counter = Util.Counter.new(false);
-    var buff = std.ArrayList(u8).init(std.testing.allocator);
+    var buff = std.array_list.Managed(u8).init(std.testing.allocator);
     defer buff.deinit();
 
     _ = try dotfile.processFile(

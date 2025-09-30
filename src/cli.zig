@@ -206,25 +206,28 @@ fn genVals(T: type, default: ?usize) []const u8 {
 
 pub fn getUserInput(
     allocator: std.mem.Allocator,
-    stdin: *std.io.Reader,
     stdout: *std.io.Writer,
     input: UserInput,
 ) !std.array_list.Managed(u8) {
+    var stdin_buffer: [2048]u8 = undefined;
+    var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
+    const stdin = &stdin_reader.interface;
+
     var buf: [2048]u8 = undefined;
     var list = std.array_list.Managed(u8).init(allocator);
-
     try stdout.print("Enter {s}: ", .{
         switch (input) {
             .Url => "repository URL",
             .Source => "repository destination",
-            .Destination => "configuration destination",
+            .Destination => "destination",
         },
     });
+    try stdout.flush();
 
     var writer = std.io.Writer.fixed(&buf);
     const len = try stdin.streamDelimiter(&writer, '\n');
-    try list.appendSlice(buf[0..len]);
 
+    try list.appendSlice(buf[0..len]);
     return list;
 }
 

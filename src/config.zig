@@ -29,38 +29,34 @@ pub const Configuration = struct {
     pub fn write(
         self: *Configuration,
         allocator: std.mem.Allocator,
-        custom_path: ?[]const u8,
+        path: []const u8,
     ) !void {
-        const path = try getXdgDir(allocator, XdgDir.Config);
-        defer allocator.free(path);
+        const parent_dir = std.fs.path.dirname(path);
 
-        const config = try std.fmt.allocPrint(
+        if (parent_dir != null) try Util.createDirRecursively(
             allocator,
-            "{s}/dfs.zon",
-            .{path},
+            parent_dir.?,
         );
 
-        defer allocator.free(config);
-
-        try Util.createDirRecursively(allocator, path);
-
-        const f = try std.fs.createFileAbsolute(
-            if (custom_path == null) config else custom_path.?,
+        const f = try std.fs.cwd().createFile(
+            path,
             .{ .read = false, .truncate = true },
         );
 
         defer f.close();
 
         var buf: [1024]u8 = undefined;
-        var writer = f.writer(&buf).interface;
+        var file_writer = f.writer(&buf);
+        const writer = &file_writer.interface;
 
         _ = try std.zon.stringify.serialize(
             self,
             .{},
-            &writer,
+            writer,
         );
 
         _ = try writer.write("\n");
+        try writer.flush();
     }
 };
 
