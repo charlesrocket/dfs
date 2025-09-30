@@ -56,7 +56,7 @@ const ValidationResult = union(enum) {
 };
 
 fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
-    var tokens = std.ArrayList(Token).init(allocator);
+    var tokens = std.array_list.Managed(Token).init(allocator);
     errdefer tokens.deinit();
 
     var i: usize = 0;
@@ -94,7 +94,7 @@ fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
 }
 
 fn interpret(allocator: std.mem.Allocator, tokens: []Token) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     defer out.deinit();
 
     var w = out.writer();
@@ -240,7 +240,7 @@ fn extractChangeChunk(
 }
 
 fn copyWithWhitespace(
-    out: *std.ArrayList(u8),
+    out: *std.array_list.Managed(u8),
     body: []const u8,
     change: []const u8,
 ) !void {
@@ -439,7 +439,7 @@ pub fn reverseTemplate(
     render: []const u8,
     template: []const u8,
 ) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
+    var out = std.array_list.Managed(u8).init(allocator);
     defer out.deinit();
 
     const tpl_len = template.len;
@@ -1232,7 +1232,7 @@ test extractChangeChunk {
 }
 
 test copyWithWhitespace {
-    var out = std.ArrayList(u8).init(testing.allocator);
+    var out = std.array_list.Managed(u8).init(testing.allocator);
     defer out.deinit();
 
     const body = "\n\r  original content  \n\r";
@@ -1242,7 +1242,7 @@ test copyWithWhitespace {
 
     try testing.expectEqualStrings("\n\rnew content\n\r", out.items);
 
-    var out_none = std.ArrayList(u8).init(testing.allocator);
+    var out_none = std.array_list.Managed(u8).init(testing.allocator);
     defer out_none.deinit();
 
     const body_none = "original";
@@ -1252,7 +1252,7 @@ test copyWithWhitespace {
 
     try testing.expectEqualStrings("new", out_none.items);
 
-    var out_leading = std.ArrayList(u8).init(testing.allocator);
+    var out_leading = std.array_list.Managed(u8).init(testing.allocator);
     defer out_leading.deinit();
 
     const body_leading = "\n\roriginal";
@@ -1343,7 +1343,7 @@ test evalIfGroup {
         .{ .text = "content" },
     };
 
-    var out_invalid_end = std.ArrayList(u8).init(testing.allocator);
+    var out_invalid_end = std.array_list.Managed(u8).init(testing.allocator);
     defer out_invalid_end.deinit();
 
     const result_invalid_end = evalIfGroup(testing.allocator, &tokens_invalid_end, 0, out_invalid_end.writer());
@@ -1355,7 +1355,7 @@ test evalIfGroup {
         .{ .text = "unexpected text" },
     };
 
-    var out_invalid_tag = std.ArrayList(u8).init(testing.allocator);
+    var out_invalid_tag = std.array_list.Managed(u8).init(testing.allocator);
     defer out_invalid_tag.deinit();
 
     const result_invalid_tag = evalIfGroup(testing.allocator, &tokens_invalid_tag, 0, out_invalid_tag.writer());
@@ -1366,7 +1366,7 @@ test evalIfGroup {
         .{ .tag = "end" },
     };
 
-    var out_invalid_template = std.ArrayList(u8).init(testing.allocator);
+    var out_invalid_template = std.array_list.Managed(u8).init(testing.allocator);
     defer out_invalid_template.deinit();
 
     const result_invalid_template = evalIfGroup(testing.allocator, &tokens_invalid_template, 0, out_invalid_template.writer());
