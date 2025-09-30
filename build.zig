@@ -76,12 +76,14 @@ pub fn build(b: *std.Build) void {
 
     const lib_unit_tests = b.addTest(.{
         .root_module = lib_mod,
+        .use_llvm = true, //temp
     });
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const exe_unit_tests = b.addTest(.{
         .root_module = exe_mod,
+        .use_llvm = true, //temp
     });
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
@@ -94,6 +96,7 @@ pub fn build(b: *std.Build) void {
 
     const integration_tests = b.addTest(.{
         .root_module = integration_tests_mod,
+        .use_llvm = true, // temp
     });
 
     const run_integration_tests = b.addRunArtifact(integration_tests);
