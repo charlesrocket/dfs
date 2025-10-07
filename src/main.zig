@@ -473,7 +473,7 @@ pub fn main() !void {
         _ = try stdout.write("\n");
     } else {
         if (sync_cmd) {
-            try stdout.print("PROCESSED: {s}{d}{s}\n", .{
+            try stdout.print("TOTAL: {s}{d}{s}\n", .{
                 cli.underline,
                 counter.total,
                 cli.reset,
@@ -482,6 +482,24 @@ pub fn main() !void {
             try stdout.print("UPDATED: {s}{d}{s}\n", .{
                 cli.underline,
                 counter.updated,
+                cli.reset,
+            });
+
+            try stdout.print("TEMPLATES: {s}{d}{s}\n", .{
+                cli.underline,
+                counter.template,
+                cli.reset,
+            });
+
+            try stdout.print("RENDERS: {s}{d}{s}\n", .{
+                cli.underline,
+                counter.render,
+                cli.reset,
+            });
+
+            try stdout.print("BINARIES: {s}{d}{s}\n", .{
+                cli.underline,
+                counter.binary,
                 cli.reset,
             });
 

@@ -90,8 +90,11 @@ test "sync" {
         \\|___/ \_|   \____/
         \\
         \\SYNC STARTED
-        \\PROCESSED: 3
+        \\TOTAL: 3
         \\UPDATED: 2
+        \\TEMPLATES: 0
+        \\RENDERS: 2
+        \\BINARIES: 1
         \\ERRORS: 1
         \\DONE
         \\
@@ -165,8 +168,11 @@ test "sync-dry" {
         \\
         \\--- --- ---
         \\
-        \\PROCESSED: 1
+        \\TOTAL: 1
         \\UPDATED: 0
+        \\TEMPLATES: 0
+        \\RENDERS: 1
+        \\BINARIES: 0
         \\ERRORS: 0
         \\DONE
         \\
