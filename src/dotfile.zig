@@ -203,6 +203,207 @@ pub fn lastMod(
     return result;
 }
 
+fn fsync(
+    self: @This(),
+    allocator: std.mem.Allocator,
+    stdout: anytype,
+    counter: *Util.Counter,
+    template_content: []const u8,
+    template_mode: u16,
+    is_text: bool,
+    dry_run: bool,
+    verbose: bool,
+    json: bool,
+) !void {
+    if (is_text) counter.render += 1 else counter.binary += 1;
+    const result = if (is_text) lib.applyTemplate(
+        allocator,
+        template_content,
+    ) catch {
+        counter.errors += 1;
+        try self.recordLastSync(allocator);
+
+        if (!json and (dry_run or verbose)) {
+            try stdout.print("{s}{s}ERROR | {s}{s}\n", .{
+                cli.red,
+                cli.bold,
+                self.dest,
+                cli.reset,
+            });
+        }
+
+        return;
+    } else template_content;
+
+    defer if (is_text) allocator.free(result);
+
+    if (!dry_run) {
+        const dir_name = std.fs.path.dirname(self.dest) orelse
+            return error.InvalidPath;
+
+        try Util.createDirRecursively(allocator, dir_name);
+
+        const output_file = std.fs.cwd().openFile(self.dest, .{
+            .mode = .read_write,
+        }) catch try std.fs.cwd().createFile(self.dest, .{
+            .read = true,
+            .truncate = true,
+            .mode = template_mode,
+        });
+
+        const output_file_size: usize = @intCast((try output_file.stat()).size);
+        const output_file_content = try output_file.readToEndAlloc(
+            allocator,
+            output_file_size,
+        );
+
+        defer {
+            allocator.free(output_file_content);
+            output_file.close();
+        }
+
+        if (!std.mem.eql(u8, output_file_content, result)) {
+            try output_file.writeAll(result);
+            counter.updated += 1;
+        }
+
+        try self.recordLastSync(allocator);
+    }
+
+    if (!json and (dry_run or verbose)) {
+        if (!is_text) {
+            try stdout.print("{s}{s}FILE | {s} >>> {s}{s}\n", .{
+                cli.blue,
+                cli.bold,
+                self.src,
+                self.dest,
+                cli.reset,
+            });
+        } else {
+            try stdout.print("{s}{s}FILE | {s}{s}\n", .{
+                cli.yellow,
+                cli.bold,
+                self.dest,
+                cli.reset,
+            });
+        }
+
+        if (dry_run) {
+            if (is_text)
+                try stdout.print(
+                    "{s}{s}DATA | render:{s}\n\n{s}{s}",
+                    .{
+                        cli.yellow,
+                        cli.bold,
+                        cli.reset,
+                        result,
+                        assets.separator,
+                    },
+                )
+            else
+                try stdout.print(
+                    "{s}{s}DATA | render: {s}binary{s}\n{s}",
+                    .{
+                        cli.blue,
+                        cli.bold,
+                        cli.italic,
+                        cli.reset,
+                        assets.separator,
+                    },
+                );
+        }
+    }
+}
+
+fn bsync(
+    self: @This(),
+    allocator: std.mem.Allocator,
+    stdout: anytype,
+    counter: *Util.Counter,
+    template_content: []const u8,
+    template_mode: u16,
+    is_text: bool,
+    dry_run: bool,
+    verbose: bool,
+    json: bool,
+) !void {
+    counter.template += 1;
+
+    const rendered_file = try std.fs.cwd().openFile(self.dest, .{});
+    defer rendered_file.close();
+
+    const rendered_size: usize = @intCast((try rendered_file.stat()).size);
+    const rendered_content = try rendered_file.readToEndAlloc(
+        allocator,
+        rendered_size,
+    );
+
+    defer if (is_text) allocator.free(rendered_content);
+
+    const new_template = if (is_text) try lib.reverseTemplate(
+        allocator,
+        rendered_content,
+        template_content,
+    ) else rendered_content;
+
+    defer allocator.free(new_template);
+
+    if (new_template.len == 0) return error.emptyTemplate;
+
+    if (!dry_run) {
+        const updated_template = try std.fs.cwd().createFile(
+            self.src,
+            .{
+                .read = false,
+                .truncate = true,
+                .mode = template_mode,
+            },
+        );
+
+        defer updated_template.close();
+
+        if (is_text) {
+            if (!std.mem.eql(u8, template_content, new_template)) {
+                counter.updated += 1;
+
+                try updated_template.writeAll(new_template);
+            }
+        } else {
+            if (!std.mem.eql(u8, template_content, rendered_content)) {
+                counter.updated += 1;
+                try updated_template.writeAll(rendered_content);
+            }
+        }
+
+        try self.recordLastSync(allocator);
+    }
+
+    if (!json and (dry_run or verbose)) {
+        try stdout.print(
+            "{s}{s}FILE | {s}{s}\n",
+            .{
+                cli.yellow,
+                cli.bold,
+                self.src,
+                cli.reset,
+            },
+        );
+
+        if (dry_run) {
+            try stdout.print(
+                "{s}{s}DATA | template:{s}\n\n{s}{s}",
+                .{
+                    cli.yellow,
+                    cli.bold,
+                    cli.reset,
+                    new_template,
+                    assets.separator,
+                },
+            );
+        }
+    }
+}
+
 pub fn processFile(
     self: @This(),
     allocator: std.mem.Allocator,
@@ -327,180 +528,29 @@ pub fn processFile(
         (last_sync < last_modified_rend) and
         (last_modified_rend > last_modified_src))
     {
-        counter.template += 1;
-
-        const rendered_file = try std.fs.cwd().openFile(self.dest, .{});
-        defer rendered_file.close();
-
-        const rendered_size: usize = @intCast((try rendered_file.stat()).size);
-        const rendered_content = try rendered_file.readToEndAlloc(
+        try self.bsync(
             allocator,
-            rendered_size,
+            stdout,
+            counter,
+            template_content,
+            template_mode,
+            is_text,
+            dry_run,
+            verbose,
+            json,
         );
-
-        defer if (is_text) allocator.free(rendered_content);
-
-        const new_template = if (is_text) try lib.reverseTemplate(
-            allocator,
-            rendered_content,
-            template_content,
-        ) else rendered_content;
-
-        defer allocator.free(new_template);
-
-        if (new_template.len == 0) return error.emptyTemplate;
-
-        if (!dry_run) {
-            const updated_template = try std.fs.cwd().createFile(
-                self.src,
-                .{
-                    .read = false,
-                    .truncate = true,
-                    .mode = template_mode,
-                },
-            );
-
-            defer updated_template.close();
-
-            if (is_text) {
-                if (!std.mem.eql(u8, template_content, new_template)) {
-                    counter.updated += 1;
-
-                    try updated_template.writeAll(new_template);
-                }
-            } else {
-                if (!std.mem.eql(u8, template_content, rendered_content)) {
-                    counter.updated += 1;
-                    try updated_template.writeAll(rendered_content);
-                }
-            }
-
-            try self.recordLastSync(allocator);
-        }
-
-        if (!json and (dry_run or verbose)) {
-            try stdout.print(
-                "{s}{s}FILE | {s}{s}\n",
-                .{
-                    cli.yellow,
-                    cli.bold,
-                    self.src,
-                    cli.reset,
-                },
-            );
-
-            if (dry_run) {
-                try stdout.print(
-                    "{s}{s}DATA | template:{s}\n\n{s}{s}",
-                    .{
-                        cli.yellow,
-                        cli.bold,
-                        cli.reset,
-                        new_template,
-                        assets.separator,
-                    },
-                );
-            }
-        }
     } else {
-        if (is_text) counter.render += 1 else counter.binary += 1;
-        const result = if (is_text) lib.applyTemplate(
+        try self.fsync(
             allocator,
+            stdout,
+            counter,
             template_content,
-        ) catch {
-            counter.errors += 1;
-            try self.recordLastSync(allocator);
-
-            if (!json and (dry_run or verbose)) {
-                try stdout.print("{s}{s}ERROR | {s}{s}\n", .{
-                    cli.red,
-                    cli.bold,
-                    self.dest,
-                    cli.reset,
-                });
-            }
-
-            return;
-        } else template_content;
-
-        defer if (is_text) allocator.free(result);
-
-        if (!dry_run) {
-            const dir_name = std.fs.path.dirname(self.dest) orelse
-                return error.InvalidPath;
-
-            try Util.createDirRecursively(allocator, dir_name);
-
-            const output_file = std.fs.cwd().openFile(self.dest, .{
-                .mode = .read_write,
-            }) catch try std.fs.cwd().createFile(self.dest, .{
-                .read = true,
-                .truncate = true,
-                .mode = template_mode,
-            });
-
-            const output_file_size: usize = @intCast((try output_file.stat()).size);
-            const output_file_content = try output_file.readToEndAlloc(
-                allocator,
-                output_file_size,
-            );
-
-            defer {
-                allocator.free(output_file_content);
-                output_file.close();
-            }
-
-            if (!std.mem.eql(u8, output_file_content, result)) {
-                try output_file.writeAll(result);
-                counter.updated += 1;
-            }
-
-            try self.recordLastSync(allocator);
-        }
-
-        if (!json and (dry_run or verbose)) {
-            if (!is_text) {
-                try stdout.print("{s}{s}FILE | {s} >>> {s}{s}\n", .{
-                    cli.blue,
-                    cli.bold,
-                    self.src,
-                    self.dest,
-                    cli.reset,
-                });
-            } else {
-                try stdout.print("{s}{s}FILE | {s}{s}\n", .{
-                    cli.yellow,
-                    cli.bold,
-                    self.dest,
-                    cli.reset,
-                });
-            }
-
-            if (dry_run) {
-                if (is_text)
-                    try stdout.print(
-                        "{s}{s}DATA | render:{s}\n\n{s}{s}",
-                        .{
-                            cli.yellow,
-                            cli.bold,
-                            cli.reset,
-                            result,
-                            assets.separator,
-                        },
-                    )
-                else
-                    try stdout.print(
-                        "{s}{s}DATA | render: {s}binary{s}\n{s}",
-                        .{
-                            cli.blue,
-                            cli.bold,
-                            cli.italic,
-                            cli.reset,
-                            assets.separator,
-                        },
-                    );
-            }
-        }
+            template_mode,
+            is_text,
+            dry_run,
+            verbose,
+            json,
+        );
     }
 }
 
