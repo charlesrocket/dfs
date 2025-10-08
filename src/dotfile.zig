@@ -103,7 +103,7 @@ pub fn validate(
         counter.errors += 1;
         std.debug.print(
             "{s}{s}ERROR | Not found:{s} {s}\n",
-            .{ cli.red, cli.bold, cli.reset, self.src },
+            .{ Cli.red, Cli.bold, Cli.reset, self.src },
         );
 
         return;
@@ -128,8 +128,8 @@ pub fn validate(
 
         if (!json) {
             std.debug.print("{s}Invalid template{s} {s}\n", .{
-                cli.red,
-                cli.reset,
+                Cli.red,
+                Cli.reset,
                 self.src,
             });
 
@@ -203,13 +203,13 @@ pub fn lastMod(
     return result;
 }
 
-fn fsync(
+fn forwardSync(
     self: @This(),
     allocator: std.mem.Allocator,
     stdout: anytype,
     counter: *Util.Counter,
     template_content: []const u8,
-    template_mode: u16,
+    template_mode: usize,
     is_text: bool,
     dry_run: bool,
     verbose: bool,
@@ -225,10 +225,10 @@ fn fsync(
 
         if (!json and (dry_run or verbose)) {
             try stdout.print("{s}{s}ERROR | {s}{s}\n", .{
-                cli.red,
-                cli.bold,
+                Cli.red,
+                Cli.bold,
                 self.dest,
-                cli.reset,
+                Cli.reset,
             });
         }
 
@@ -248,7 +248,7 @@ fn fsync(
         }) catch try std.fs.cwd().createFile(self.dest, .{
             .read = true,
             .truncate = true,
-            .mode = template_mode,
+            .mode = @as(u16, @intCast(template_mode)),
         });
 
         const output_file_size: usize = @intCast((try output_file.stat()).size);
@@ -273,18 +273,18 @@ fn fsync(
     if (!json and (dry_run or verbose)) {
         if (!is_text) {
             try stdout.print("{s}{s}FILE | {s} >>> {s}{s}\n", .{
-                cli.blue,
-                cli.bold,
+                Cli.blue,
+                Cli.bold,
                 self.src,
                 self.dest,
-                cli.reset,
+                Cli.reset,
             });
         } else {
             try stdout.print("{s}{s}FILE | {s}{s}\n", .{
-                cli.yellow,
-                cli.bold,
+                Cli.yellow,
+                Cli.bold,
                 self.dest,
-                cli.reset,
+                Cli.reset,
             });
         }
 
@@ -293,9 +293,9 @@ fn fsync(
                 try stdout.print(
                     "{s}{s}DATA | render:{s}\n\n{s}{s}",
                     .{
-                        cli.yellow,
-                        cli.bold,
-                        cli.reset,
+                        Cli.yellow,
+                        Cli.bold,
+                        Cli.reset,
                         result,
                         assets.separator,
                     },
@@ -304,10 +304,10 @@ fn fsync(
                 try stdout.print(
                     "{s}{s}DATA | render: {s}binary{s}\n{s}",
                     .{
-                        cli.blue,
-                        cli.bold,
-                        cli.italic,
-                        cli.reset,
+                        Cli.blue,
+                        Cli.bold,
+                        Cli.italic,
+                        Cli.reset,
                         assets.separator,
                     },
                 );
@@ -315,13 +315,13 @@ fn fsync(
     }
 }
 
-fn bsync(
+fn backSync(
     self: @This(),
     allocator: std.mem.Allocator,
     stdout: anytype,
     counter: *Util.Counter,
     template_content: []const u8,
-    template_mode: u16,
+    template_mode: usize,
     is_text: bool,
     dry_run: bool,
     verbose: bool,
@@ -356,7 +356,7 @@ fn bsync(
             .{
                 .read = false,
                 .truncate = true,
-                .mode = template_mode,
+                .mode = @as(u16, @intCast(template_mode)),
             },
         );
 
@@ -382,10 +382,10 @@ fn bsync(
         try stdout.print(
             "{s}{s}FILE | {s}{s}\n",
             .{
-                cli.yellow,
-                cli.bold,
+                Cli.yellow,
+                Cli.bold,
                 self.src,
-                cli.reset,
+                Cli.reset,
             },
         );
 
@@ -393,9 +393,9 @@ fn bsync(
             try stdout.print(
                 "{s}{s}DATA | template:{s}\n\n{s}{s}",
                 .{
-                    cli.yellow,
-                    cli.bold,
-                    cli.reset,
+                    Cli.yellow,
+                    Cli.bold,
+                    Cli.reset,
                     new_template,
                     assets.separator,
                 },
@@ -408,6 +408,7 @@ pub fn processFile(
     self: @This(),
     allocator: std.mem.Allocator,
     stdout: anytype,
+    direction: Cli.Direction,
     counter: *Util.Counter,
     dry_run: bool,
     verbose: bool,
@@ -418,7 +419,7 @@ pub fn processFile(
         counter.errors += 1;
         std.debug.print(
             "{s}{s}ERROR | Not found:{s} {s}\n",
-            .{ cli.red, cli.bold, cli.reset, self.src },
+            .{ Cli.red, Cli.bold, Cli.reset, self.src },
         );
 
         return;
@@ -512,7 +513,7 @@ pub fn processFile(
 
             return std.debug.print(
                 "{s}{s}ERROR | Failed to parse ZON file:{s} {s}\n",
-                .{ cli.red, cli.bold, cli.reset, meta_file_path },
+                .{ Cli.red, Cli.bold, Cli.reset, meta_file_path },
             );
         };
 
@@ -524,11 +525,8 @@ pub fn processFile(
     const last_modified_src = self.lastMod(File.Template) orelse 0;
     const last_modified_rend = self.lastMod(File.Render) orelse 0;
 
-    if ((meta_file != null) and
-        (last_sync < last_modified_rend) and
-        (last_modified_rend > last_modified_src))
-    {
-        try self.bsync(
+    switch (direction) {
+        .Forward => try self.forwardSync(
             allocator,
             stdout,
             counter,
@@ -538,9 +536,8 @@ pub fn processFile(
             dry_run,
             verbose,
             json,
-        );
-    } else {
-        try self.fsync(
+        ),
+        .Back => try self.backSync(
             allocator,
             stdout,
             counter,
@@ -550,7 +547,37 @@ pub fn processFile(
             dry_run,
             verbose,
             json,
-        );
+        ),
+        .Dual => {
+            if ((meta_file != null) and
+                (last_sync < last_modified_rend) and
+                (last_modified_rend > last_modified_src))
+            {
+                try self.backSync(
+                    allocator,
+                    stdout,
+                    counter,
+                    template_content,
+                    template_mode,
+                    is_text,
+                    dry_run,
+                    verbose,
+                    json,
+                );
+            } else {
+                try self.forwardSync(
+                    allocator,
+                    stdout,
+                    counter,
+                    template_content,
+                    template_mode,
+                    is_text,
+                    dry_run,
+                    verbose,
+                    json,
+                );
+            }
+        },
     }
 }
 
@@ -563,6 +590,7 @@ test processFile {
     _ = try dotfile.processFile(
         std.testing.allocator,
         buff.writer(),
+        Cli.Direction.Dual,
         &counter,
         false,
         false,
@@ -591,6 +619,7 @@ test processFile {
     _ = try dotfile.processFile(
         std.testing.allocator,
         buff.writer(),
+        Cli.Direction.Dual,
         &counter,
         false,
         false,
@@ -603,7 +632,7 @@ test processFile {
 const std = @import("std");
 
 const lib = @import("libdfs");
-const cli = @import("cli.zig");
+const Cli = @import("cli.zig");
 const Config = @import("config.zig");
 const Util = @import("util.zig");
 const assets = @import("assets.zig");

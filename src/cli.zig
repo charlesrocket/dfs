@@ -4,6 +4,12 @@ pub const UserInput = enum {
     Destination,
 };
 
+pub const Direction = enum {
+    Forward,
+    Back,
+    Dual,
+};
+
 // ANSI codes
 pub const reset = "\x1b[0m";
 pub const bold = "\x1b[1m";
@@ -77,7 +83,9 @@ pub const CommandT = cova.Command.Custom(.{
         .name_sep_fmt = ", ",
     },
     .val_config = .{
-        .custom_types = &.{},
+        .custom_types = &.{
+            Direction,
+        },
     },
 });
 
@@ -128,6 +136,17 @@ pub const setup_cmd: CommandT = .{
                     .name = "dry",
                     .description = "Preview changes without writing any files.",
                     .long_name = "dry",
+                },
+                .{
+                    .name = "direction",
+                    .description = "Set the direction of the synchronization " ++ genVals(Direction, 2) ++ ".",
+                    .short_name = 'd',
+                    .long_name = "direction",
+                    .val = ValueT.ofType(Direction, .{
+                        .name = "direction_val",
+                        .default_val = Direction.Dual,
+                        .alias_child_type = "string",
+                    }),
                 },
                 .{
                     .name = "verbose",

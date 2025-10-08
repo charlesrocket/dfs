@@ -1,5 +1,5 @@
-pub const CommandT = cli.CommandT;
-pub const setup_cmd = cli.setup_cmd;
+pub const CommandT = Cli.CommandT;
+pub const setup_cmd = Cli.setup_cmd;
 
 const VERSION = build_options.version;
 
@@ -27,28 +27,28 @@ fn init(
 ) !void {
     try stdout.print("{s}{s}{s}\nInitializing configuration...\n", .{
         assets.help_prefix,
-        cli.bold,
-        cli.reset,
+        Cli.bold,
+        Cli.reset,
     });
 
     try stdout.flush();
 
-    const repo_usr = try cli.getUserInput(
+    const repo_usr = try Cli.getUserInput(
         allocator,
         stdout,
-        cli.UserInput.Url,
+        Cli.UserInput.Url,
     );
 
-    const src_usr = try cli.getUserInput(
+    const src_usr = try Cli.getUserInput(
         allocator,
         stdout,
-        cli.UserInput.Source,
+        Cli.UserInput.Source,
     );
 
-    const dest_usr = try cli.getUserInput(
+    const dest_usr = try Cli.getUserInput(
         allocator,
         stdout,
-        cli.UserInput.Destination,
+        Cli.UserInput.Destination,
     );
 
     defer {
@@ -188,8 +188,8 @@ pub fn main() !void {
         try stdout.flush();
         try Util.bootstrap(allocator, url);
         try stdout.print("{s}DONE{s}\n", .{
-            cli.bold,
-            cli.reset,
+            Cli.bold,
+            Cli.reset,
         });
 
         try stdout.flush();
@@ -200,8 +200,8 @@ pub fn main() !void {
         switch (err) {
             error.FileNotFound => {
                 try stderr.print("{s}Config not found!{s}\nRun `dfs init`.", .{
-                    cli.red,
-                    cli.reset,
+                    Cli.red,
+                    Cli.reset,
                 });
 
                 try stderr.flush();
@@ -248,8 +248,8 @@ pub fn main() !void {
         defer std.zon.parse.free(allocator, example_config);
 
         try stderr.print("{s}INVALID CONFIG{s}: {s}\n\n", .{
-            cli.red,
-            cli.reset,
+            Cli.red,
+            Cli.reset,
             config_path,
         });
 
@@ -313,18 +313,18 @@ pub fn main() !void {
         if (sync_cmd) {
             try stdout.print("{s}\n{s}{s}SYNC STARTED{s}\n", .{
                 assets.logo,
-                cli.magenta,
-                cli.bold,
-                cli.reset,
+                Cli.magenta,
+                Cli.bold,
+                Cli.reset,
             });
         }
 
         if (validate_cmd) {
             try stdout.print("{s}\n{s}{s}VALIDATION STARTED{s}\n", .{
                 assets.help_prefix,
-                cli.magenta,
-                cli.bold,
-                cli.reset,
+                Cli.magenta,
+                Cli.bold,
+                Cli.reset,
             });
         }
     }
@@ -336,9 +336,9 @@ pub fn main() !void {
 
             if (!json and dry_run) {
                 try stdout.print("{s}{s}DRY RUN{s}\n\n", .{
-                    cli.italic,
-                    cli.blink,
-                    cli.reset,
+                    Cli.italic,
+                    Cli.blink,
+                    Cli.reset,
                 });
             }
         }
@@ -444,6 +444,7 @@ pub fn main() !void {
     }
 
     if (sync_cmd and !validate_cmd) {
+        const sync_opts = try main_cmd.getSubCmd("sync").?.getOpts(.{});
         const sync_node = main_node.start(
             "Syncing",
             files.items.len,
@@ -451,10 +452,14 @@ pub fn main() !void {
 
         defer sync_node.end();
 
+        const direction_opt = sync_opts.get("direction").?;
+        const direction = try direction_opt.val.getAs(Cli.Direction);
+
         for (files.items) |file| {
             try file.processFile(
                 allocator,
                 stdout,
+                direction,
                 &counter,
                 dry_run,
                 verbose,
@@ -474,48 +479,48 @@ pub fn main() !void {
     } else {
         if (sync_cmd) {
             try stdout.print("TOTAL: {s}{d}{s}\n", .{
-                cli.underline,
+                Cli.underline,
                 counter.total,
-                cli.reset,
+                Cli.reset,
             });
 
             try stdout.print("UPDATED: {s}{d}{s}\n", .{
-                cli.underline,
+                Cli.underline,
                 counter.updated,
-                cli.reset,
+                Cli.reset,
             });
 
             try stdout.print("TEMPLATES: {s}{d}{s}\n", .{
-                cli.underline,
+                Cli.underline,
                 counter.template,
-                cli.reset,
+                Cli.reset,
             });
 
             try stdout.print("RENDERS: {s}{d}{s}\n", .{
-                cli.underline,
+                Cli.underline,
                 counter.render,
-                cli.reset,
+                Cli.reset,
             });
 
             try stdout.print("BINARIES: {s}{d}{s}\n", .{
-                cli.underline,
+                Cli.underline,
                 counter.binary,
-                cli.reset,
+                Cli.reset,
             });
 
             try stdout.print("ERRORS: {s}{d}{s}\n", .{
-                cli.underline,
+                Cli.underline,
                 counter.errors,
-                cli.reset,
+                Cli.reset,
             });
         }
     }
 
     if (!json and (sync_cmd or validate_cmd)) {
         try stdout.print("{s}{s}DONE{s}\n", .{
-            cli.bold,
-            cli.green,
-            cli.reset,
+            Cli.bold,
+            Cli.green,
+            Cli.reset,
         });
     }
 
@@ -533,5 +538,5 @@ const cova = @import("cova");
 const Config = @import("config.zig");
 const Dotfile = @import("dotfile.zig");
 const Util = @import("util.zig");
-const cli = @import("cli.zig");
+const Cli = @import("cli.zig");
 const assets = @import("assets.zig");
