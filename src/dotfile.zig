@@ -243,13 +243,17 @@ fn forwardSync(
 
         try Util.createDirRecursively(allocator, dir_name);
 
-        const output_file = std.fs.cwd().openFile(self.dest, .{
-            .mode = .read_write,
-        }) catch try std.fs.cwd().createFile(self.dest, .{
-            .read = true,
-            .truncate = true,
-            .mode = @as(u16, @intCast(template_mode)),
-        });
+        const output_file = std.fs.cwd().openFile(
+            self.dest,
+            .{ .mode = .read_write },
+        ) catch try std.fs.cwd().createFile(
+            self.dest,
+            .{
+                .read = true,
+                .truncate = true,
+                .mode = @as(u16, @intCast(template_mode)),
+            },
+        );
 
         const output_file_size: usize = @intCast((try output_file.stat()).size);
         const output_file_content = try output_file.readToEndAlloc(
@@ -263,7 +267,9 @@ fn forwardSync(
         }
 
         if (!std.mem.eql(u8, output_file_content, result)) {
+            try output_file.seekTo(0);
             try output_file.writeAll(result);
+            try output_file.setEndPos(result.len);
             counter.updated += 1;
         }
 
@@ -348,10 +354,11 @@ fn backSync(
 
     defer allocator.free(new_template);
 
-    if (new_template.len == 0) return error.emptyTemplate;
-
     if (!dry_run) {
-        const updated_template = try std.fs.cwd().createFile(
+        const updated_template = std.fs.cwd().openFile(
+            self.src,
+            .{ .mode = .read_write },
+        ) catch try std.fs.cwd().createFile(
             self.src,
             .{
                 .read = false,
@@ -365,13 +372,16 @@ fn backSync(
         if (is_text) {
             if (!std.mem.eql(u8, template_content, new_template)) {
                 counter.updated += 1;
-
+                try updated_template.seekTo(0);
                 try updated_template.writeAll(new_template);
+                try updated_template.setEndPos(new_template.len);
             }
         } else {
             if (!std.mem.eql(u8, template_content, rendered_content)) {
                 counter.updated += 1;
+                try updated_template.seekTo(0);
                 try updated_template.writeAll(rendered_content);
+                try updated_template.setEndPos(rendered_content.len);
             }
         }
 
