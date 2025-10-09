@@ -592,12 +592,19 @@ pub fn processFile(
 }
 
 test processFile {
-    var dotfile = new("test/root/testfile1", "test/dest2/testfile-unit");
+    errdefer {
+        std.fs.cwd().deleteTree("test/root2") catch unreachable;
+        std.fs.cwd().deleteTree("test/dest2") catch unreachable;
+    }
+
+    // dual
+
+    var dotfile_d = new("test/root/testfile1", "test/dest2/testfile-unit");
     var counter = Util.Counter.new(false);
     var buff = std.array_list.Managed(u8).init(std.testing.allocator);
     defer buff.deinit();
 
-    _ = try dotfile.processFile(
+    _ = try dotfile_d.processFile(
         std.testing.allocator,
         buff.writer(),
         Cli.Direction.dual,
@@ -607,35 +614,119 @@ test processFile {
         false,
     );
 
-    const file = try std.fs.cwd().openFile("test/dest2/testfile-unit", .{});
-    const file_content = try file.readToEndAlloc(
+    const file_dual = try std.fs.cwd().openFile("test/dest2/testfile-unit", .{});
+    const file_dual_content = try file_dual.readToEndAlloc(
         std.testing.allocator,
         1024,
     );
 
-    file.close();
+    file_dual.close();
 
-    defer std.testing.allocator.free(file_content);
+    errdefer std.fs.cwd().deleteTree("test/dest2") catch unreachable;
+    defer std.testing.allocator.free(file_dual_content);
 
-    const expected_content =
+    const expected_dual_content =
         \\# TEST
         \\Foo
         \\val="Bar"
         \\
     ;
 
-    try std.testing.expectEqualStrings(expected_content, file_content);
+    try std.testing.expectEqualStrings(expected_dual_content, file_dual_content);
+    try std.fs.cwd().deleteTree("test/dest2");
 
-    _ = try dotfile.processFile(
+    // forward
+
+    var dotfile_f = new("test/root/testfile1", "test/dest2/testfile-unit");
+
+    _ = try dotfile_f.processFile(
         std.testing.allocator,
         buff.writer(),
-        Cli.Direction.dual,
+        Cli.Direction.forward,
         &counter,
         false,
         false,
         false,
     );
 
+    const file_fwd = try std.fs.cwd().openFile("test/dest2/testfile-unit", .{});
+    const file_fwd_content = try file_fwd.readToEndAlloc(
+        std.testing.allocator,
+        1024,
+    );
+
+    file_fwd.close();
+
+    defer std.testing.allocator.free(file_fwd_content);
+
+    const expected_fwd_content =
+        \\# TEST
+        \\Foo
+        \\val="Bar"
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected_fwd_content, file_fwd_content);
+
+    // back
+
+    try std.fs.cwd().makeDir("test/root2");
+    var dotfile_b = new("test/root2/testfile1", "test/dest2/testfile-unit");
+    const template = try std.fs.cwd().createFile(
+        "test/root2/testfile1",
+        .{ .read = true, .truncate = false },
+    );
+
+    try template.writeAll(
+        \\# TEST
+        \\
+    );
+
+    template.close();
+
+    const render = try std.fs.cwd().createFile(
+        "test/dest2/testfile-unit",
+        .{ .read = true, .truncate = true },
+    );
+
+    try render.writeAll(
+        \\# TEST
+        \\Foo
+        \\val="Zoot"
+        \\
+    );
+
+    render.close();
+
+    _ = try dotfile_b.processFile(
+        std.testing.allocator,
+        buff.writer(),
+        Cli.Direction.back,
+        &counter,
+        false,
+        false,
+        false,
+    );
+
+    const file_bwd = try std.fs.cwd().openFile("test/root2/testfile1", .{});
+    const file_bwd_content = try file_bwd.readToEndAlloc(
+        std.testing.allocator,
+        1024,
+    );
+
+    file_bwd.close();
+
+    defer std.testing.allocator.free(file_bwd_content);
+
+    const expected_bwd_content =
+        \\# TEST
+        \\Foo
+        \\val="Zoot"
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected_bwd_content, file_bwd_content);
+    try std.fs.cwd().deleteTree("test/root2");
     try std.fs.cwd().deleteTree("test/dest2");
 }
 
