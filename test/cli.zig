@@ -273,6 +273,82 @@ test "sync-back" {
     try std.testing.expectEqual(proc2.term.Exited, 0);
 }
 
+test "sync-forward-forced" {
+    defer std.fs.cwd().deleteTree("test/dest-forward-forced") catch unreachable;
+    defer std.fs.cwd().deleteTree("test/root-forward-forced") catch unreachable;
+
+    const argv = [4][]const u8{
+        exe_path,
+        "-c=test/conf-forward-forced.zon",
+        "sync",
+        "--direction=forward",
+    };
+
+    const root_template =
+        \\# TEST
+        \\Foo
+        \\{> if SYSTEM.os == unsupported <}
+        \\val="Foo"
+        \\{> else <}
+        \\val="Bar"
+        \\{> end <}
+        \\
+    ;
+
+    try std.fs.cwd().makeDir("test/root-forward-forced");
+    try std.fs.cwd().makeDir("test/dest-forward-forced");
+
+    const root = try std.fs.cwd().createFile(
+        "test/root-forward-forced/testfile1",
+        .{ .read = true },
+    );
+
+    try root.writeAll(root_template);
+    root.close();
+
+    const file = try std.fs.cwd().createFile(
+        "test/dest-forward-forced/testfile1",
+        .{ .read = true, .truncate = true },
+    );
+
+    try file.writeAll(
+        \\# TEST
+        \\Foo
+        \\val="TEST"
+        \\
+    );
+
+    file.close();
+
+    const proc = try runner(&argv);
+
+    const expected_render =
+        \\# TEST
+        \\Foo
+        \\val="Bar"
+        \\
+    ;
+
+    const render = try std.fs.cwd().openFile("test/dest-forward-forced/testfile1", .{});
+    const render_content = try render.readToEndAlloc(
+        std.testing.allocator,
+        1024,
+    );
+
+    defer std.testing.allocator.free(render_content);
+
+    defer {
+        allocator.free(proc.out);
+        allocator.free(proc.err);
+    }
+
+    defer std.fs.cwd().deleteTree("test/dest-forward-forced") catch unreachable;
+    defer std.fs.cwd().deleteTree("test/root-forward-forced") catch unreachable;
+
+    try std.testing.expectEqualStrings(expected_render, render_content);
+    try std.testing.expectEqual(proc.term.Exited, 0);
+}
+
 test "sync-back-forced" {
     defer std.fs.cwd().deleteTree("test/dest-back-forced") catch unreachable;
     defer std.fs.cwd().deleteTree("test/root-back-forced") catch unreachable;
