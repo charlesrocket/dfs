@@ -526,7 +526,7 @@ pub fn processFile(
     const last_modified_rend = self.lastMod(File.Render) orelse 0;
 
     switch (direction) {
-        .Forward => try self.forwardSync(
+        .forward => try self.forwardSync(
             allocator,
             stdout,
             counter,
@@ -537,7 +537,7 @@ pub fn processFile(
             verbose,
             json,
         ),
-        .Back => try self.backSync(
+        .back => try self.backSync(
             allocator,
             stdout,
             counter,
@@ -548,7 +548,7 @@ pub fn processFile(
             verbose,
             json,
         ),
-        .Dual => {
+        .dual => {
             if ((meta_file != null) and
                 (last_sync < last_modified_rend) and
                 (last_modified_rend > last_modified_src))
@@ -590,7 +590,7 @@ test processFile {
     _ = try dotfile.processFile(
         std.testing.allocator,
         buff.writer(),
-        Cli.Direction.Dual,
+        Cli.Direction.dual,
         &counter,
         false,
         false,
@@ -619,7 +619,7 @@ test processFile {
     _ = try dotfile.processFile(
         std.testing.allocator,
         buff.writer(),
-        Cli.Direction.Dual,
+        Cli.Direction.dual,
         &counter,
         false,
         false,

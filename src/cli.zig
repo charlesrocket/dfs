@@ -5,9 +5,9 @@ pub const UserInput = enum {
 };
 
 pub const Direction = enum {
-    Forward,
-    Back,
-    Dual,
+    forward,
+    back,
+    dual,
 };
 
 // ANSI codes
@@ -144,7 +144,7 @@ pub const setup_cmd: CommandT = .{
                     .long_name = "direction",
                     .val = ValueT.ofType(Direction, .{
                         .name = "direction_val",
-                        .default_val = Direction.Dual,
+                        .default_val = Direction.dual,
                         .alias_child_type = "string",
                     }),
                 },
