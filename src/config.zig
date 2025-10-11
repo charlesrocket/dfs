@@ -212,6 +212,48 @@ pub fn getXdgDir(allocator: std.mem.Allocator, env_var: XdgDir) ![]const u8 {
     return path;
 }
 
+test migrateConfig {
+    const old_config =
+        \\.{
+        \\    .repository = "https://gibson.com/test",
+        \\    .source = "test/root-back",
+        \\    .ignore_list = .{"foo","bar"},
+        \\}
+        \\
+    ;
+
+    const expected_config =
+        \\.{
+        \\    .repository = "https://gibson.com/test",
+        \\    .source = "test/root-back",
+        \\    .destination = "",
+        \\    .ignore_list = .{ "foo", "bar" },
+        \\}
+        \\
+    ;
+
+    const old_file = try std.fs.cwd().createFile(
+        "test/conf-old.zon",
+        .{ .read = false },
+    );
+
+    try old_file.writeAll(old_config);
+    old_file.close();
+
+    try migrateConfig(std.testing.allocator, "test/conf-old.zon");
+
+    const new_file = try std.fs.cwd().openFile("test/conf-old.zon", .{});
+    const content = try new_file.readToEndAlloc(
+        std.testing.allocator,
+        1024,
+    );
+
+    defer std.testing.allocator.free(content);
+
+    try std.testing.expectEqualStrings(expected_config, content);
+    try std.fs.cwd().deleteFile("test/conf-old.zon");
+}
+
 const std = @import("std");
 
 const Util = @import("util.zig");
