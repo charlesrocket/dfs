@@ -61,7 +61,7 @@ fn init(
     const src = src_usr.items;
     const dest = dest_usr.items;
 
-    var config = try Config.Configuration.new(allocator, src, dest);
+    var config = try Config.Configuration.new(allocator, repo, src, dest);
     const command = [_][]const u8{
         "git",
         "clone",
@@ -241,6 +241,7 @@ pub fn main() !void {
     ) catch {
         const example_config = try Config.Configuration.new(
             allocator,
+            "https://gibson.com/git/dotfiles",
             "$HOME/src/dotfiles",
             "/tmp/test",
         );

@@ -5,12 +5,14 @@ pub const XdgDir = enum {
 };
 
 pub const Configuration = struct {
+    repository: []const u8,
     source: []const u8,
     destination: []const u8,
     ignore_list: [][]const u8,
 
     pub fn new(
         allocator: std.mem.Allocator,
+        repository: []const u8,
         source: []const u8,
         destination: ?[]const u8,
     ) !Configuration {
@@ -20,6 +22,7 @@ pub const Configuration = struct {
             destination.?;
 
         return .{
+            .repository = repository,
             .source = source,
             .destination = path,
             .ignore_list = &[_][]u8{},
