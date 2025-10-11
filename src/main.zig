@@ -248,8 +248,9 @@ pub fn main() !void {
 
         defer std.zon.parse.free(allocator, example_config);
 
-        try stderr.print("{s}INVALID CONFIG{s}: {s}\n\n", .{
+        try stderr.print("{s}{s}INVALID CONFIG{s}: {s}\n\n", .{
             Cli.red,
+            Cli.bold,
             Cli.reset,
             config_path,
         });
@@ -261,7 +262,13 @@ pub fn main() !void {
             stderr,
         );
 
-        _ = try stderr.write("\n");
+        try Config.migrateConfig(allocator, config_path);
+
+        _ = try stderr.print(
+            "\n\n{s}Config file updated!{s}\nExiting...\n",
+            .{ Cli.yellow, Cli.reset },
+        );
+
         try stderr.flush();
         std.process.exit(1);
     };

@@ -63,6 +63,86 @@ pub const Configuration = struct {
     }
 };
 
+pub fn migrateConfig(
+    allocator: std.mem.Allocator,
+    config_path: []const u8,
+) !void {
+    const MigrationConfig = MigrationType(Configuration);
+    const file = try std.fs.cwd().openFile(config_path, .{});
+    defer file.close();
+
+    // null-terminated
+    const content = try file.readToEndAllocOptions(
+        allocator,
+        1024 * 1024,
+        null,
+        @enumFromInt(@alignOf(u8)),
+        0,
+    );
+
+    const old_config = try std.zon.parse.fromSlice(
+        MigrationConfig,
+        allocator,
+        content,
+        null,
+        .{},
+    );
+
+    defer std.zon.parse.free(allocator, old_config);
+
+    var ignore_list: [][]const u8 = &[_][]const u8{};
+
+    if (old_config.ignore_list) |v| {
+        ignore_list = try allocator.alloc([]const u8, v.len);
+        var i: usize = 0;
+        for (v) |item| {
+            ignore_list[i] = try allocator.dupe(u8, item);
+            i += 1;
+        }
+    }
+
+    var new_config = Configuration{
+        .repository = if (old_config.repository) |v| v else "",
+        .source = if (old_config.source) |v| v else "",
+        .destination = if (old_config.destination) |v| v else "",
+        .ignore_list = ignore_list,
+    };
+
+    try new_config.write(allocator, config_path);
+}
+
+fn MigrationType(comptime T: type) type {
+    const fields = std.meta.fields(T);
+    var struct_fields: [fields.len]std.builtin.Type.StructField = undefined;
+
+    inline for (fields, 0..) |field, i| {
+        const OptionalType = @Type(.{
+            .optional = .{
+                .child = field.type,
+            },
+        });
+
+        const default_value = @as(OptionalType, null);
+
+        struct_fields[i] = .{
+            .name = field.name,
+            .type = OptionalType,
+            .default_value_ptr = &default_value,
+            .is_comptime = false,
+            .alignment = @alignOf(OptionalType),
+        };
+    }
+
+    return @Type(.{
+        .@"struct" = .{
+            .layout = .auto,
+            .fields = &struct_fields,
+            .decls = &.{},
+            .is_tuple = false,
+        },
+    });
+}
+
 pub fn pathFormat(
     allocator: std.mem.Allocator,
     path: []const u8,
