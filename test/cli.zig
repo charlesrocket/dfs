@@ -442,10 +442,13 @@ test "config bad" {
         \\Example:
         \\
         \\.{
+        \\    .repository = "https://gibson.com/git/dotfiles",
         \\    .source = "$HOME/src/dotfiles",
         \\    .destination = "/tmp/test",
         \\    .ignore_list = .{},
         \\}
+        \\
+        \\Exiting...
         \\
     ;
 
