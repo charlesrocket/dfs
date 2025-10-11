@@ -111,6 +111,12 @@ pub fn migrateConfig(
     };
 
     try new_config.write(allocator, config_path);
+
+    for (ignore_list) |item| {
+        allocator.free(item);
+    }
+
+    allocator.free(ignore_list);
 }
 
 fn MigrationType(comptime T: type) type {
