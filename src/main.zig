@@ -239,33 +239,40 @@ pub fn main() !void {
         null,
         .{},
     ) catch {
-        const example_config = try Config.Configuration.new(
-            allocator,
-            "https://gibson.com/git/dotfiles",
-            "$HOME/src/dotfiles",
-            "/tmp/test",
-        );
-
-        defer std.zon.parse.free(allocator, example_config);
-
-        try stderr.print("{s}{s}INVALID CONFIG{s}: {s}\n\n", .{
+        try stderr.print("{s}{s}INVALID CONFIG{s}: {s}\n", .{
             Cli.red,
             Cli.bold,
             Cli.reset,
             config_path,
         });
 
-        _ = try stderr.write("Example:\n\n");
-        _ = try std.zon.stringify.serialize(
-            example_config,
-            .{},
-            stderr,
-        );
+        Config.migrateConfig(allocator, config_path) catch {
+            _ = try stderr.print(
+                "\n{s}{s}{s}\n\n",
+                .{ Cli.red, config_data, Cli.reset },
+            );
 
-        try Config.migrateConfig(allocator, config_path);
+            const example_config = try Config.Configuration.new(
+                allocator,
+                "https://gibson.com/git/dotfiles",
+                "$HOME/src/dotfiles",
+                "/tmp/test",
+            );
+
+            _ = try stderr.write("Example:\n\n");
+            _ = try std.zon.stringify.serialize(
+                example_config,
+                .{},
+                stderr,
+            );
+
+            _ = try stderr.write("\n\nExiting...\n");
+            try stderr.flush();
+            std.process.exit(1);
+        };
 
         _ = try stderr.print(
-            "\n\n{s}Config file updated!{s}\nExiting...\n",
+            "{s}Config file updated!{s}\nExiting...\n",
             .{ Cli.yellow, Cli.reset },
         );
 

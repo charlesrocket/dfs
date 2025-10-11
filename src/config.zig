@@ -80,6 +80,8 @@ pub fn migrateConfig(
         0,
     );
 
+    defer allocator.free(content);
+
     const old_config = try std.zon.parse.fromSlice(
         MigrationConfig,
         allocator,
