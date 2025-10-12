@@ -352,6 +352,72 @@ test migrateConfig {
     try std.fs.cwd().deleteFile("test/conf-old.zon");
 }
 
+test pathFormat {
+    const allocator = std.testing.allocator;
+    const home = try std.process.getEnvVarOwned(allocator, "HOME");
+    defer allocator.free(home);
+
+    {
+        const result = try pathFormat(allocator, "$HOME/documents");
+        const expected = try std.fmt.allocPrint(allocator, "{s}/documents/", .{home});
+
+        defer {
+            allocator.free(result);
+            allocator.free(expected);
+        }
+
+        try std.testing.expectEqualStrings(expected, result);
+    }
+
+    {
+        const result = try pathFormat(allocator, "$HOME/documents/");
+        const expected = try std.fmt.allocPrint(allocator, "{s}/documents/", .{home});
+
+        defer {
+            allocator.free(result);
+            allocator.free(expected);
+        }
+
+        try std.testing.expectEqualStrings(expected, result);
+    }
+
+    {
+        const result = try pathFormat(allocator, "$HOME");
+        const expected = try std.fmt.allocPrint(allocator, "{s}/", .{home});
+
+        defer {
+            allocator.free(result);
+            allocator.free(expected);
+        }
+
+        try std.testing.expectEqualStrings(expected, result);
+    }
+
+    {
+        const result = try pathFormat(allocator, "/tmp/foo/");
+        try std.testing.expectEqualStrings("/tmp/foo/", result);
+    }
+
+    {
+        const result = try pathFormat(allocator, "/tmp/foo");
+        defer allocator.free(result);
+
+        try std.testing.expectEqualStrings("/tmp/foo/", result);
+    }
+
+    {
+        const result = try pathFormat(allocator, "test/foo/");
+        try std.testing.expectEqualStrings("test/foo/", result);
+    }
+
+    {
+        const result = try pathFormat(allocator, "test/foo");
+        defer allocator.free(result);
+
+        try std.testing.expectEqualStrings("test/foo/", result);
+    }
+}
+
 const std = @import("std");
 
 const Cli = @import("cli.zig");
