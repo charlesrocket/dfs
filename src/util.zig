@@ -28,45 +28,6 @@ pub const Counter = struct {
     }
 };
 
-pub fn bootstrap(allocator: std.mem.Allocator, url: []const u8) !void {
-    const config_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
-    defer allocator.free(config_home);
-
-    const config_path = try std.fmt.allocPrint(
-        allocator,
-        "{s}/dfs.zon",
-        .{config_home},
-    );
-
-    defer allocator.free(config_path);
-
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
-
-    try createDirRecursively(allocator, config_home);
-
-    var file = try std.fs.createFileAbsolute(
-        config_path,
-        .{ .read = false, .truncate = true },
-    );
-
-    defer file.close();
-
-    var result_body = std.Io.Writer.Allocating.init(allocator);
-    defer result_body.deinit();
-
-    const response = try client.fetch(.{
-        .location = .{ .url = url },
-        .response_writer = &result_body.writer,
-    });
-
-    if (response.status.class() != .success) {
-        return error.UnexpectedRequestStatus;
-    }
-
-    try file.writeAll(result_body.written());
-}
-
 pub fn createDirRecursively(
     allocator: std.mem.Allocator,
     path: []const u8,

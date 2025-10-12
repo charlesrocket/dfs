@@ -186,7 +186,7 @@ pub fn main() !void {
         });
 
         try stdout.flush();
-        try Util.bootstrap(allocator, url);
+        try Config.bootstrap(allocator, url);
         try stdout.print("{s}DONE{s}\n", .{
             Cli.bold,
             Cli.reset,
