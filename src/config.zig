@@ -4,6 +4,11 @@ pub const XdgDir = enum {
     Home,
 };
 
+pub const ConfigResult = union(enum) {
+    ok: Configuration,
+    parse_error: [:0]const u8,
+};
+
 pub const Configuration = struct {
     repository: []const u8,
     source: []const u8,
@@ -62,6 +67,59 @@ pub const Configuration = struct {
         try writer.flush();
     }
 };
+
+pub fn open(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+) !ConfigResult {
+    const config_file = std.fs.cwd().openFile(path, .{}) catch |err|
+        switch (err) {
+            error.FileNotFound => {
+                std.debug.print("{s}Config not found!{s}\nRun `dfs init`.", .{
+                    Cli.red,
+                    Cli.reset,
+                });
+
+                std.process.exit(1);
+            },
+            else => return err,
+        };
+
+    defer config_file.close();
+
+    const config_size: usize = @intCast((try config_file.stat()).size);
+    const config_content_t = try config_file.readToEndAlloc(
+        allocator,
+        config_size,
+    );
+
+    defer allocator.free(config_content_t);
+
+    var config_content = std.array_list.Managed(u8).init(allocator);
+    defer config_content.deinit();
+
+    for (config_content_t) |c| {
+        try config_content.append(c);
+    }
+
+    try config_content.append(0);
+
+    const config_data =
+        config_content.items[0 .. config_content.items.len - 1 :0];
+
+    const config = std.zon.parse.fromSlice(
+        Configuration,
+        allocator,
+        config_data,
+        null,
+        .{},
+    ) catch {
+        const data = try allocator.dupeZ(u8, config_data);
+        return ConfigResult{ .parse_error = data };
+    };
+
+    return ConfigResult{ .ok = config };
+}
 
 pub fn bootstrap(allocator: std.mem.Allocator, url: []const u8) !void {
     const config_home = try getXdgDir(allocator, XdgDir.Config);
@@ -295,4 +353,5 @@ test migrateConfig {
 
 const std = @import("std");
 
+const Cli = @import("cli.zig");
 const Util = @import("util.zig");

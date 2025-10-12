@@ -185,88 +185,59 @@ pub fn main() !void {
         std.process.exit(0);
     }
 
-    const config_file = std.fs.cwd().openFile(config_path, .{}) catch |err|
-        switch (err) {
-            error.FileNotFound => {
-                try stderr.print("{s}Config not found!{s}\nRun `dfs init`.", .{
+    const config_result = try Config.open(allocator, config_path);
+    var config = switch (config_result) {
+        .ok => |cfg| cfg,
+        .parse_error => |config_data| cfg: {
+            defer allocator.free(config_data);
+
+            try stderr.print("{s}{s}Updating config{s}\n", .{
+                Cli.yellow,
+                Cli.bold,
+                Cli.reset,
+            });
+
+            Config.migrateConfig(allocator, config_path) catch {
+                try stderr.print("{s}{s}INVALID CONFIG{s}: {s}\n", .{
                     Cli.red,
+                    Cli.bold,
                     Cli.reset,
+                    config_path,
                 });
 
+                _ = try stderr.print(
+                    "\n{s}{s}{s}\n\n",
+                    .{ Cli.red, config_data, Cli.reset },
+                );
+                const example_config = try Config.Configuration.new(
+                    allocator,
+                    "https://gibson.com/git/dotfiles",
+                    "$HOME/src/dotfiles",
+                    "/tmp/test",
+                );
+
+                _ = try stderr.write("Example:\n\n");
+                _ = try std.zon.stringify.serialize(
+                    example_config,
+                    .{},
+                    stderr,
+                );
+
+                _ = try stderr.write("\n\nExiting...\n");
                 try stderr.flush();
                 std.process.exit(1);
-            },
-            else => return err,
-        };
+            };
 
-    defer config_file.close();
-
-    const config_size: usize = @intCast((try config_file.stat()).size);
-    const config_content_t = try config_file.readToEndAlloc(
-        allocator,
-        config_size,
-    );
-
-    defer allocator.free(config_content_t);
-
-    var config_content = std.array_list.Managed(u8).init(allocator);
-    defer config_content.deinit();
-
-    for (config_content_t) |c| {
-        try config_content.append(c);
-    }
-
-    try config_content.append(0);
-
-    const config_data =
-        config_content.items[0 .. config_content.items.len - 1 :0];
-
-    var config = std.zon.parse.fromSlice(
-        Config.Configuration,
-        allocator,
-        config_data,
-        null,
-        .{},
-    ) catch {
-        try stderr.print("{s}{s}INVALID CONFIG{s}: {s}\n", .{
-            Cli.red,
-            Cli.bold,
-            Cli.reset,
-            config_path,
-        });
-
-        Config.migrateConfig(allocator, config_path) catch {
             _ = try stderr.print(
-                "\n{s}{s}{s}\n\n",
-                .{ Cli.red, config_data, Cli.reset },
+                "{s}Config updated{s}\n",
+                .{ Cli.green, Cli.reset },
             );
 
-            const example_config = try Config.Configuration.new(
-                allocator,
-                "https://gibson.com/git/dotfiles",
-                "$HOME/src/dotfiles",
-                "/tmp/test",
-            );
-
-            _ = try stderr.write("Example:\n\n");
-            _ = try std.zon.stringify.serialize(
-                example_config,
-                .{},
-                stderr,
-            );
-
-            _ = try stderr.write("\n\nExiting...\n");
             try stderr.flush();
-            std.process.exit(1);
-        };
 
-        _ = try stderr.print(
-            "{s}Config file updated!{s}\nExiting...\n",
-            .{ Cli.yellow, Cli.reset },
-        );
-
-        try stderr.flush();
-        std.process.exit(1);
+            const new_config_result = try Config.open(allocator, config_path);
+            break :cfg new_config_result.ok;
+        },
     };
 
     defer std.zon.parse.free(allocator, config);
