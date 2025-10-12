@@ -158,6 +158,9 @@ pub fn bootstrap(allocator: std.mem.Allocator, url: []const u8) !void {
     }
 
     try file.writeAll(result_body.written());
+
+    const config = try open(allocator, config_path);
+    try Util.cloneRepo(allocator, config.ok.repository, config.ok.source);
 }
 
 pub fn migrateConfig(

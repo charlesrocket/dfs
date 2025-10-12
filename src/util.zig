@@ -36,6 +36,8 @@ pub fn cloneRepo(
     const destination = try Config.pathFormat(allocator, dest);
     defer allocator.free(destination);
 
+    try createDirRecursively(allocator, dest);
+
     const command = [_][]const u8{
         "git",
         "clone",
