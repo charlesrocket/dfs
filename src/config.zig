@@ -251,6 +251,7 @@ fn MigrationType(comptime T: type) type {
     });
 }
 
+// deallocate on changes
 pub fn pathFormat(
     allocator: std.mem.Allocator,
     path: []const u8,

@@ -95,6 +95,7 @@ pub fn createDirRecursively(
     }
 }
 
+// deallocate on changes
 pub fn ensureLeadingSlash(
     allocator: std.mem.Allocator,
     path: []const u8,
