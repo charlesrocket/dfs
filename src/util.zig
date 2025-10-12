@@ -28,6 +28,28 @@ pub const Counter = struct {
     }
 };
 
+pub fn cloneRepo(
+    allocator: std.mem.Allocator,
+    url: []const u8,
+    dest: []const u8,
+) !void {
+    const destination = try Config.pathFormat(allocator, dest);
+    defer allocator.free(destination);
+
+    const command = [_][]const u8{
+        "git",
+        "clone",
+        "--recurse-submodules",
+        url,
+        destination,
+    };
+
+    var proc = std.process.Child.init(&command, allocator);
+
+    try proc.spawn();
+    _ = try proc.wait();
+}
+
 pub fn createDirRecursively(
     allocator: std.mem.Allocator,
     path: []const u8,

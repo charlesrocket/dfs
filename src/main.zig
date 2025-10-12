@@ -62,19 +62,8 @@ fn init(
     const dest = dest_usr.items;
 
     var config = try Config.Configuration.new(allocator, repo, src, dest);
-    const command = [_][]const u8{
-        "git",
-        "clone",
-        "--recurse-submodules",
-        repo,
-        try Config.pathFormat(allocator, src),
-    };
 
-    var proc = std.process.Child.init(&command, allocator);
-
-    try proc.spawn();
-    _ = try proc.wait();
-
+    try Util.cloneRepo(allocator, repo, src);
     try config.write(allocator, config_path);
     _ = try stdout.write("COMPLETED\n");
 
