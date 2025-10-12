@@ -234,6 +234,7 @@ pub fn getUserInput(
 
     var buf: [2048]u8 = undefined;
     var list = std.array_list.Managed(u8).init(allocator);
+
     try stdout.print("Enter {s}: ", .{
         switch (input) {
             .Url => "repository URL",
@@ -241,6 +242,7 @@ pub fn getUserInput(
             .Destination => "destination",
         },
     });
+
     try stdout.flush();
 
     var writer = std.io.Writer.fixed(&buf);
