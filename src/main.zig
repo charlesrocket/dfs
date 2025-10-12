@@ -109,6 +109,8 @@ pub fn main() !void {
             else => return err,
         };
 
+    const sync_cmd = main_cmd.checkSubCmd("sync");
+    const validate_cmd = main_cmd.checkSubCmd("validate");
     const opts = try main_cmd.getOpts(.{});
 
     if (usage_help_called) {
@@ -160,6 +162,8 @@ pub fn main() !void {
 
         try std.fs.cwd().deleteTree(data);
         try stdout.print("COMPLETED\n", .{});
+        try stdout.flush();
+        std.process.exit(0);
     }
 
     if (main_cmd.checkSubCmd("init")) {
@@ -183,6 +187,15 @@ pub fn main() !void {
 
         try stdout.flush();
         std.process.exit(0);
+    }
+
+    // no more early exits from this point
+    if (!json) {
+        try stdout.print("{s}\n", .{
+            assets.logo,
+        });
+
+        try stdout.flush();
     }
 
     const config_result = try Config.open(allocator, config_path);
@@ -268,9 +281,6 @@ pub fn main() !void {
             allocator.free(dest_with_slash);
     }
 
-    const sync_cmd = main_cmd.checkSubCmd("sync");
-    const validate_cmd = main_cmd.checkSubCmd("validate");
-
     var ignore_list = std.array_list.Managed([]const u8).init(allocator);
     defer ignore_list.deinit();
 
@@ -286,8 +296,7 @@ pub fn main() !void {
 
     if (!json) {
         if (sync_cmd) {
-            try stdout.print("{s}\n{s}{s}SYNC STARTED{s}\n", .{
-                assets.logo,
+            try stdout.print("{s}{s}SYNC STARTED{s}\n", .{
                 Cli.magenta,
                 Cli.bold,
                 Cli.reset,
@@ -295,8 +304,7 @@ pub fn main() !void {
         }
 
         if (validate_cmd) {
-            try stdout.print("{s}\n{s}{s}VALIDATION STARTED{s}\n", .{
-                assets.help_prefix,
+            try stdout.print("{s}{s}VALIDATION STARTED{s}\n", .{
                 Cli.magenta,
                 Cli.bold,
                 Cli.reset,
