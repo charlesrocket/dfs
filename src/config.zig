@@ -268,11 +268,9 @@ pub fn pathFormat(
         _ = std.mem.replace(u8, path, "$HOME", home, new_path);
 
         const target = if (trailing_slash)
-            new_path
+            try allocator.dupe(u8, new_path)
         else
             try std.fmt.allocPrint(allocator, "{s}/", .{new_path});
-
-        defer if (trailing_slash) allocator.free(target);
 
         return target;
     } else if (!trailing_slash) {
