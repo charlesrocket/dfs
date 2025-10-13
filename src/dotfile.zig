@@ -21,12 +21,12 @@ pub fn new(src: []const u8, dest: []const u8) @This() {
     };
 }
 
-pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+pub fn deinit(self: Dotfile, allocator: std.mem.Allocator) void {
     allocator.free(self.src);
     allocator.free(self.dest);
 }
 
-fn metaFilePath(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
+fn metaFilePath(self: Dotfile, allocator: std.mem.Allocator) ![]const u8 {
     const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
     defer allocator.free(data_dir);
 
@@ -45,7 +45,7 @@ fn metaFilePath(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
     );
 }
 
-fn backupPath(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
+fn backupPath(self: Dotfile, allocator: std.mem.Allocator) ![]const u8 {
     const data_dir = try Config.getXdgDir(allocator, Config.XdgDir.Data);
     defer allocator.free(data_dir);
 
@@ -66,7 +66,7 @@ fn backupPath(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
     );
 }
 
-pub fn backup(self: @This(), allocator: std.mem.Allocator) !void {
+pub fn backup(self: Dotfile, allocator: std.mem.Allocator) !void {
     const backup_dest = try self.backupPath(allocator);
     const index = std.mem.lastIndexOfScalar(u8, backup_dest, '/');
     const backup_target = backup_dest[0 .. index.? + 1];
@@ -93,7 +93,7 @@ pub fn backup(self: @This(), allocator: std.mem.Allocator) !void {
 }
 
 pub fn validate(
-    self: @This(),
+    self: Dotfile,
     allocator: std.mem.Allocator,
     counter: *Util.Counter,
     json: bool,
@@ -142,7 +142,7 @@ pub fn validate(
     }
 }
 
-pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
+pub fn recordLastSync(self: Dotfile, allocator: std.mem.Allocator) !void {
     const sync_dest = try self.metaFilePath(allocator);
     defer allocator.free(sync_dest);
 
@@ -184,7 +184,7 @@ pub fn recordLastSync(self: @This(), allocator: std.mem.Allocator) !void {
 }
 
 pub fn lastMod(
-    self: @This(),
+    self: Dotfile,
     file: File,
 ) ?u64 {
     const target = switch (file) {
@@ -204,7 +204,7 @@ pub fn lastMod(
 }
 
 fn forwardSync(
-    self: @This(),
+    self: Dotfile,
     allocator: std.mem.Allocator,
     stdout: anytype,
     counter: *Util.Counter,
@@ -322,7 +322,7 @@ fn forwardSync(
 }
 
 fn backSync(
-    self: @This(),
+    self: Dotfile,
     allocator: std.mem.Allocator,
     stdout: anytype,
     counter: *Util.Counter,
@@ -415,7 +415,7 @@ fn backSync(
 }
 
 pub fn processFile(
-    self: @This(),
+    self: Dotfile,
     allocator: std.mem.Allocator,
     stdout: anytype,
     direction: Cli.Direction,
@@ -735,8 +735,8 @@ test processFile {
     try std.fs.cwd().deleteTree("test/dest2");
 }
 
+const Dotfile = @This();
 const std = @import("std");
-
 const lib = @import("libdfs");
 const Cli = @import("cli.zig");
 const Config = @import("config.zig");

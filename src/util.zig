@@ -147,7 +147,6 @@ pub fn isText(data: []const u8) bool {
 
 const std = @import("std");
 const builtin = @import("builtin");
-
 const main = @import("main.zig");
 const Config = @import("config.zig");
 const Dotfile = @import("dotfile.zig");

@@ -5,68 +5,66 @@ pub const XdgDir = enum {
 };
 
 pub const ConfigResult = union(enum) {
-    ok: Configuration,
+    ok: Config,
     parse_error: [:0]const u8,
 };
 
-pub const Configuration = struct {
+repository: []const u8,
+source: []const u8,
+destination: []const u8,
+ignore_list: [][]const u8,
+
+pub fn new(
+    allocator: std.mem.Allocator,
     repository: []const u8,
     source: []const u8,
-    destination: []const u8,
-    ignore_list: [][]const u8,
+    destination: ?[]const u8,
+) !Config {
+    const path = if (destination == null)
+        try std.process.getEnvVarOwned(allocator, "HOME")
+    else
+        destination.?;
 
-    pub fn new(
-        allocator: std.mem.Allocator,
-        repository: []const u8,
-        source: []const u8,
-        destination: ?[]const u8,
-    ) !Configuration {
-        const path = if (destination == null)
-            try std.process.getEnvVarOwned(allocator, "HOME")
-        else
-            destination.?;
+    return .{
+        .repository = repository,
+        .source = source,
+        .destination = path,
+        .ignore_list = &[_][]u8{},
+    };
+}
 
-        return .{
-            .repository = repository,
-            .source = source,
-            .destination = path,
-            .ignore_list = &[_][]u8{},
-        };
-    }
+pub fn write(
+    self: *Config,
+    allocator: std.mem.Allocator,
+    path: []const u8,
+) !void {
+    const parent_dir = std.fs.path.dirname(path);
 
-    pub fn write(
-        self: *Configuration,
-        allocator: std.mem.Allocator,
-        path: []const u8,
-    ) !void {
-        const parent_dir = std.fs.path.dirname(path);
+    if (parent_dir != null) try Util.createDirRecursively(
+        allocator,
+        parent_dir.?,
+    );
 
-        if (parent_dir != null) try Util.createDirRecursively(
-            allocator,
-            parent_dir.?,
-        );
+    const f = try std.fs.cwd().createFile(
+        path,
+        .{ .read = false, .truncate = true },
+    );
 
-        const f = try std.fs.cwd().createFile(
-            path,
-            .{ .read = false, .truncate = true },
-        );
+    defer f.close();
 
-        defer f.close();
+    var buf: [1024]u8 = undefined;
+    var file_writer = f.writer(&buf);
+    const writer = &file_writer.interface;
 
-        var buf: [1024]u8 = undefined;
-        var file_writer = f.writer(&buf);
-        const writer = &file_writer.interface;
+    _ = try std.zon.stringify.serialize(
+        self,
+        .{},
+        writer,
+    );
 
-        _ = try std.zon.stringify.serialize(
-            self,
-            .{},
-            writer,
-        );
-
-        _ = try writer.write("\n");
-        try writer.flush();
-    }
-};
+    _ = try writer.write("\n");
+    try writer.flush();
+}
 
 pub fn open(
     allocator: std.mem.Allocator,
@@ -108,7 +106,7 @@ pub fn open(
         config_content.items[0 .. config_content.items.len - 1 :0];
 
     const config = std.zon.parse.fromSlice(
-        Configuration,
+        Config,
         allocator,
         config_data,
         null,
@@ -167,7 +165,7 @@ pub fn migrateConfig(
     allocator: std.mem.Allocator,
     config_path: []const u8,
 ) !void {
-    const MigrationConfig = MigrationType(Configuration);
+    const MigrationConfig = MigrationType(Config);
     const file = try std.fs.cwd().openFile(config_path, .{});
     defer file.close();
 
@@ -203,7 +201,7 @@ pub fn migrateConfig(
         }
     }
 
-    var new_config = Configuration{
+    var new_config = Config{
         .repository = if (old_config.repository) |v| v else "",
         .source = if (old_config.source) |v| v else "",
         .destination = if (old_config.destination) |v| v else "",
@@ -419,7 +417,7 @@ test pathFormat {
     }
 }
 
+const Config = @This();
 const std = @import("std");
-
 const Cli = @import("cli.zig");
 const Util = @import("util.zig");

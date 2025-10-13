@@ -61,7 +61,7 @@ fn init(
     const src = src_usr.items;
     const dest = dest_usr.items;
 
-    var config = try Config.Configuration.new(allocator, repo, src, dest);
+    var config = try Config.new(allocator, repo, src, dest);
 
     try Util.cloneRepo(allocator, repo, src);
     try config.write(allocator, config_path);
@@ -222,7 +222,7 @@ pub fn main() !void {
                     "\n{s}{s}{s}\n\n",
                     .{ Cli.red, config_data, Cli.reset },
                 );
-                const example_config = try Config.Configuration.new(
+                const example_config = try Config.new(
                     allocator,
                     "https://gibson.com/git/dotfiles",
                     "$HOME/src/dotfiles",
@@ -516,7 +516,6 @@ test {
 
 const std = @import("std");
 const build_options = @import("build_options");
-
 const cova = @import("cova");
 const Config = @import("config.zig");
 const Dotfile = @import("dotfile.zig");
