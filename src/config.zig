@@ -1,6 +1,7 @@
 pub const XdgDir = enum {
     Config,
     Data,
+    State,
     Home,
 };
 
@@ -12,6 +13,7 @@ pub const ConfigResult = union(enum) {
 repository: []const u8,
 source: []const u8,
 destination: []const u8,
+logging: bool,
 ignore_list: [][]const u8,
 
 pub fn new(
@@ -29,6 +31,7 @@ pub fn new(
         .repository = repository,
         .source = source,
         .destination = path,
+        .logging = false,
         .ignore_list = &[_][]u8{},
     };
 }
@@ -205,6 +208,7 @@ pub fn migrateConfig(
         .repository = if (old_config.repository) |v| v else "",
         .source = if (old_config.source) |v| v else "",
         .destination = if (old_config.destination) |v| v else "",
+        .logging = if (old_config.logging) |v| v else false,
         .ignore_list = ignore_list,
     };
 
@@ -285,6 +289,7 @@ pub fn getXdgDir(allocator: std.mem.Allocator, env_var: XdgDir) ![]const u8 {
         switch (env_var) {
             .Config => "XDG_CONFIG_HOME",
             .Data => "XDG_DATA_HOME",
+            .State => "XDG_STATE_HOME",
             .Home => "HOME",
         },
     ) catch {
@@ -302,6 +307,12 @@ pub fn getXdgDir(allocator: std.mem.Allocator, env_var: XdgDir) ![]const u8 {
                 "share",
                 "dfs",
             }),
+            .State => return try std.fs.path.join(allocator, &.{
+                home,
+                ".local",
+                "state",
+                "dfs",
+            }),
             .Home => return allocator.dupe(u8, home),
         }
     };
@@ -314,6 +325,7 @@ test migrateConfig {
         \\.{
         \\    .repository = "https://gibson.com/test",
         \\    .source = "test/root-back",
+        \\    .destination = "/tmp/test",
         \\    .ignore_list = .{"foo","bar"},
         \\}
         \\
@@ -323,7 +335,8 @@ test migrateConfig {
         \\.{
         \\    .repository = "https://gibson.com/test",
         \\    .source = "test/root-back",
-        \\    .destination = "",
+        \\    .destination = "/tmp/test",
+        \\    .logging = false,
         \\    .ignore_list = .{ "foo", "bar" },
         \\}
         \\

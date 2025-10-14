@@ -1,3 +1,11 @@
+pub const std_options: std.Options = .{
+    .logFn = Util.logToFile,
+    .log_level = switch (builtin.mode) {
+        .Debug => .debug,
+        else => .info,
+    },
+};
+
 pub const CommandT = Cli.CommandT;
 pub const setup_cmd = Cli.setup_cmd;
 
@@ -94,6 +102,9 @@ pub fn main() !void {
     var json = false;
     var args_iter = try cova.ArgIteratorGeneric.init(allocator);
     defer args_iter.deinit();
+
+    try Util.setLogPath(allocator);
+    defer allocator.free(Util.LOG_FILE);
 
     cova.parseArgs(
         &args_iter,
@@ -515,6 +526,7 @@ test {
 }
 
 const std = @import("std");
+const builtin = @import("builtin");
 const build_options = @import("build_options");
 const cova = @import("cova");
 const Config = @import("config.zig");
