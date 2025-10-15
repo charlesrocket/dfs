@@ -445,6 +445,7 @@ test "config bad" {
         \\    .repository = "https://gibson.com/git/dotfiles",
         \\    .source = "$HOME/src/dotfiles",
         \\    .destination = "/tmp/test",
+        \\    .logging = false,
         \\    .ignore_list = .{},
         \\}
         \\

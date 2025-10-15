@@ -2,5 +2,6 @@
     .repository = "",
     .source = "test/root",
     .destination = "test/dest",
+    .logging = false,
     .ignore_list = .{},
 }
