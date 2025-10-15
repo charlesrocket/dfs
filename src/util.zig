@@ -1,4 +1,11 @@
 pub var LOG_FILE: []const u8 = "dfs.log";
+var LOG_FILE_BUF: [std.fs.max_path_bytes]u8 = undefined;
+
+pub const Level = enum {
+    INFO,
+    ERROR,
+    WARNING,
+};
 
 pub const Counter = struct {
     total: usize,
@@ -147,35 +154,27 @@ pub fn isText(data: []const u8) bool {
     return (non_text_count * 100 / data.len) < 10;
 }
 
-pub fn setLogPath(allocator: std.mem.Allocator) !void {
+pub fn setLogger(allocator: std.mem.Allocator) !void {
     const state_dir = try Config.getXdgDir(allocator, Config.XdgDir.State);
     defer allocator.free(state_dir);
 
     try createDirRecursively(allocator, state_dir);
 
-    LOG_FILE = try std.fmt.allocPrint(
-        allocator,
+    LOG_FILE = try std.fmt.bufPrint(
+        &LOG_FILE_BUF,
         "{s}/dfs.log",
         .{state_dir},
     );
 }
 
-pub fn logToFile(
-    comptime level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
-    comptime format: []const u8,
+pub fn log(
+    comptime level: Level,
+    comptime message: []const u8,
     args: anytype,
 ) void {
     var buf: [std.fs.max_path_bytes * 10]u8 = undefined;
-    const scope_prefix = "(" ++ switch (scope) {
-        .dfs, .cova, std.log.default_log_scope => @tagName(scope),
-        else => if (@intFromEnum(level) <= @intFromEnum(std.log.Level.err))
-            @tagName(scope)
-        else
-            return,
-    } ++ "): ";
 
-    const prefix = "[" ++ comptime level.asText() ++ "] " ++ scope_prefix;
+    const prefix = "[" ++ comptime @tagName(level) ++ "] ";
     const timestamp_ns = std.time.nanoTimestamp();
     const timestamp = @divFloor(timestamp_ns, std.time.ns_per_s);
     const nanos: u32 = @intCast(@mod(timestamp_ns, std.time.ns_per_s));
@@ -190,7 +189,7 @@ pub fn logToFile(
     const msg = std.fmt.bufPrint(
         &buf,
         "[{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}:{d:0>2}.{d:0>9}] " ++
-            prefix ++ format ++ "\n",
+            prefix ++ message ++ "\n",
         .{
             year_day.year,
             month_day.month.numeric(),
@@ -202,30 +201,22 @@ pub fn logToFile(
         } ++ args,
     ) catch return;
 
-    if (@intFromEnum(level) == @intFromEnum(std.log.Level.err)) {
-        var stderr_buffer: [1024]u8 = undefined;
-        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-        const stderr = &stderr_writer.interface;
-        nosuspend stderr.writeAll(msg) catch return;
-        stderr.flush() catch return;
-    } else {
-        const file = std.fs.cwd().openFile(LOG_FILE, .{
-            .mode = .write_only,
-        }) catch |err| f: {
-            if (err == error.FileNotFound) {
-                break :f std.fs.cwd().createFile(
-                    LOG_FILE,
-                    .{ .mode = 0o600 },
-                ) catch return;
-            }
+    const file = std.fs.cwd().openFile(LOG_FILE, .{
+        .mode = .write_only,
+    }) catch |err| f: {
+        if (err == error.FileNotFound) {
+            break :f std.fs.cwd().createFile(
+                LOG_FILE,
+                .{ .mode = 0o600 },
+            ) catch return;
+        }
 
-            return;
-        };
+        return;
+    };
 
-        defer file.close();
-        file.seekFromEnd(0) catch return;
-        nosuspend file.writeAll(msg) catch return;
-    }
+    defer file.close();
+    file.seekFromEnd(0) catch return;
+    file.writeAll(msg) catch return;
 }
 
 const std = @import("std");

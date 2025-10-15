@@ -206,7 +206,7 @@ pub fn lastMod(
 fn forwardSync(
     self: Dotfile,
     allocator: std.mem.Allocator,
-    stdout: anytype,
+    stdout: *std.Io.Writer,
     counter: *Util.Counter,
     template_content: []const u8,
     template_mode: usize,
@@ -219,20 +219,11 @@ fn forwardSync(
     const result = if (is_text) lib.applyTemplate(
         allocator,
         template_content,
-    ) catch {
+    ) catch |err| {
         counter.errors += 1;
         try self.recordLastSync(allocator);
 
-        if (!json and (dry_run or verbose)) {
-            try stdout.print("{s}{s}ERROR | {s}{s}\n", .{
-                Cli.red,
-                Cli.bold,
-                self.dest,
-                Cli.reset,
-            });
-        }
-
-        return;
+        return err;
     } else template_content;
 
     defer if (is_text) allocator.free(result);
@@ -324,7 +315,7 @@ fn forwardSync(
 fn backSync(
     self: Dotfile,
     allocator: std.mem.Allocator,
-    stdout: anytype,
+    stdout: *std.Io.Writer,
     counter: *Util.Counter,
     template_content: []const u8,
     template_mode: usize,
@@ -417,7 +408,7 @@ fn backSync(
 pub fn processFile(
     self: Dotfile,
     allocator: std.mem.Allocator,
-    stdout: anytype,
+    stdout: *std.Io.Writer,
     direction: Cli.Direction,
     counter: *Util.Counter,
     dry_run: bool,
@@ -517,14 +508,10 @@ pub fn processFile(
             allocator,
             input,
             null,
-            .{},
-        ) catch {
+            .{ .ignore_unknown_fields = true },
+        ) catch |err| {
             counter.errors += 1;
-
-            return std.debug.print(
-                "{s}{s}ERROR | Failed to parse ZON file:{s} {s}\n",
-                .{ Cli.red, Cli.bold, Cli.reset, meta_file_path },
-            );
+            return err;
         };
 
         defer std.zon.parse.free(allocator, meta);
@@ -593,7 +580,9 @@ pub fn processFile(
 
 test processFile {
     var counter = Util.Counter.new(false);
-    var buff = std.array_list.Managed(u8).init(std.testing.allocator);
+    var buf: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buf);
+    const writer = &stdout_writer.interface;
 
     errdefer {
         std.fs.cwd().deleteTree("test/root2") catch unreachable;
@@ -603,11 +592,10 @@ test processFile {
     // dual
     {
         var dotfile_d = new("test/root/testfile1", "test/dest2/testfile-unit");
-        defer buff.deinit();
 
         _ = try dotfile_d.processFile(
             std.testing.allocator,
-            buff.writer(),
+            writer,
             Cli.Direction.dual,
             &counter,
             false,
@@ -643,7 +631,7 @@ test processFile {
 
         _ = try dotfile_f.processFile(
             std.testing.allocator,
-            buff.writer(),
+            writer,
             Cli.Direction.forward,
             &counter,
             false,
@@ -703,7 +691,7 @@ test processFile {
 
         _ = try dotfile_b.processFile(
             std.testing.allocator,
-            buff.writer(),
+            writer,
             Cli.Direction.back,
             &counter,
             false,
@@ -742,3 +730,5 @@ const Cli = @import("cli.zig");
 const Config = @import("config.zig");
 const Util = @import("util.zig");
 const assets = @import("assets.zig");
+
+const ERR = Util.Level.ERROR;

@@ -1,11 +1,3 @@
-pub const std_options: std.Options = .{
-    .logFn = Util.logToFile,
-    .log_level = switch (builtin.mode) {
-        .Debug => .debug,
-        else => .info,
-    },
-};
-
 pub const CommandT = Cli.CommandT;
 pub const setup_cmd = Cli.setup_cmd;
 
@@ -98,13 +90,11 @@ pub fn main() !void {
 
     var custom_config_path: ?[]const u8 = null;
     var usage_help_called = false;
+    var logging = false;
     var dry_run = false;
     var json = false;
     var args_iter = try cova.ArgIteratorGeneric.init(allocator);
     defer args_iter.deinit();
-
-    try Util.setLogPath(allocator);
-    defer allocator.free(Util.LOG_FILE);
 
     cova.parseArgs(
         &args_iter,
@@ -252,6 +242,7 @@ pub fn main() !void {
                 std.process.exit(1);
             };
 
+            Util.log(WARN, "Config updated!", .{});
             _ = try stderr.print(
                 "{s}Config updated{s}\n",
                 .{ Cli.green, Cli.reset },
@@ -265,6 +256,10 @@ pub fn main() !void {
     };
 
     defer std.zon.parse.free(allocator, config);
+
+    logging = config.logging;
+
+    if (logging) try Util.setLogger(allocator);
 
     if (opts.get("destination")) |dest| {
         config.destination = try dest.val.getAs([]const u8);
@@ -349,10 +344,26 @@ pub fn main() !void {
         files.deinit(allocator);
     }
 
-    var src_dir = try std.fs.cwd().openDir(
+    var src_dir = std.fs.cwd().openDir(
         source_with_slash,
         .{ .iterate = true },
-    );
+    ) catch {
+        if (logging) Util.log(
+            ERR,
+            "Source not found: {s}",
+            .{source_with_slash},
+        );
+
+        try stderr.print("{s}{s}ERROR | Not found:{s} {s}\n", .{
+            Cli.red,
+            Cli.bold,
+            Cli.reset,
+            source_with_slash,
+        });
+
+        try stderr.flush();
+        std.process.exit(1);
+    };
 
     defer src_dir.close();
 
@@ -381,8 +392,12 @@ pub fn main() !void {
 
         defer scan_node.end();
 
+        if (logging) Util.log(INFO, "Scanning the source", .{});
+
         walk: while (try walker.next()) |entry| {
             if (Util.isIgnored(entry.basename, ignore_items)) {
+                if (logging) Util.log(INFO, "Ignoring: {s}", .{entry.basename});
+
                 if (entry.kind == .directory) {
                     // remove from stack, with prejudice
                     var item = walker.stack.pop().?;
@@ -424,6 +439,8 @@ pub fn main() !void {
 
         defer validate_node.end();
 
+        if (logging) Util.log(INFO, "Validating", .{});
+
         for (files.items) |file| {
             _ = file.validate(
                 allocator,
@@ -449,8 +466,17 @@ pub fn main() !void {
         const direction_opt = sync_opts.get("direction").?;
         const direction = try direction_opt.val.getAs(Cli.Direction);
 
+        if (logging) Util.log(
+            INFO,
+            "Syncing ({s}/{s})",
+            .{ @tagName(direction), switch (dry_run) {
+                true => "dry",
+                false => "live",
+            } },
+        );
+
         for (files.items) |file| {
-            try file.processFile(
+            file.processFile(
                 allocator,
                 stdout,
                 direction,
@@ -458,7 +484,20 @@ pub fn main() !void {
                 dry_run,
                 verbose,
                 json,
-            );
+            ) catch |err| {
+                if (logging) Util.log(ERR, "{}: {s}", .{ err, file.src });
+                if (!json) {
+                    try stderr.print("{s}{s}ERROR | {}:{s} {s}\n", .{
+                        Cli.bold,
+                        Cli.red,
+                        err,
+                        Cli.reset,
+                        file.src,
+                    });
+
+                    try stderr.flush();
+                }
+            };
 
             try stdout.flush();
             sync_node.completeOne();
@@ -510,6 +549,19 @@ pub fn main() !void {
         }
     }
 
+    if (logging) Util.log(
+        INFO,
+        "Finished: total {d}, updated {d}, templates {d}, renders {d}, binaries {d}, errors {d}",
+        .{
+            counter.total,
+            counter.updated,
+            counter.template,
+            counter.render,
+            counter.binary,
+            counter.errors,
+        },
+    );
+
     if (!json and (sync_cmd or validate_cmd)) {
         try stdout.print("{s}{s}DONE{s}\n", .{
             Cli.bold,
@@ -534,3 +586,7 @@ const Dotfile = @import("dotfile.zig");
 const Util = @import("util.zig");
 const Cli = @import("cli.zig");
 const assets = @import("assets.zig");
+
+const INFO = Util.Level.INFO;
+const ERR = Util.Level.ERROR;
+const WARN = Util.Level.WARNING;

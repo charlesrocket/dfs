@@ -434,3 +434,5 @@ const Config = @This();
 const std = @import("std");
 const Cli = @import("cli.zig");
 const Util = @import("util.zig");
+
+const WARN = Util.Level.WARNING;
