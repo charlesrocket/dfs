@@ -219,6 +219,30 @@ pub fn log(
     file.writeAll(msg) catch return;
 }
 
+test log {
+    const allocator = std.testing.allocator;
+    const message = "Log test";
+    log(Level.INFO, message, .{});
+
+    const log_file = try std.fs.cwd().openFile("dfs.log", .{});
+    defer log_file.close();
+
+    const log_size: usize = @intCast((try log_file.stat()).size);
+    const log_content = try log_file.readToEndAlloc(
+        allocator,
+        log_size,
+    );
+
+    const expected = "] [INFO] Log test\n";
+
+    defer {
+        allocator.free(log_content);
+        std.fs.cwd().deleteFile("dfs.log") catch unreachable;
+    }
+
+    try std.testing.expectStringEndsWith(log_content, expected);
+}
+
 const std = @import("std");
 const builtin = @import("builtin");
 const main = @import("main.zig");
