@@ -66,9 +66,7 @@ fn init(
     try Util.cloneRepo(allocator, repo, src);
     try config.write(allocator, config_path);
     _ = try stdout.write("COMPLETED\n");
-
     try stdout.flush();
-    std.process.exit(0);
 }
 
 pub fn main() !void {
@@ -116,7 +114,7 @@ pub fn main() !void {
 
     if (usage_help_called) {
         try stdout.flush();
-        std.process.exit(0);
+        return;
     }
 
     if (main_cmd.checkFlag("version")) {
@@ -126,7 +124,7 @@ pub fn main() !void {
         );
 
         try stdout.flush();
-        std.process.exit(0);
+        return;
     }
 
     if (main_cmd.checkFlag("json")) {
@@ -164,13 +162,14 @@ pub fn main() !void {
         try std.fs.cwd().deleteTree(data);
         try stdout.print("COMPLETED\n", .{});
         try stdout.flush();
-        std.process.exit(0);
+
+        return;
     }
 
     if (main_cmd.checkSubCmd("init")) {
         try init(allocator, stdout, config_path);
         try stdout.flush();
-        std.process.exit(0);
+        return;
     } else if (main_cmd.matchSubCmd("bootstrap")) |bootstrap_cmd| {
         const bootstrap_opts = try bootstrap_cmd.getOpts(.{});
         const url = try bootstrap_opts.get("url").?.val.getAs([]const u8);
@@ -187,7 +186,8 @@ pub fn main() !void {
         });
 
         try stdout.flush();
-        std.process.exit(0);
+
+        return;
     }
 
     // no more early exits from this point
@@ -211,7 +211,7 @@ pub fn main() !void {
                 Cli.reset,
             });
 
-            Config.migrateConfig(allocator, config_path) catch {
+            Config.migrateConfig(allocator, config_path) catch |err| {
                 try stderr.print("{s}{s}INVALID CONFIG{s}: {s}\n", .{
                     Cli.red,
                     Cli.bold,
@@ -239,7 +239,7 @@ pub fn main() !void {
 
                 _ = try stderr.write("\n\nExiting...\n");
                 try stderr.flush();
-                std.process.exit(1);
+                return err;
             };
 
             Util.log(WARN, "Config updated!", .{});
@@ -324,7 +324,7 @@ pub fn main() !void {
             dry_run = dry_opt.val.isSet();
 
             if (!json and dry_run) {
-                try stdout.print("{s}{s}DRY RUN{s}\n\n", .{
+                try stdout.print("{s}{s}DRY RUN{s}\n", .{
                     Cli.italic,
                     Cli.blink,
                     Cli.reset,
@@ -344,29 +344,42 @@ pub fn main() !void {
         files.deinit(allocator);
     }
 
+    try stdout.print("\nSource is {s}{s}{s}\n", .{
+        Cli.underline,
+        source_with_slash,
+        Cli.reset,
+    });
+
+    try stdout.flush();
+
     var src_dir = std.fs.cwd().openDir(
         source_with_slash,
         .{ .iterate = true },
-    ) catch {
-        if (logging) Util.log(
-            ERR,
-            "Source not found: {s}",
-            .{source_with_slash},
-        );
+    ) catch |err| {
+        switch (err) {
+            error.FileNotFound => {
+                if (logging) Util.log(
+                    ERR,
+                    "Source not found: {s}",
+                    .{source_with_slash},
+                );
 
-        try stderr.print("{s}{s}ERROR | Not found:{s} {s}\n", .{
-            Cli.red,
-            Cli.bold,
-            Cli.reset,
-            source_with_slash,
-        });
-
-        try stderr.flush();
-        std.process.exit(1);
+                try stderr.flush();
+                return err;
+            },
+            else => return err,
+        }
     };
 
     defer src_dir.close();
 
+    try stdout.print("Destination is {s}{s}{s}\n", .{
+        Cli.underline,
+        dest_with_slash,
+        Cli.reset,
+    });
+
+    try stdout.flush();
     // progress
     const no_progress = (json or verbose or dry_run) and
         (!sync_cmd or !validate_cmd);
@@ -455,6 +468,7 @@ pub fn main() !void {
     }
 
     if (sync_cmd and !validate_cmd) {
+        if (!json and (verbose or dry_run)) _ = try stdout.write("\n");
         const sync_opts = try main_cmd.getSubCmd("sync").?.getOpts(.{});
         const sync_node = main_node.start(
             "Syncing",
@@ -511,7 +525,7 @@ pub fn main() !void {
         _ = try stdout.write("\n");
     } else {
         if (sync_cmd) {
-            try stdout.print("TOTAL: {s}{d}{s}\n", .{
+            try stdout.print("\nTOTAL: {s}{d}{s}\n", .{
                 Cli.underline,
                 counter.total,
                 Cli.reset,

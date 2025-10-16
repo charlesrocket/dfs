@@ -288,7 +288,7 @@ fn forwardSync(
         if (dry_run) {
             if (is_text)
                 try stdout.print(
-                    "{s}{s}DATA | render:{s}\n\n{s}{s}",
+                    "{s}{s}DATA | render:\n\n{s}{s}\n{s}",
                     .{
                         Cli.yellow,
                         Cli.bold,
@@ -309,6 +309,8 @@ fn forwardSync(
                     },
                 );
         }
+
+        try stdout.flush();
     }
 }
 
@@ -392,7 +394,7 @@ fn backSync(
 
         if (dry_run) {
             try stdout.print(
-                "{s}{s}DATA | template:{s}\n\n{s}{s}",
+                "{s}{s}DATA | template:{s}{s}\n{s}",
                 .{
                     Cli.yellow,
                     Cli.bold,

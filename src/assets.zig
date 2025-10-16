@@ -25,4 +25,4 @@ pub const help_prefix =
 
 pub const opt_usage = "{u}{u}{s}{s}{s}{f} <{s}>";
 pub const examples_header = "{s}EXAMPLE:\n";
-pub const separator = "\n\x1b[2m--- --- ---\x1b[0m\n\n";
+pub const separator = "\x1b[2m--- --- ---\x1b[0m\n";

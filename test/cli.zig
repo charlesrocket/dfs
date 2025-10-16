@@ -86,6 +86,10 @@ test "sync" {
         \\|___/ \_|   \____/
         \\
         \\SYNC STARTED
+        \\
+        \\Source is test/root/
+        \\Destination is test/dest/
+        \\
         \\TOTAL: 3
         \\UPDATED: 2
         \\TEMPLATES: 0
@@ -154,6 +158,9 @@ test "sync-dry" {
         \\
         \\SYNC STARTED
         \\DRY RUN
+        \\
+        \\Source is test/root-dry/
+        \\Destination is test/dest-dry/
         \\
         \\FILE | test/dest-dry/testfile1
         \\DATA | render:
