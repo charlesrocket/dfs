@@ -241,7 +241,7 @@ pub fn main() !void {
                     stderr,
                 );
 
-                _ = try stderr.write("\n\nExiting...\n");
+                _ = try stderr.write("\n\n");
                 try stderr.flush();
                 return err;
             };
