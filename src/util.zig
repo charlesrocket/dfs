@@ -41,11 +41,11 @@ pub fn cloneRepo(
     allocator: std.mem.Allocator,
     url: []const u8,
     dest: []const u8,
-) !void {
-    const destination = try Config.pathFormat(allocator, dest);
+) void {
+    const destination = Config.pathFormat(allocator, dest) catch unreachable;
     defer allocator.free(destination);
 
-    try createDirRecursively(allocator, destination);
+    createDirRecursively(allocator, destination) catch {};
 
     const command = [_][]const u8{
         "git",
@@ -57,8 +57,8 @@ pub fn cloneRepo(
 
     var proc = std.process.Child.init(&command, allocator);
 
-    try proc.spawn();
-    _ = try proc.wait();
+    proc.spawn() catch {};
+    _ = proc.wait() catch {};
 }
 
 pub fn createDirRecursively(

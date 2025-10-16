@@ -63,7 +63,7 @@ fn init(
 
     var config = try Config.new(allocator, repo, src, dest);
 
-    try Util.cloneRepo(allocator, repo, src);
+    Util.cloneRepo(allocator, repo, src);
     try config.write(allocator, config_path);
     _ = try stdout.write("COMPLETED\n");
     try stdout.flush();
