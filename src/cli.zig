@@ -94,11 +94,11 @@ const ValueT = CommandT.ValueT;
 pub const setup_cmd: CommandT = .{
     .name = "dfs",
     .description =
-        \\A configuration (dotfiles) manager with a template engine and
-        \\    a true 2-way synchronization. The deployed layout recreates the
-        \\    source completely (except assets in the ignore list). So it is
-        \\    recommended to structure the source repository as a $HOME mirror.
-        ,
+    \\A configuration (dotfiles) manager with a template engine and
+    \\    a true 2-way synchronization. The deployed layout recreates the
+    \\    source completely (except assets in the ignore list). So it is
+    \\    recommended to structure the source repository as a $HOME mirror.
+    ,
     .examples = &.{
         "dfs init -h",
     },
