@@ -161,7 +161,7 @@ pub const setup_cmd: CommandT = .{
         },
         .{
             .name = "purge",
-            .description = "Delete application data (meta, backups)",
+            .description = "Delete application data (meta, backups, logs)",
         },
     },
     .opts = &.{

@@ -159,7 +159,11 @@ pub fn main() !void {
         const data = try Config.getXdgDir(allocator, Config.XdgDir.Data);
         defer allocator.free(data);
 
+        const state = try Config.getXdgDir(allocator, Config.XdgDir.State);
+        defer allocator.free(state);
+
         try std.fs.cwd().deleteTree(data);
+        try std.fs.cwd().deleteTree(state);
         try stdout.print("COMPLETED\n", .{});
         try stdout.flush();
 
