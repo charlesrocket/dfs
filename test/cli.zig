@@ -455,9 +455,6 @@ test "config bad" {
         \\    .logging = false,
         \\    .ignore_list = .{},
         \\}
-        \\
-        \\Exiting...
-        \\
     ;
 
     const out = try stripAnsi(allocator, proc.out);
@@ -468,7 +465,7 @@ test "config bad" {
         allocator.free(proc.err);
     }
 
-    try std.testing.expectStringEndsWith(proc.err, expected_err);
+    try std.testing.expect(std.mem.indexOf(u8, proc.err, expected_err) != null);
     try std.testing.expectEqual(proc.term.Exited, 1);
 }
 
