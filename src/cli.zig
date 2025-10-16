@@ -93,7 +93,12 @@ const ValueT = CommandT.ValueT;
 
 pub const setup_cmd: CommandT = .{
     .name = "dfs",
-    .description = "A configuration (dotfiles) manager with a template engine and a true 2-way synchronization",
+    .description =
+        \\A configuration (dotfiles) manager with a template engine and
+        \\    a true 2-way synchronization. The deployed layout recreates the
+        \\    source completely (except assets in the ignore list). So it is
+        \\    recommended to structure the source repository as a $HOME mirror.
+        ,
     .examples = &.{
         "dfs init -h",
     },
@@ -105,32 +110,31 @@ pub const setup_cmd: CommandT = .{
         },
         .{
             .name = "init",
-            .description =
-            \\Initialize the configuration. The deployed layout mirrors
-            \\    the source completely (except assets in the ignore list).
-            \\    So it is recommended to structure the source repository as $HOME.
-            \\    (requires git)
-            ,
-        },
-        .{
-            .name = "bootstrap",
-            .description = "Download and deploy an external config file.",
-            .opts = &.{
+            .description = "Initialize the configuration (requires git).",
+            .sub_cmds_mandatory = false,
+            .sub_cmds = &.{
                 .{
-                    .name = "url",
-                    .description = "Config file URL.",
-                    .long_name = "url",
-                    .mandatory = true,
-                    .val = ValueT.ofType([]const u8, .{
-                        .name = "string",
-                        .alias_child_type = "URL",
-                    }),
+                    .name = "bootstrap",
+                    .description = "Download and deploy an external config file.",
+                    .opts = &.{
+                        .{
+                            .name = "url",
+                            .description = "Config file URL.",
+                            .long_name = "url",
+                            .mandatory = true,
+                            .val = ValueT.ofType([]const u8, .{
+                                .name = "string",
+                                .alias_child_type = "URL",
+                            }),
+                        },
+                    },
                 },
             },
         },
         .{
             .name = "sync",
             .description = "Run synchronization.",
+            .sub_cmds_mandatory = false,
             .opts = &.{
                 .{
                     .name = "dry",
@@ -161,7 +165,7 @@ pub const setup_cmd: CommandT = .{
         },
         .{
             .name = "purge",
-            .description = "Delete application data (meta, backups, logs)",
+            .description = "Delete application data (meta, backups, logs).",
         },
     },
     .opts = &.{

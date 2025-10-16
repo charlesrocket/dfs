@@ -170,31 +170,32 @@ pub fn main() !void {
         return;
     }
 
-    if (main_cmd.checkSubCmd("init")) {
+    if (main_cmd.matchSubCmd("init")) |init_cmd| {
+        if (init_cmd.matchSubCmd("bootstrap")) |bootstrap_cmd| {
+            const bootstrap_opts = try bootstrap_cmd.getOpts(.{});
+            const url = try bootstrap_opts.get("url").?.val.getAs([]const u8);
+
+            try stdout.print("{s}\nFetching external config...\n", .{
+                assets.help_prefix,
+            });
+
+            try stdout.flush();
+            try Config.bootstrap(allocator, url);
+            try stdout.print("{s}DONE{s}\n", .{
+                Cli.bold,
+                Cli.reset,
+            });
+
+            try stdout.flush();
+            return;
+        }
+
         try init(allocator, stdout, config_path);
         try stdout.flush();
         return;
-    } else if (main_cmd.matchSubCmd("bootstrap")) |bootstrap_cmd| {
-        const bootstrap_opts = try bootstrap_cmd.getOpts(.{});
-        const url = try bootstrap_opts.get("url").?.val.getAs([]const u8);
-
-        try stdout.print("{s}\nFetching external config...\n", .{
-            assets.help_prefix,
-        });
-
-        try stdout.flush();
-        try Config.bootstrap(allocator, url);
-        try stdout.print("{s}DONE{s}\n", .{
-            Cli.bold,
-            Cli.reset,
-        });
-
-        try stdout.flush();
-
-        return;
     }
 
-    // no more early exits from this point
+    // no more early exits
     if (!json) {
         try stdout.print("{s}\n", .{
             assets.logo,
