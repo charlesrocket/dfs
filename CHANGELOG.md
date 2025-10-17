@@ -2,6 +2,85 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2025-10-17
+
+### Bug Fixes
+
+- Add missing counters
+- Correct writing positions
+- Update config errors
+- Handle `ignore_list` allocations
+- Clone during bootstrap
+- Move stdout prints
+- Fix `pathFormat()` deallocations
+- Improve returns
+- Purge logs
+- Edit config error
+- Fix `cloneRepo()` path
+- Make `cloneRepo()` silent
+- [**breaking**] Move `bootstrap` command
+- Fix zon parser leak
+- Drop `url` option
+- Improve config handling
+
+### Documentation
+
+- Update config
+- `.destination` -> `.target`
+
+### Features
+
+- Add `direction` option
+- Add `repository`
+- Migrate old formats
+- Automatic config updates
+- Add logger
+- Use custom logger
+- [**breaking**] Add `target`
+
+### Miscellaneous tasks
+
+- Note deallocations for path functions
+
+### Operations
+
+- Bump zig to 0.15.2
+
+### Refactor
+
+- Split `processFile()`
+- Move `bootstrap()`
+- Add `cloneRepo()`
+- Restructure `Dotfile`/`Config`
+- Add `core` module
+- Improve `direction` assignment
+- Move `IGNORE_LIST`
+
+### Styling
+
+- Fix `getUserInput()` formatting
+- Fix `description`
+
+### Testing
+
+- Add `sync-back-forced`
+- Add `sync-forward-forced`
+- Update `processFile`
+- Update configs
+- Add `migrateConfig`
+- Add `pathFormat`
+- Reformat cases
+- Reformat `processFile`
+- Update config cases
+- Add `log`
+- Fix `config bad`
+
+### Build
+
+- Bump MSZV to 0.15.1
+- Update fingerprint
+- Bump `cova` to `08d92ce`
+
 ## [0.4.0] - 2025-09-30
 
 ### Bug Fixes
