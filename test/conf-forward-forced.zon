@@ -1,7 +1,7 @@
 .{
     .repository = "",
     .source = "test/root-forward-forced",
-    .destination = "test/dest-forward-forced",
+    .target = "test/dest-forward-forced",
     .logging = false,
     .ignore_list = .{},
 }

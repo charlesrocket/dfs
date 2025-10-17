@@ -12,7 +12,7 @@ pub const ConfigResult = union(enum) {
 
 repository: []const u8,
 source: []const u8,
-destination: []const u8,
+target: []const u8,
 logging: bool,
 ignore_list: [][]const u8,
 
@@ -20,17 +20,17 @@ pub fn new(
     allocator: std.mem.Allocator,
     repository: []const u8,
     source: []const u8,
-    destination: ?[]const u8,
+    target: ?[]const u8,
 ) !Config {
-    const path = if (destination == null)
+    const path = if (target == null)
         try std.process.getEnvVarOwned(allocator, "HOME")
     else
-        destination.?;
+        target.?;
 
     return .{
         .repository = repository,
         .source = source,
-        .destination = path,
+        .target = path,
         .logging = false,
         .ignore_list = &[_][]u8{},
     };
@@ -207,7 +207,12 @@ pub fn migrateConfig(
     var new_config = Config{
         .repository = if (old_config.repository) |v| v else "",
         .source = if (old_config.source) |v| v else "",
-        .destination = if (old_config.destination) |v| v else "",
+        .target = if (old_config.target) |v|
+            v
+        else if (old_config.destination) |v|
+            v
+        else
+            "",
         .logging = if (old_config.logging) |v| v else false,
         .ignore_list = ignore_list,
     };
@@ -222,10 +227,19 @@ pub fn migrateConfig(
 }
 
 fn MigrationType(comptime T: type) type {
-    const fields = std.meta.fields(T);
-    var struct_fields: [fields.len]std.builtin.Type.StructField = undefined;
+    const config_fields = std.meta.fields(T);
+    // deprecated config fields
+    const deprecated_field_specs = .{
+        .{ .name = "destination", .type = []const u8 },
+    };
 
-    inline for (fields, 0..) |field, i| {
+    var fields: [
+        config_fields.len +
+            deprecated_field_specs.len
+    ]std.builtin.Type.StructField =
+        undefined;
+
+    inline for (config_fields, 0..) |field, i| {
         const OptionalType = @Type(.{
             .optional = .{
                 .child = field.type,
@@ -234,8 +248,26 @@ fn MigrationType(comptime T: type) type {
 
         const default_value = @as(OptionalType, null);
 
-        struct_fields[i] = .{
+        fields[i] = .{
             .name = field.name,
+            .type = OptionalType,
+            .default_value_ptr = &default_value,
+            .is_comptime = false,
+            .alignment = @alignOf(OptionalType),
+        };
+    }
+
+    inline for (deprecated_field_specs, 0..) |spec, i| {
+        const OptionalType = @Type(.{
+            .optional = .{
+                .child = spec.type,
+            },
+        });
+
+        const default_value = @as(OptionalType, null);
+
+        fields[config_fields.len + i] = .{
+            .name = spec.name,
             .type = OptionalType,
             .default_value_ptr = &default_value,
             .is_comptime = false,
@@ -246,7 +278,7 @@ fn MigrationType(comptime T: type) type {
     return @Type(.{
         .@"struct" = .{
             .layout = .auto,
-            .fields = &struct_fields,
+            .fields = &fields,
             .decls = &.{},
             .is_tuple = false,
         },
@@ -335,7 +367,7 @@ test migrateConfig {
         \\.{
         \\    .repository = "https://gibson.com/test",
         \\    .source = "test/root-back",
-        \\    .destination = "/tmp/test",
+        \\    .target = "/tmp/test",
         \\    .logging = false,
         \\    .ignore_list = .{ "foo", "bar" },
         \\}

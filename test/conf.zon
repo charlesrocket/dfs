@@ -1,7 +1,7 @@
 .{
     .repository = "",
     .source = "test/root",
-    .destination = "test/dest",
+    .target = "test/dest",
     .logging = false,
     .ignore_list = .{},
 }

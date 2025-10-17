@@ -209,7 +209,6 @@ pub fn main() !void {
         .ok => |cfg| cfg,
         .parse_error => |config_data| cfg: {
             defer allocator.free(config_data);
-
             try stderr.print("{s}{s}Updating config{s}\n", .{
                 Cli.yellow,
                 Cli.bold,
@@ -228,6 +227,7 @@ pub fn main() !void {
                     "\n{s}{s}{s}\n\n",
                     .{ Cli.red, config_data, Cli.reset },
                 );
+
                 const example_config = try Config.new(
                     allocator,
                     "https://gibson.com/git/dotfiles",
@@ -266,8 +266,8 @@ pub fn main() !void {
 
     if (logging) try Util.setLogger(allocator);
 
-    if (opts.get("destination")) |dest| {
-        config.destination = try dest.val.getAs([]const u8);
+    if (opts.get("target")) |target| {
+        config.target = try target.val.getAs([]const u8);
     }
 
     if (opts.get("source")) |src| {
@@ -279,17 +279,17 @@ pub fn main() !void {
         config.source,
     );
 
-    const dest_with_slash = try Config.pathFormat(
+    const target_with_slash = try Config.pathFormat(
         allocator,
-        config.destination,
+        config.target,
     );
 
     defer {
         if (!std.mem.eql(u8, source_with_slash, config.source))
             allocator.free(source_with_slash);
 
-        if (!std.mem.eql(u8, dest_with_slash, config.destination))
-            allocator.free(dest_with_slash);
+        if (!std.mem.eql(u8, target_with_slash, config.target))
+            allocator.free(target_with_slash);
     }
 
     var ignore_list = std.array_list.Managed([]const u8).init(allocator);
@@ -378,9 +378,9 @@ pub fn main() !void {
 
     defer src_dir.close();
 
-    try stdout.print("Destination is {s}{s}{s}\n", .{
+    try stdout.print("Target is {s}{s}{s}\n", .{
         Cli.underline,
-        dest_with_slash,
+        target_with_slash,
         Cli.reset,
     });
 
@@ -435,12 +435,12 @@ pub fn main() !void {
                         &.{ source_with_slash, entry.path },
                     );
 
-                    const dest_path = try std.fs.path.join(
+                    const target_path = try std.fs.path.join(
                         allocator,
-                        &.{ dest_with_slash, entry.path },
+                        &.{ target_with_slash, entry.path },
                     );
 
-                    const file = Dotfile.new(src_path, dest_path);
+                    const file = Dotfile.new(src_path, target_path);
 
                     try files.append(allocator, file);
                 },

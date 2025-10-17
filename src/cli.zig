@@ -190,10 +190,11 @@ pub const setup_cmd: CommandT = .{
             }),
         },
         .{
-            .name = "destination",
-            .description = "Override the destination directory.",
-            .short_name = 'd',
-            .long_name = "destination",
+            .name = "target",
+            .description = "Override the target directory.",
+            .short_name = 't',
+            .long_name = "target",
+            .alias_long_names = &.{"destination"},
             .val = ValueT.ofType([]const u8, .{
                 .name = "string",
                 .alias_child_type = "path",

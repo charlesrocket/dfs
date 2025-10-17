@@ -1,7 +1,7 @@
 .{
     .repository = "",
     .source = "test/root-back-forced",
-    .destination = "test/dest-back-forced",
+    .target = "test/dest-back-forced",
     .logging = false,
     .ignore_list = .{},
 }

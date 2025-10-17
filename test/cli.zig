@@ -88,7 +88,7 @@ test "sync" {
         \\SYNC STARTED
         \\
         \\Source is test/root/
-        \\Destination is test/dest/
+        \\Target is test/dest/
         \\
         \\TOTAL: 3
         \\UPDATED: 2
@@ -160,7 +160,7 @@ test "sync-dry" {
         \\DRY RUN
         \\
         \\Source is test/root-dry/
-        \\Destination is test/dest-dry/
+        \\Target is test/dest-dry/
         \\
         \\FILE | test/dest-dry/testfile1
         \\DATA | render:
@@ -451,7 +451,7 @@ test "config bad" {
         \\.{
         \\    .repository = "https://gibson.com/git/dotfiles",
         \\    .source = "$HOME/src/dotfiles",
-        \\    .destination = "/tmp/test",
+        \\    .target = "/tmp/test",
         \\    .logging = false,
         \\    .ignore_list = .{},
         \\}
