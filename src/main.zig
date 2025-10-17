@@ -377,8 +377,8 @@ pub fn main() !void {
 
         defer sync_node.end();
 
-        const direction_opt = sync_opts.get("direction").?;
-        core.direction = try direction_opt.val.getAs(Cli.Direction);
+        if (sync_opts.get("direction")) |opt|
+            core.direction = try opt.val.getAs(Cli.Direction);
 
         if (core.logs) Util.log(
             INFO,
