@@ -1,24 +1,6 @@
+const VERSION = build_options.version;
 pub const CommandT = Cli.CommandT;
 pub const setup_cmd = Cli.setup_cmd;
-
-const VERSION = build_options.version;
-
-pub const IGNORE_LIST = [_][]const u8{
-    "CHANGELOG.md",
-    "README.md",
-    "LICENSE",
-    "codecov.yml",
-    "codecov.yaml",
-    ".gitignore",
-    ".gitmodules",
-    ".github",
-    ".git",
-    ".DS_Store",
-};
-
-pub const MAC_SPECIFIC = [_][]const u8{
-    ".yabairc",
-};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -189,7 +171,7 @@ pub fn main() !void {
     var ignore_list = std.array_list.Managed([]const u8).init(allocator);
     defer ignore_list.deinit();
 
-    for (IGNORE_LIST) |item| {
+    for (Core.IGNORE_LIST) |item| {
         try ignore_list.append(item);
     }
 

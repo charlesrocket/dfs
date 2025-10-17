@@ -1,3 +1,20 @@
+pub const IGNORE_LIST = [_][]const u8{
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE",
+    "codecov.yml",
+    "codecov.yaml",
+    ".gitignore",
+    ".gitmodules",
+    ".github",
+    ".git",
+    ".DS_Store",
+};
+
+pub const MAC_SPECIFIC = [_][]const u8{
+    ".yabairc",
+};
+
 stdout: *std.Io.Writer,
 stderr: *std.Io.Writer,
 direction: Cli.Direction,

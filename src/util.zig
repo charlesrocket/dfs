@@ -124,7 +124,7 @@ pub fn isIgnored(value: []const u8, ignore_list: [][]const u8) bool {
     }
 
     if (builtin.target.os.tag != .macos) {
-        for (main.MAC_SPECIFIC) |el| {
+        for (Core.MAC_SPECIFIC) |el| {
             if (std.mem.eql(u8, el, value)) {
                 return true;
             }
@@ -245,6 +245,6 @@ test log {
 
 const std = @import("std");
 const builtin = @import("builtin");
-const main = @import("main.zig");
+const Core = @import("core.zig");
 const Config = @import("config.zig");
 const Dotfile = @import("dotfile.zig");
