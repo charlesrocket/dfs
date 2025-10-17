@@ -20,55 +20,6 @@ pub const MAC_SPECIFIC = [_][]const u8{
     ".yabairc",
 };
 
-fn init(
-    allocator: std.mem.Allocator,
-    stdout: *std.Io.Writer,
-    config_path: []const u8,
-) !void {
-    try stdout.print("{s}{s}{s}\nInitializing configuration...\n", .{
-        assets.help_prefix,
-        Cli.bold,
-        Cli.reset,
-    });
-
-    try stdout.flush();
-
-    const repo_usr = try Cli.getUserInput(
-        allocator,
-        stdout,
-        Cli.UserInput.Url,
-    );
-
-    const src_usr = try Cli.getUserInput(
-        allocator,
-        stdout,
-        Cli.UserInput.Source,
-    );
-
-    const dest_usr = try Cli.getUserInput(
-        allocator,
-        stdout,
-        Cli.UserInput.Destination,
-    );
-
-    defer {
-        repo_usr.deinit();
-        src_usr.deinit();
-        dest_usr.deinit();
-    }
-
-    const repo = repo_usr.items;
-    const src = src_usr.items;
-    const dest = dest_usr.items;
-
-    var config = try Config.new(allocator, repo, src, dest);
-
-    Util.cloneRepo(allocator, repo, src);
-    try config.write(allocator, config_path);
-    _ = try stdout.write("COMPLETED\n");
-    try stdout.flush();
-}
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -86,11 +37,9 @@ pub fn main() !void {
     const main_cmd = try setup_cmd.init(allocator, .{});
     defer main_cmd.deinit();
 
+    var core = Core.new(stdout, stderr);
     var custom_config_path: ?[]const u8 = null;
     var usage_help_called = false;
-    var logging = false;
-    var dry_run = false;
-    var json = false;
     var args_iter = try cova.ArgIteratorGeneric.init(allocator);
     defer args_iter.deinit();
 
@@ -98,7 +47,7 @@ pub fn main() !void {
         &args_iter,
         CommandT,
         main_cmd,
-        stdout,
+        core.stdout,
         .{ .err_reaction = .Usage },
     ) catch |err|
         switch (err) {
@@ -113,22 +62,22 @@ pub fn main() !void {
     const opts = try main_cmd.getOpts(.{});
 
     if (usage_help_called) {
-        try stdout.flush();
+        try core.stdout.flush();
         return;
     }
 
     if (main_cmd.checkFlag("version")) {
-        try stdout.print(
+        try core.stdout.print(
             "{s}{s}{s}",
             .{ "dfs version ", VERSION, "\n" },
         );
 
-        try stdout.flush();
+        try core.stdout.flush();
         return;
     }
 
     if (main_cmd.checkFlag("json")) {
-        json = true;
+        core.json = true;
     }
 
     if (opts.get("config")) |dest| {
@@ -152,7 +101,7 @@ pub fn main() !void {
         custom_config_path.?;
 
     if (main_cmd.checkSubCmd("purge")) {
-        try stdout.print("{s}\nErasing application data...\n", .{
+        try core.stdout.print("{s}\nErasing application data...\n", .{
             assets.help_prefix,
         });
 
@@ -164,8 +113,8 @@ pub fn main() !void {
 
         try std.fs.cwd().deleteTree(data);
         try std.fs.cwd().deleteTree(state);
-        try stdout.print("COMPLETED\n", .{});
-        try stdout.flush();
+        try core.stdout.print("COMPLETED\n", .{});
+        try core.stdout.flush();
 
         return;
     }
@@ -175,41 +124,41 @@ pub fn main() !void {
             const bootstrap_vals = try bootstrap_cmd.getVals(.{});
             const url = try bootstrap_vals.get("config").?.getAs([]const u8);
 
-            try stdout.print("{s}\nFetching external config...\n", .{
+            try core.stdout.print("{s}\nFetching external config...\n", .{
                 assets.help_prefix,
             });
 
-            try stdout.flush();
-            try Config.bootstrap(allocator, url, stderr);
-            try stdout.print("{s}DONE{s}\n", .{
+            try core.stdout.flush();
+            try Config.bootstrap(allocator, url, &core);
+            try core.stdout.print("{s}DONE{s}\n", .{
                 Cli.bold,
                 Cli.reset,
             });
 
-            try stdout.flush();
+            try core.stdout.flush();
             return;
         }
 
-        try init(allocator, stdout, config_path);
-        try stdout.flush();
+        try core.init(allocator, config_path);
+        try core.stdout.flush();
         return;
     }
 
     // no more early exits
-    if (!json) {
-        try stdout.print("{s}\n", .{
+    if (!core.json) {
+        try core.stdout.print("{s}\n", .{
             assets.logo,
         });
 
-        try stdout.flush();
+        try core.stdout.flush();
     }
 
-    var config = try Config.open(allocator, config_path, stderr);
+    var config = try Config.open(allocator, config_path, &core);
     defer std.zon.parse.free(allocator, config);
 
-    logging = config.logging;
+    core.logs = config.logging;
 
-    if (logging) try Util.setLogger(allocator);
+    if (core.logs) try Util.setLogger(allocator);
 
     if (opts.get("target")) |target| {
         config.target = try target.val.getAs([]const u8);
@@ -248,11 +197,9 @@ pub fn main() !void {
         try ignore_list.append(item);
     }
 
-    var verbose = false;
-
-    if (!json) {
+    if (!core.json) {
         if (sync_cmd) {
-            try stdout.print("{s}{s}SYNC STARTED{s}\n", .{
+            try core.stdout.print("{s}{s}SYNC STARTED{s}\n", .{
                 Cli.magenta,
                 Cli.bold,
                 Cli.reset,
@@ -260,7 +207,7 @@ pub fn main() !void {
         }
 
         if (validate_cmd) {
-            try stdout.print("{s}{s}VALIDATION STARTED{s}\n", .{
+            try core.stdout.print("{s}{s}VALIDATION STARTED{s}\n", .{
                 Cli.magenta,
                 Cli.bold,
                 Cli.reset,
@@ -269,12 +216,12 @@ pub fn main() !void {
     }
 
     if (main_cmd.matchSubCmd("sync")) |cmd| {
-        if (cmd.checkFlag("verbose")) verbose = true;
+        if (cmd.checkFlag("verbose")) core.verbose = true;
         if ((try cmd.getOpts(.{})).get("dry")) |dry_opt| {
-            dry_run = dry_opt.val.isSet();
+            core.dry = dry_opt.val.isSet();
 
-            if (!json and dry_run) {
-                try stdout.print("{s}{s}DRY RUN{s}\n", .{
+            if (!core.json and core.dry) {
+                try core.stdout.print("{s}{s}DRY RUN{s}\n", .{
                     Cli.italic,
                     Cli.blink,
                     Cli.reset,
@@ -283,7 +230,7 @@ pub fn main() !void {
         }
     }
 
-    var counter = Util.Counter.new(dry_run);
+    var counter = Util.Counter.new(core.dry);
     var files = std.ArrayListUnmanaged(Dotfile).empty;
 
     defer {
@@ -294,13 +241,13 @@ pub fn main() !void {
         files.deinit(allocator);
     }
 
-    try stdout.print("\nSource is {s}{s}{s}\n", .{
+    try core.stdout.print("\nSource is {s}{s}{s}\n", .{
         Cli.underline,
         source_with_slash,
         Cli.reset,
     });
 
-    try stdout.flush();
+    try core.stdout.flush();
 
     var src_dir = std.fs.cwd().openDir(
         source_with_slash,
@@ -308,13 +255,13 @@ pub fn main() !void {
     ) catch |err| {
         switch (err) {
             error.FileNotFound => {
-                if (logging) Util.log(
+                if (core.logs) Util.log(
                     ERR,
                     "Source not found: {s}",
                     .{source_with_slash},
                 );
 
-                try stderr.flush();
+                try core.stderr.flush();
                 return err;
             },
             else => return err,
@@ -323,15 +270,15 @@ pub fn main() !void {
 
     defer src_dir.close();
 
-    try stdout.print("Target is {s}{s}{s}\n", .{
+    try core.stdout.print("Target is {s}{s}{s}\n", .{
         Cli.underline,
         target_with_slash,
         Cli.reset,
     });
 
-    try stdout.flush();
+    try core.stdout.flush();
     // progress
-    const no_progress = (json or verbose or dry_run) and
+    const no_progress = (core.json or core.verbose or core.dry) and
         (!sync_cmd or !validate_cmd);
 
     const main_node = std.Progress.start(
@@ -355,11 +302,12 @@ pub fn main() !void {
 
         defer scan_node.end();
 
-        if (logging) Util.log(INFO, "Scanning the source", .{});
+        if (core.logs) Util.log(INFO, "Scanning the source", .{});
 
         walk: while (try walker.next()) |entry| {
             if (Util.isIgnored(entry.basename, ignore_items)) {
-                if (logging) Util.log(INFO, "Ignoring: {s}", .{entry.basename});
+                if (core.logs)
+                    Util.log(INFO, "Ignoring: {s}", .{entry.basename});
 
                 if (entry.kind == .directory) {
                     // remove from stack, with prejudice
@@ -402,23 +350,25 @@ pub fn main() !void {
 
         defer validate_node.end();
 
-        if (logging) Util.log(INFO, "Validating", .{});
+        if (core.logs) Util.log(INFO, "Validating", .{});
 
         for (files.items) |file| {
             _ = file.validate(
                 allocator,
                 &counter,
-                json,
+                core.json,
             );
 
-            try stderr.flush();
-            try stdout.flush();
+            try core.stderr.flush();
+            try core.stdout.flush();
             validate_node.completeOne();
         }
     }
 
     if (sync_cmd and !validate_cmd) {
-        if (!json and (verbose or dry_run)) _ = try stdout.write("\n");
+        if (!core.json and (core.verbose or core.dry))
+            _ = try core.stdout.write("\n");
+
         const sync_opts = try main_cmd.getSubCmd("sync").?.getOpts(.{});
         const sync_node = main_node.start(
             "Syncing",
@@ -428,12 +378,12 @@ pub fn main() !void {
         defer sync_node.end();
 
         const direction_opt = sync_opts.get("direction").?;
-        const direction = try direction_opt.val.getAs(Cli.Direction);
+        core.direction = try direction_opt.val.getAs(Cli.Direction);
 
-        if (logging) Util.log(
+        if (core.logs) Util.log(
             INFO,
             "Syncing ({s}/{s})",
-            .{ @tagName(direction), switch (dry_run) {
+            .{ @tagName(core.direction), switch (core.dry) {
                 true => "dry",
                 false => "live",
             } },
@@ -442,16 +392,12 @@ pub fn main() !void {
         for (files.items) |file| {
             file.processFile(
                 allocator,
-                stdout,
-                direction,
                 &counter,
-                dry_run,
-                verbose,
-                json,
+                &core,
             ) catch |err| {
-                if (logging) Util.log(ERR, "{}: {s}", .{ err, file.src });
-                if (!json) {
-                    try stderr.print("{s}{s}ERROR | {}:{s} {s}\n", .{
+                if (core.logs) Util.log(ERR, "{}: {s}", .{ err, file.src });
+                if (!core.json) {
+                    try core.stderr.print("{s}{s}ERROR | {}:{s} {s}\n", .{
                         Cli.bold,
                         Cli.red,
                         err,
@@ -459,53 +405,53 @@ pub fn main() !void {
                         file.src,
                     });
 
-                    try stderr.flush();
+                    try core.stderr.flush();
                 }
             };
 
-            try stdout.flush();
+            try core.stdout.flush();
             sync_node.completeOne();
         }
     }
 
     main_node.end();
 
-    if (json) {
-        try counter.json(stdout);
-        _ = try stdout.write("\n");
+    if (core.json) {
+        try counter.json(core.stdout);
+        _ = try core.stdout.write("\n");
     } else {
         if (sync_cmd) {
-            try stdout.print("\nTOTAL: {s}{d}{s}\n", .{
+            try core.stdout.print("\nTOTAL: {s}{d}{s}\n", .{
                 Cli.underline,
                 counter.total,
                 Cli.reset,
             });
 
-            try stdout.print("UPDATED: {s}{d}{s}\n", .{
+            try core.stdout.print("UPDATED: {s}{d}{s}\n", .{
                 Cli.underline,
                 counter.updated,
                 Cli.reset,
             });
 
-            try stdout.print("TEMPLATES: {s}{d}{s}\n", .{
+            try core.stdout.print("TEMPLATES: {s}{d}{s}\n", .{
                 Cli.underline,
                 counter.template,
                 Cli.reset,
             });
 
-            try stdout.print("RENDERS: {s}{d}{s}\n", .{
+            try core.stdout.print("RENDERS: {s}{d}{s}\n", .{
                 Cli.underline,
                 counter.render,
                 Cli.reset,
             });
 
-            try stdout.print("BINARIES: {s}{d}{s}\n", .{
+            try core.stdout.print("BINARIES: {s}{d}{s}\n", .{
                 Cli.underline,
                 counter.binary,
                 Cli.reset,
             });
 
-            try stdout.print("ERRORS: {s}{d}{s}\n", .{
+            try core.stdout.print("ERRORS: {s}{d}{s}\n", .{
                 Cli.underline,
                 counter.errors,
                 Cli.reset,
@@ -513,7 +459,7 @@ pub fn main() !void {
         }
     }
 
-    if (logging) Util.log(
+    if (core.logs) Util.log(
         INFO,
         "Finished: total {d}, updated {d}, templates {d}, renders {d}, binaries {d}, errors {d}",
         .{
@@ -526,29 +472,32 @@ pub fn main() !void {
         },
     );
 
-    if (!json and (sync_cmd or validate_cmd)) {
-        try stdout.print("{s}{s}DONE{s}\n", .{
+    if (!core.json and (sync_cmd or validate_cmd)) {
+        try core.stdout.print("{s}{s}DONE{s}\n", .{
             Cli.bold,
             Cli.green,
             Cli.reset,
         });
     }
 
-    try stdout.flush();
+    try core.stdout.flush();
 }
 
 test {
+    _ = Config;
     _ = Dotfile;
+    _ = Util;
 }
 
 const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 const cova = @import("cova");
+const Core = @import("core.zig");
 const Config = @import("config.zig");
+const Cli = @import("cli.zig");
 const Dotfile = @import("dotfile.zig");
 const Util = @import("util.zig");
-const Cli = @import("cli.zig");
 const assets = @import("assets.zig");
 
 const INFO = Util.Level.INFO;

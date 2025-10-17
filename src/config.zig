@@ -72,15 +72,20 @@ pub fn write(
 fn read(
     allocator: std.mem.Allocator,
     path: []const u8,
+    core: *Core,
 ) !ConfigResult {
     const config_file = std.fs.cwd().openFile(path, .{}) catch |err|
         switch (err) {
             error.FileNotFound => {
-                std.debug.print("{s}Config not found!{s}\nRun `dfs init`.", .{
-                    Cli.red,
-                    Cli.reset,
-                });
+                try core.stderr.print(
+                    "{s}Config not found!{s}\nRun `dfs init`.",
+                    .{
+                        Cli.red,
+                        Cli.reset,
+                    },
+                );
 
+                try core.stderr.flush();
                 std.process.exit(1);
             },
             else => return err,
@@ -125,28 +130,28 @@ fn read(
 pub fn open(
     allocator: std.mem.Allocator,
     path: []const u8,
-    stderr: *std.Io.Writer,
+    core: *Core,
 ) !Config {
-    const config_result = try read(allocator, path);
+    const config_result = try read(allocator, path, core);
     const config = switch (config_result) {
         .ok => |cfg| cfg,
         .parse_error => |config_data| cfg: {
             defer allocator.free(config_data);
-            try stderr.print("{s}{s}Updating config{s}\n", .{
+            try core.stderr.print("{s}{s}Updating config{s}\n", .{
                 Cli.yellow,
                 Cli.bold,
                 Cli.reset,
             });
 
             Config.migrateConfig(allocator, path) catch |err| {
-                try stderr.print("{s}{s}INVALID CONFIG{s}: {s}\n", .{
+                try core.stderr.print("{s}{s}INVALID CONFIG{s}: {s}\n", .{
                     Cli.red,
                     Cli.bold,
                     Cli.reset,
                     path,
                 });
 
-                _ = try stderr.print(
+                _ = try core.stderr.print(
                     "\n{s}{s}{s}\n\n",
                     .{ Cli.red, config_data, Cli.reset },
                 );
@@ -158,27 +163,27 @@ pub fn open(
                     "/tmp/test",
                 );
 
-                _ = try stderr.write("Example:\n\n");
+                _ = try core.stderr.write("Example:\n\n");
                 _ = try std.zon.stringify.serialize(
                     example_config,
                     .{},
-                    stderr,
+                    core.stderr,
                 );
 
-                _ = try stderr.write("\n\n");
-                try stderr.flush();
+                _ = try core.stderr.write("\n\n");
+                try core.stderr.flush();
                 return err;
             };
 
-            Util.log(WARN, "Config updated!", .{});
-            _ = try stderr.print(
-                "{s}Config updated{s}\n",
+            if (core.logs) Util.log(WARN, "Config updated!", .{});
+            _ = try core.stderr.print(
+                "{s}Config updated{s}\n\n",
                 .{ Cli.green, Cli.reset },
             );
 
-            try stderr.flush();
+            try core.stderr.flush();
 
-            const new_config_result = try Config.read(allocator, path);
+            const new_config_result = try Config.read(allocator, path, core);
             break :cfg new_config_result.ok;
         },
     };
@@ -189,7 +194,7 @@ pub fn open(
 pub fn bootstrap(
     allocator: std.mem.Allocator,
     url: []const u8,
-    stderr: *std.Io.Writer,
+    core: *Core,
 ) !void {
     const config_home = try getXdgDir(allocator, XdgDir.Config);
     defer allocator.free(config_home);
@@ -227,7 +232,7 @@ pub fn bootstrap(
     try file.writeAll(result_body.written());
     file.close();
 
-    const config = try open(allocator, config_path, stderr);
+    const config = try open(allocator, config_path, core);
     defer std.zon.parse.free(allocator, config);
     Util.cloneRepo(allocator, config.repository, config.source);
 }
@@ -532,6 +537,7 @@ test pathFormat {
 
 const Config = @This();
 const std = @import("std");
+const Core = @import("core.zig");
 const Cli = @import("cli.zig");
 const Util = @import("util.zig");
 

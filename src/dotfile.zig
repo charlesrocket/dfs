@@ -206,14 +206,11 @@ pub fn lastMod(
 fn forwardSync(
     self: Dotfile,
     allocator: std.mem.Allocator,
-    stdout: *std.Io.Writer,
     counter: *Util.Counter,
     template_content: []const u8,
     template_mode: usize,
     is_text: bool,
-    dry_run: bool,
-    verbose: bool,
-    json: bool,
+    core: *Core,
 ) !void {
     if (is_text) counter.render += 1 else counter.binary += 1;
     const result = if (is_text) lib.applyTemplate(
@@ -228,7 +225,7 @@ fn forwardSync(
 
     defer if (is_text) allocator.free(result);
 
-    if (!dry_run) {
+    if (!core.dry) {
         const dir_name = std.fs.path.dirname(self.dest) orelse
             return error.InvalidPath;
 
@@ -267,9 +264,9 @@ fn forwardSync(
         try self.recordLastSync(allocator);
     }
 
-    if (!json and (dry_run or verbose)) {
+    if (!core.json and (core.dry or core.verbose)) {
         if (!is_text) {
-            try stdout.print("{s}{s}FILE | {s} >>> {s}{s}\n", .{
+            try core.stdout.print("{s}{s}FILE | {s} >>> {s}{s}\n", .{
                 Cli.blue,
                 Cli.bold,
                 self.src,
@@ -277,7 +274,7 @@ fn forwardSync(
                 Cli.reset,
             });
         } else {
-            try stdout.print("{s}{s}FILE | {s}{s}\n", .{
+            try core.stdout.print("{s}{s}FILE | {s}{s}\n", .{
                 Cli.yellow,
                 Cli.bold,
                 self.dest,
@@ -285,9 +282,9 @@ fn forwardSync(
             });
         }
 
-        if (dry_run) {
+        if (core.dry) {
             if (is_text)
-                try stdout.print(
+                try core.stdout.print(
                     "{s}{s}DATA | render:\n\n{s}{s}\n{s}",
                     .{
                         Cli.yellow,
@@ -298,7 +295,7 @@ fn forwardSync(
                     },
                 )
             else
-                try stdout.print(
+                try core.stdout.print(
                     "{s}{s}DATA | render: {s}binary{s}\n{s}",
                     .{
                         Cli.blue,
@@ -310,21 +307,18 @@ fn forwardSync(
                 );
         }
 
-        try stdout.flush();
+        try core.stdout.flush();
     }
 }
 
 fn backSync(
     self: Dotfile,
     allocator: std.mem.Allocator,
-    stdout: *std.Io.Writer,
     counter: *Util.Counter,
     template_content: []const u8,
     template_mode: usize,
     is_text: bool,
-    dry_run: bool,
-    verbose: bool,
-    json: bool,
+    core: *Core,
 ) !void {
     counter.template += 1;
 
@@ -347,7 +341,7 @@ fn backSync(
 
     defer allocator.free(new_template);
 
-    if (!dry_run) {
+    if (!core.dry) {
         const updated_template = std.fs.cwd().openFile(
             self.src,
             .{ .mode = .read_write },
@@ -381,8 +375,8 @@ fn backSync(
         try self.recordLastSync(allocator);
     }
 
-    if (!json and (dry_run or verbose)) {
-        try stdout.print(
+    if (!core.json and (core.dry or core.verbose)) {
+        try core.stdout.print(
             "{s}{s}FILE | {s}{s}\n",
             .{
                 Cli.yellow,
@@ -392,8 +386,8 @@ fn backSync(
             },
         );
 
-        if (dry_run) {
-            try stdout.print(
+        if (core.dry) {
+            try core.stdout.print(
                 "{s}{s}DATA | template:{s}{s}\n{s}",
                 .{
                     Cli.yellow,
@@ -410,21 +404,18 @@ fn backSync(
 pub fn processFile(
     self: Dotfile,
     allocator: std.mem.Allocator,
-    stdout: *std.Io.Writer,
-    direction: Cli.Direction,
     counter: *Util.Counter,
-    dry_run: bool,
-    verbose: bool,
-    json: bool,
+    core: *Core,
 ) !void {
     counter.total += 1;
     const template_file = std.fs.cwd().openFile(self.src, .{}) catch {
         counter.errors += 1;
-        std.debug.print(
+        try core.stderr.print(
             "{s}{s}ERROR | Not found:{s} {s}\n",
             .{ Cli.red, Cli.bold, Cli.reset, self.src },
         );
 
+        try core.stderr.flush();
         return;
     };
 
@@ -471,7 +462,7 @@ pub fn processFile(
         const index = std.mem.lastIndexOfScalar(u8, meta_file_path, '/');
         const meta_dest = meta_file_path[0..index.?];
 
-        if (!dry_run) {
+        if (!core.dry) {
             try self.backup(allocator);
             try Util.createDirRecursively(allocator, meta_dest);
             _ = try std.fs.createFileAbsolute(
@@ -524,28 +515,22 @@ pub fn processFile(
     const last_modified_src = self.lastMod(File.Template) orelse 0;
     const last_modified_rend = self.lastMod(File.Render) orelse 0;
 
-    switch (direction) {
+    switch (core.direction) {
         .forward => try self.forwardSync(
             allocator,
-            stdout,
             counter,
             template_content,
             template_mode,
             is_text,
-            dry_run,
-            verbose,
-            json,
+            core,
         ),
         .back => try self.backSync(
             allocator,
-            stdout,
             counter,
             template_content,
             template_mode,
             is_text,
-            dry_run,
-            verbose,
-            json,
+            core,
         ),
         .dual => {
             if ((meta_file != null) and
@@ -554,26 +539,20 @@ pub fn processFile(
             {
                 try self.backSync(
                     allocator,
-                    stdout,
                     counter,
                     template_content,
                     template_mode,
                     is_text,
-                    dry_run,
-                    verbose,
-                    json,
+                    core,
                 );
             } else {
                 try self.forwardSync(
                     allocator,
-                    stdout,
                     counter,
                     template_content,
                     template_mode,
                     is_text,
-                    dry_run,
-                    verbose,
-                    json,
+                    core,
                 );
             }
         },
@@ -582,27 +561,25 @@ pub fn processFile(
 
 test processFile {
     var counter = Util.Counter.new(false);
-    var buf: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buf);
-    const writer = &stdout_writer.interface;
+    var bufo: [4096]u8 = undefined;
+    var bufe: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&bufo);
+    var stderr_writer = std.fs.File.stderr().writer(&bufe);
+    var core = Core.new(&stdout_writer.interface, &stderr_writer.interface);
 
     errdefer {
         std.fs.cwd().deleteTree("test/root2") catch unreachable;
         std.fs.cwd().deleteTree("test/dest2") catch unreachable;
     }
 
-    // dual
+    // dual (default)
     {
         var dotfile_d = new("test/root/testfile1", "test/dest2/testfile-unit");
 
         _ = try dotfile_d.processFile(
             std.testing.allocator,
-            writer,
-            Cli.Direction.dual,
             &counter,
-            false,
-            false,
-            false,
+            &core,
         );
 
         const file_dual = try std.fs.cwd().openFile("test/dest2/testfile-unit", .{});
@@ -630,15 +607,12 @@ test processFile {
     // forward
     {
         var dotfile_f = new("test/root/testfile1", "test/dest2/testfile-unit");
+        core.direction = Cli.Direction.forward;
 
         _ = try dotfile_f.processFile(
             std.testing.allocator,
-            writer,
-            Cli.Direction.forward,
             &counter,
-            false,
-            false,
-            false,
+            &core,
         );
 
         const file_fwd = try std.fs.cwd().openFile("test/dest2/testfile-unit", .{});
@@ -665,6 +639,8 @@ test processFile {
     {
         try std.fs.cwd().makeDir("test/root2");
         var dotfile_b = new("test/root2/testfile1", "test/dest2/testfile-unit");
+        core.direction = Cli.Direction.back;
+
         const template = try std.fs.cwd().createFile(
             "test/root2/testfile1",
             .{ .read = true, .truncate = false },
@@ -693,12 +669,8 @@ test processFile {
 
         _ = try dotfile_b.processFile(
             std.testing.allocator,
-            writer,
-            Cli.Direction.back,
             &counter,
-            false,
-            false,
-            false,
+            &core,
         );
 
         const file_bwd = try std.fs.cwd().openFile("test/root2/testfile1", .{});
@@ -728,6 +700,7 @@ test processFile {
 const Dotfile = @This();
 const std = @import("std");
 const lib = @import("libdfs");
+const Core = @import("core.zig");
 const Cli = @import("cli.zig");
 const Config = @import("config.zig");
 const Util = @import("util.zig");

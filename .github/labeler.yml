@@ -22,7 +22,7 @@ util:
 
 core:
 - changed-files:
-  - any-glob-to-any-file: ['src/main.zig', 'src/dotfile.zig']
+  - any-glob-to-any-file: ['src/core.zig', 'src/dotfile.zig']
 
 engine:
 - changed-files:
