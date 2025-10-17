@@ -172,8 +172,8 @@ pub fn main() !void {
 
     if (main_cmd.matchSubCmd("init")) |init_cmd| {
         if (init_cmd.matchSubCmd("bootstrap")) |bootstrap_cmd| {
-            const bootstrap_opts = try bootstrap_cmd.getOpts(.{});
-            const url = try bootstrap_opts.get("url").?.val.getAs([]const u8);
+            const bootstrap_vals = try bootstrap_cmd.getVals(.{});
+            const url = try bootstrap_vals.get("config").?.getAs([]const u8);
 
             try stdout.print("{s}\nFetching external config...\n", .{
                 assets.help_prefix,
