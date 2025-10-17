@@ -180,7 +180,7 @@ pub fn main() !void {
             });
 
             try stdout.flush();
-            try Config.bootstrap(allocator, url);
+            try Config.bootstrap(allocator, url, stderr);
             try stdout.print("{s}DONE{s}\n", .{
                 Cli.bold,
                 Cli.reset,
@@ -204,62 +204,7 @@ pub fn main() !void {
         try stdout.flush();
     }
 
-    const config_result = try Config.open(allocator, config_path);
-    var config = switch (config_result) {
-        .ok => |cfg| cfg,
-        .parse_error => |config_data| cfg: {
-            defer allocator.free(config_data);
-            try stderr.print("{s}{s}Updating config{s}\n", .{
-                Cli.yellow,
-                Cli.bold,
-                Cli.reset,
-            });
-
-            Config.migrateConfig(allocator, config_path) catch |err| {
-                try stderr.print("{s}{s}INVALID CONFIG{s}: {s}\n", .{
-                    Cli.red,
-                    Cli.bold,
-                    Cli.reset,
-                    config_path,
-                });
-
-                _ = try stderr.print(
-                    "\n{s}{s}{s}\n\n",
-                    .{ Cli.red, config_data, Cli.reset },
-                );
-
-                const example_config = try Config.new(
-                    allocator,
-                    "https://gibson.com/git/dotfiles",
-                    "$HOME/src/dotfiles",
-                    "/tmp/test",
-                );
-
-                _ = try stderr.write("Example:\n\n");
-                _ = try std.zon.stringify.serialize(
-                    example_config,
-                    .{},
-                    stderr,
-                );
-
-                _ = try stderr.write("\n\n");
-                try stderr.flush();
-                return err;
-            };
-
-            Util.log(WARN, "Config updated!", .{});
-            _ = try stderr.print(
-                "{s}Config updated{s}\n",
-                .{ Cli.green, Cli.reset },
-            );
-
-            try stderr.flush();
-
-            const new_config_result = try Config.open(allocator, config_path);
-            break :cfg new_config_result.ok;
-        },
-    };
-
+    var config = try Config.open(allocator, config_path, stderr);
     defer std.zon.parse.free(allocator, config);
 
     logging = config.logging;

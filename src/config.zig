@@ -69,7 +69,7 @@ pub fn write(
     try writer.flush();
 }
 
-pub fn open(
+fn read(
     allocator: std.mem.Allocator,
     path: []const u8,
 ) !ConfigResult {
@@ -122,7 +122,75 @@ pub fn open(
     return ConfigResult{ .ok = config };
 }
 
-pub fn bootstrap(allocator: std.mem.Allocator, url: []const u8) !void {
+pub fn open(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    stderr: *std.Io.Writer,
+) !Config {
+    const config_result = try read(allocator, path);
+    const config = switch (config_result) {
+        .ok => |cfg| cfg,
+        .parse_error => |config_data| cfg: {
+            defer allocator.free(config_data);
+            try stderr.print("{s}{s}Updating config{s}\n", .{
+                Cli.yellow,
+                Cli.bold,
+                Cli.reset,
+            });
+
+            Config.migrateConfig(allocator, path) catch |err| {
+                try stderr.print("{s}{s}INVALID CONFIG{s}: {s}\n", .{
+                    Cli.red,
+                    Cli.bold,
+                    Cli.reset,
+                    path,
+                });
+
+                _ = try stderr.print(
+                    "\n{s}{s}{s}\n\n",
+                    .{ Cli.red, config_data, Cli.reset },
+                );
+
+                const example_config = try Config.new(
+                    allocator,
+                    "https://gibson.com/git/dotfiles",
+                    "$HOME/src/dotfiles",
+                    "/tmp/test",
+                );
+
+                _ = try stderr.write("Example:\n\n");
+                _ = try std.zon.stringify.serialize(
+                    example_config,
+                    .{},
+                    stderr,
+                );
+
+                _ = try stderr.write("\n\n");
+                try stderr.flush();
+                return err;
+            };
+
+            Util.log(WARN, "Config updated!", .{});
+            _ = try stderr.print(
+                "{s}Config updated{s}\n",
+                .{ Cli.green, Cli.reset },
+            );
+
+            try stderr.flush();
+
+            const new_config_result = try Config.read(allocator, path);
+            break :cfg new_config_result.ok;
+        },
+    };
+
+    return config;
+}
+
+pub fn bootstrap(
+    allocator: std.mem.Allocator,
+    url: []const u8,
+    stderr: *std.Io.Writer,
+) !void {
     const config_home = try getXdgDir(allocator, XdgDir.Config);
     defer allocator.free(config_home);
 
@@ -144,8 +212,6 @@ pub fn bootstrap(allocator: std.mem.Allocator, url: []const u8) !void {
         .{ .read = false, .truncate = true },
     );
 
-    defer file.close();
-
     var result_body = std.Io.Writer.Allocating.init(allocator);
     defer result_body.deinit();
 
@@ -159,9 +225,11 @@ pub fn bootstrap(allocator: std.mem.Allocator, url: []const u8) !void {
     }
 
     try file.writeAll(result_body.written());
+    file.close();
 
-    const config = try open(allocator, config_path);
-    Util.cloneRepo(allocator, config.ok.repository, config.ok.source);
+    const config = try open(allocator, config_path, stderr);
+    defer std.zon.parse.free(allocator, config);
+    Util.cloneRepo(allocator, config.repository, config.source);
 }
 
 pub fn migrateConfig(
