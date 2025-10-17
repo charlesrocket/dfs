@@ -113,7 +113,7 @@ pub fn open(
         allocator,
         config_data,
         null,
-        .{},
+        .{ .ignore_unknown_fields = true },
     ) catch {
         const data = try allocator.dupeZ(u8, config_data);
         return ConfigResult{ .parse_error = data };
