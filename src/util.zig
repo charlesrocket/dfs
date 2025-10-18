@@ -214,9 +214,36 @@ pub fn log(
         return;
     };
 
-    defer file.close();
+    const max_size = 10 * 1024 * 1024; // 10 MB
+    const stat = file.stat() catch return;
+
+    // cycle log file
+    if (stat.size > max_size) {
+        file.close();
+
+        var old_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const old_log = std.fmt.bufPrint(
+            &old_buf,
+            "{s}.old",
+            .{LOG_FILE},
+        ) catch return;
+
+        std.fs.cwd().deleteFile(old_log) catch {};
+        std.fs.cwd().rename(LOG_FILE, old_log) catch return;
+
+        const new_file = std.fs.cwd().createFile(
+            LOG_FILE,
+            .{ .mode = 0o600 },
+        ) catch return;
+
+        new_file.writeAll(msg) catch return;
+        new_file.close();
+        return;
+    }
+
     file.seekFromEnd(0) catch return;
     file.writeAll(msg) catch return;
+    file.close();
 }
 
 test log {
