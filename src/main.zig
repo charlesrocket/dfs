@@ -83,7 +83,7 @@ pub fn main() !void {
         custom_config_path.?;
 
     if (main_cmd.checkSubCmd("purge")) {
-        try core.stdout.print("{s}\nErasing application data...\n", .{
+        try core.stdout.print("{s}\nErasing application data\n", .{
             assets.help_prefix,
         });
 
@@ -106,7 +106,7 @@ pub fn main() !void {
             const bootstrap_vals = try bootstrap_cmd.getVals(.{});
             const url = try bootstrap_vals.get("config").?.getAs([]const u8);
 
-            try core.stdout.print("{s}\nFetching external config...\n", .{
+            try core.stdout.print("{s}\nFetching external config\n", .{
                 assets.help_prefix,
             });
 
