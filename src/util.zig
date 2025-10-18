@@ -41,11 +41,14 @@ pub fn cloneRepo(
     allocator: std.mem.Allocator,
     url: []const u8,
     dest: []const u8,
-) void {
-    const destination = Config.pathFormat(allocator, dest) catch unreachable;
+    core: *Core,
+) !void {
+    if (!isGitPresent(allocator, core.stderr)) return error.GitFailure;
+
+    const destination = try Config.pathFormat(allocator, dest);
     defer allocator.free(destination);
 
-    createDirRecursively(allocator, destination) catch {};
+    try createDirRecursively(allocator, destination);
 
     const command = [_][]const u8{
         "git",
@@ -57,8 +60,8 @@ pub fn cloneRepo(
 
     var proc = std.process.Child.init(&command, allocator);
 
-    proc.spawn() catch {};
-    _ = proc.wait() catch {};
+    try proc.spawn();
+    _ = try proc.wait();
 }
 
 pub fn createDirRecursively(
@@ -154,6 +157,44 @@ pub fn isText(data: []const u8) bool {
     return (non_text_count * 100 / data.len) < 10;
 }
 
+pub fn isGitPresent(
+    allocator: std.mem.Allocator,
+    stderr: *std.Io.Writer,
+) bool {
+    var proc = std.process.Child.init(
+        &[_][]const u8{ "git", "--version" },
+        allocator,
+    );
+
+    proc.stdout_behavior = .Pipe;
+    proc.stderr_behavior = .Pipe;
+
+    const result = proc.spawnAndWait() catch |err| switch (err) {
+        error.FileNotFound => {
+            stderr.print(
+                "{s}{s}Git is not installed or not in $PATH{s}\n",
+                .{ Cli.red, Cli.bold, Cli.reset },
+            ) catch {};
+
+            stderr.flush() catch {};
+            return false;
+        },
+        else => return false,
+    };
+
+    if (result.Exited != 0) {
+        stderr.print(
+            "{s}{s}Git binary detected but returned nonzero exit code: {d}{s}\n",
+            .{ Cli.red, Cli.bold, result.Exited, Cli.reset },
+        ) catch {};
+
+        stderr.flush() catch {};
+        return false;
+    } else {
+        return true;
+    }
+}
+
 pub fn setLogger(allocator: std.mem.Allocator) !void {
     const state_dir = try Config.getXdgDir(allocator, Config.XdgDir.State);
     defer allocator.free(state_dir);
@@ -246,6 +287,30 @@ pub fn log(
     file.close();
 }
 
+test "isGitPresent" {
+    const allocator = std.testing.allocator;
+    var buf: [2048]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&buf);
+
+    const writer = &stderr_writer.interface;
+    const git_binary = isGitPresent(allocator, writer);
+    const git_check = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{ "git", "--version" },
+    }) catch {
+        try std.testing.expect(!git_binary);
+        return;
+    };
+
+    defer {
+        allocator.free(git_check.stdout);
+        allocator.free(git_check.stderr);
+    }
+
+    const git_exists = git_check.term.Exited == 0;
+    try std.testing.expectEqual(git_exists, git_binary);
+}
+
 test log {
     const allocator = std.testing.allocator;
     const message = "Log test";
@@ -273,5 +338,6 @@ test log {
 const std = @import("std");
 const builtin = @import("builtin");
 const Core = @import("core.zig");
+const Cli = @import("cli.zig");
 const Config = @import("config.zig");
 const Dotfile = @import("dotfile.zig");

@@ -234,7 +234,7 @@ pub fn bootstrap(
 
     const config = try open(allocator, config_path, core);
     defer std.zon.parse.free(allocator, config);
-    Util.cloneRepo(allocator, config.repository, config.source);
+    try Util.cloneRepo(allocator, config.repository, config.source, core);
 }
 
 pub fn migrateConfig(

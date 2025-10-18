@@ -78,7 +78,7 @@ pub fn init(
 
     var config = try Config.new(allocator, repo, src, dest);
 
-    Util.cloneRepo(allocator, repo, src);
+    try Util.cloneRepo(allocator, repo, src, self);
     try config.write(allocator, config_path);
     _ = try self.stdout.write("COMPLETED\n");
     try self.stdout.flush();
