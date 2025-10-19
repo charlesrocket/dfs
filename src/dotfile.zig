@@ -226,6 +226,34 @@ fn forwardSync(
     defer if (is_text) allocator.free(result);
 
     if (!core.dry) {
+        // check if any parent directory in the path is a symlink
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        @memcpy(path_buf[0..self.dest.len], self.dest);
+        var path_len = self.dest.len;
+
+        // check each parent directory from bottom to top
+        while (std.fs.path.dirname(path_buf[0..path_len])) |parent| {
+            var inner_buf: [std.fs.max_path_bytes]u8 = undefined;
+            if (std.fs.cwd().readLink(parent, &inner_buf)) |_| {
+                // parent directory is a symlink, delete it
+                try std.fs.cwd().deleteFile(parent);
+
+                // need to recreate the directory structure as real dirs
+                try Util.createDirRecursively(allocator, parent);
+                break; // only need to handle the first symlinked parent
+            } else |_| {
+                // not a symlink, continue checking the parent
+            }
+
+            path_len = parent.len;
+        }
+
+        var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+        // delete symlinks
+        if (std.fs.cwd().readLink(self.dest, &link_buf)) |_| {
+            try std.fs.cwd().deleteFile(self.dest);
+        } else |_| {}
+
         const dir_name = std.fs.path.dirname(self.dest) orelse
             return error.InvalidPath;
 
