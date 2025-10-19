@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2025-10-19
+
+### Bug Fixes
+
+- Limit log file size
+- Check `git` binary
+- Adjust stdout prints
+- Handle symlinks
+
 ## [0.5.0] - 2025-10-17
 
 ### Bug Fixes
