@@ -427,7 +427,7 @@ fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
 pub fn applyTemplate(
     allocator: std.mem.Allocator,
     template: []const u8,
-) ![]u8 {
+) ![]const u8 {
     const tokens = try tokenize(allocator, template);
     defer allocator.free(tokens);
 
@@ -438,7 +438,7 @@ pub fn reverseTemplate(
     allocator: std.mem.Allocator,
     render: []const u8,
     template: []const u8,
-) ![]u8 {
+) ![]const u8 {
     var out = std.array_list.Managed(u8).init(allocator);
     defer out.deinit();
 
