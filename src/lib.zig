@@ -424,6 +424,8 @@ fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
     return false;
 }
 
+/// Applies the provided template and returns the result.
+/// The caller owns the returned memory.
 pub fn applyTemplate(
     allocator: std.mem.Allocator,
     template: []const u8,
@@ -434,6 +436,8 @@ pub fn applyTemplate(
     return try interpret(allocator, tokens);
 }
 
+/// Translates the rendered file back to the template and returns the result.
+/// The caller owns the returned memory.
 pub fn reverseTemplate(
     allocator: std.mem.Allocator,
     render: []const u8,
