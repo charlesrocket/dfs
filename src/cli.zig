@@ -12,6 +12,7 @@ pub const Direction = enum {
 
 // ANSI codes
 pub const reset = "\x1b[0m";
+pub const reverse = "\x1b[7m";
 pub const bold = "\x1b[1m";
 pub const underline = "\x1b[4m";
 pub const italic = "\x1b[3m";

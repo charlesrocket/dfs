@@ -403,7 +403,13 @@ pub fn main() !void {
         _ = try core.stdout.write("\n");
     } else {
         if (sync_cmd) {
-            try core.stdout.print("\nTOTAL: {s}{d}{s}\n", .{
+            try core.stdout.print("\n{s}{s}SUMMARY{s}\n", .{
+                Cli.bold,
+                Cli.reverse,
+                Cli.reset,
+            });
+
+            try core.stdout.print("TOTAL: {s}{d}{s}\n", .{
                 Cli.underline,
                 counter.total,
                 Cli.reset,
