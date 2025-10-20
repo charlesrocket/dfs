@@ -27,7 +27,7 @@ const Chunk = struct {
     end: usize,
 };
 
-pub const ValidationError = error{
+pub const TemplateError = error{
     UnclosedTag,
     InvalidTag,
     MismatchedEnd,
@@ -37,7 +37,7 @@ pub const ValidationError = error{
 };
 
 const ValidationInfo = struct {
-    err: ValidationError,
+    err: TemplateError,
     line: usize,
     column: usize,
     message: []const u8,
@@ -627,7 +627,7 @@ pub fn validate(template: []const u8) ValidationResult {
             ) orelse {
                 return ValidationResult{
                     .err = .{
-                        .err = ValidationError.UnclosedTag,
+                        .err = TemplateError.UnclosedTag,
                         .line = line,
                         .column = column,
                         .message = "Unclosed tag",
@@ -640,7 +640,7 @@ pub fn validate(template: []const u8) ValidationResult {
             if (raw_tag.len == 0) {
                 return ValidationResult{
                     .err = .{
-                        .err = ValidationError.EmptyTag,
+                        .err = TemplateError.EmptyTag,
                         .line = line,
                         .column = column,
                         .message = "Empty tag",
@@ -653,7 +653,7 @@ pub fn validate(template: []const u8) ValidationResult {
             if (tag.len == 0) {
                 return ValidationResult{
                     .err = .{
-                        .err = ValidationError.EmptyTag,
+                        .err = TemplateError.EmptyTag,
                         .line = line,
                         .column = column,
                         .message = "Empty tag after trimming whitespace",
@@ -666,7 +666,7 @@ pub fn validate(template: []const u8) ValidationResult {
                 if (tag.len < 4 or tag[2] != ' ') {
                     return ValidationResult{
                         .err = .{
-                            .err = ValidationError.InvalidCondition,
+                            .err = TemplateError.InvalidCondition,
                             .line = line,
                             .column = column,
                             .message = "Invalid 'if' condition format",
@@ -679,7 +679,7 @@ pub fn validate(template: []const u8) ValidationResult {
                 if (!isValidCondition(condition)) {
                     return ValidationResult{
                         .err = .{
-                            .err = ValidationError.InvalidCondition,
+                            .err = TemplateError.InvalidCondition,
                             .line = line,
                             .column = column,
                             .message = "Invalid condition syntax",
@@ -693,7 +693,7 @@ pub fn validate(template: []const u8) ValidationResult {
                 if (if_depth == 0 or !has_if_in_group) {
                     return ValidationResult{
                         .err = .{
-                            .err = ValidationError.OrphanedElseElif,
+                            .err = TemplateError.OrphanedElseElif,
                             .line = line,
                             .column = column,
                             .message = "Orphaned 'elif' without matching 'if'",
@@ -704,7 +704,7 @@ pub fn validate(template: []const u8) ValidationResult {
                 if (tag.len < 6 or tag[4] != ' ') {
                     return ValidationResult{
                         .err = .{
-                            .err = ValidationError.InvalidCondition,
+                            .err = TemplateError.InvalidCondition,
                             .line = line,
                             .column = column,
                             .message = "Invalid 'elif' condition format",
@@ -717,7 +717,7 @@ pub fn validate(template: []const u8) ValidationResult {
                 if (!isValidCondition(condition)) {
                     return ValidationResult{
                         .err = .{
-                            .err = ValidationError.InvalidCondition,
+                            .err = TemplateError.InvalidCondition,
                             .line = line,
                             .column = column,
                             .message = "Invalid 'elif' condition syntax",
@@ -728,7 +728,7 @@ pub fn validate(template: []const u8) ValidationResult {
                 if (if_depth == 0 or !has_if_in_group) {
                     return ValidationResult{
                         .err = .{
-                            .err = ValidationError.OrphanedElseElif,
+                            .err = TemplateError.OrphanedElseElif,
                             .line = line,
                             .column = column,
                             .message = "Orphaned 'else' without matching 'if'",
@@ -739,7 +739,7 @@ pub fn validate(template: []const u8) ValidationResult {
                 if (if_depth == 0) {
                     return ValidationResult{
                         .err = .{
-                            .err = ValidationError.MismatchedEnd,
+                            .err = TemplateError.MismatchedEnd,
                             .line = line,
                             .column = column,
                             .message = "Mismatched 'end' tag without matching 'if'",
@@ -755,7 +755,7 @@ pub fn validate(template: []const u8) ValidationResult {
             } else {
                 return ValidationResult{
                     .err = .{
-                        .err = ValidationError.InvalidTag,
+                        .err = TemplateError.InvalidTag,
                         .line = line,
                         .column = column,
                         .message = "Unknown or invalid tag",
@@ -793,7 +793,7 @@ pub fn validate(template: []const u8) ValidationResult {
     if (if_depth > 0) {
         return ValidationResult{
             .err = .{
-                .err = ValidationError.MismatchedEnd,
+                .err = TemplateError.MismatchedEnd,
                 .line = line,
                 .column = column,
                 .message = "Unclosed 'if' block(s) at end of template",
@@ -838,7 +838,7 @@ test validate {
         const template_unclosed = "FOO{> xx";
         const result_unclosed = validate(template_unclosed);
         try testing.expect(result_unclosed.isError());
-        try testing.expectEqual(ValidationError.UnclosedTag, result_unclosed.err.err);
+        try testing.expectEqual(TemplateError.UnclosedTag, result_unclosed.err.err);
         try testing.expectEqual(@as(usize, 1), result_unclosed.err.line);
         try testing.expectEqual(@as(usize, 4), result_unclosed.err.column);
     }
@@ -847,14 +847,14 @@ test validate {
         const template_empty = "FOO{><}BAR";
         const result_empty = validate(template_empty);
         try testing.expect(result_empty.isError());
-        try testing.expectEqual(ValidationError.EmptyTag, result_empty.err.err);
+        try testing.expectEqual(TemplateError.EmptyTag, result_empty.err.err);
     }
 
     {
         const template_whitespace_only = "FOO{>   \t\n  <}BAR";
         const result_whitespace_only = validate(template_whitespace_only);
         try testing.expect(result_whitespace_only.isError());
-        try testing.expectEqual(ValidationError.EmptyTag, result_whitespace_only.err.err);
+        try testing.expectEqual(TemplateError.EmptyTag, result_whitespace_only.err.err);
     }
 
     {
@@ -867,7 +867,7 @@ test validate {
 
         const result_orphaned_else = validate(template_orphaned_else);
         try testing.expect(result_orphaned_else.isError());
-        try testing.expectEqual(ValidationError.OrphanedElseElif, result_orphaned_else.err.err);
+        try testing.expectEqual(TemplateError.OrphanedElseElif, result_orphaned_else.err.err);
         try testing.expectEqual(@as(usize, 2), result_orphaned_else.err.line);
     }
 
@@ -881,14 +881,14 @@ test validate {
 
         const result_orphaned_elif = validate(template_orphaned_elif);
         try testing.expect(result_orphaned_elif.isError());
-        try testing.expectEqual(ValidationError.OrphanedElseElif, result_orphaned_elif.err.err);
+        try testing.expectEqual(TemplateError.OrphanedElseElif, result_orphaned_elif.err.err);
     }
 
     {
         const template_mismatched = "{> end <}";
         const result_mismatched = validate(template_mismatched);
         try testing.expect(result_mismatched.isError());
-        try testing.expectEqual(ValidationError.MismatchedEnd, result_mismatched.err.err);
+        try testing.expectEqual(TemplateError.MismatchedEnd, result_mismatched.err.err);
     }
 
     {
@@ -900,14 +900,14 @@ test validate {
 
         const result_unclosed_if = validate(template_unclosed_if);
         try testing.expect(result_unclosed_if.isError());
-        try testing.expectEqual(ValidationError.MismatchedEnd, result_unclosed_if.err.err);
+        try testing.expectEqual(TemplateError.MismatchedEnd, result_unclosed_if.err.err);
     }
 
     {
         const template_bad_if_format = "{> ifSYSTEM.os == linux <}content{> end <}";
         const result_bad_if_format = validate(template_bad_if_format);
         try testing.expect(result_bad_if_format.isError());
-        try testing.expectEqual(ValidationError.InvalidCondition, result_bad_if_format.err.err);
+        try testing.expectEqual(TemplateError.InvalidCondition, result_bad_if_format.err.err);
     }
 
     {
@@ -921,35 +921,35 @@ test validate {
 
         const result_bad_elif_format = validate(template_bad_elif_format);
         try testing.expect(result_bad_elif_format.isError());
-        try testing.expectEqual(ValidationError.InvalidCondition, result_bad_elif_format.err.err);
+        try testing.expectEqual(TemplateError.InvalidCondition, result_bad_elif_format.err.err);
     }
 
     {
         const template_bad_condition_parts = "{> if SYSTEM.os <}content{> end <}";
         const result_bad_condition_parts = validate(template_bad_condition_parts);
         try testing.expect(result_bad_condition_parts.isError());
-        try testing.expectEqual(ValidationError.InvalidCondition, result_bad_condition_parts.err.err);
+        try testing.expectEqual(TemplateError.InvalidCondition, result_bad_condition_parts.err.err);
     }
 
     {
         const template_bad_lhs = "{> if INVALID.var == value <}content{> end <}";
         const result_bad_lhs = validate(template_bad_lhs);
         try testing.expect(result_bad_lhs.isError());
-        try testing.expectEqual(ValidationError.InvalidCondition, result_bad_lhs.err.err);
+        try testing.expectEqual(TemplateError.InvalidCondition, result_bad_lhs.err.err);
     }
 
     {
         const template_bad_operator = "{> if SYSTEM.os >= linux <}content{> end <}";
         const result_bad_operator = validate(template_bad_operator);
         try testing.expect(result_bad_operator.isError());
-        try testing.expectEqual(ValidationError.InvalidCondition, result_bad_operator.err.err);
+        try testing.expectEqual(TemplateError.InvalidCondition, result_bad_operator.err.err);
     }
 
     {
         const template_unknown_tag = "{> unknown_tag <}";
         const result_unknown_tag = validate(template_unknown_tag);
         try testing.expect(result_unknown_tag.isError());
-        try testing.expectEqual(ValidationError.InvalidTag, result_unknown_tag.err.err);
+        try testing.expectEqual(TemplateError.InvalidTag, result_unknown_tag.err.err);
     }
 
     {
@@ -1044,7 +1044,7 @@ test validate {
 
         const result_multiline = validate(template_multiline);
         try testing.expect(result_multiline.isError());
-        try testing.expectEqual(ValidationError.InvalidTag, result_multiline.err.err);
+        try testing.expectEqual(TemplateError.InvalidTag, result_multiline.err.err);
         try testing.expectEqual(@as(usize, 3), result_multiline.err.line);
         try testing.expectEqual(@as(usize, 8), result_multiline.err.column);
     }
@@ -1060,7 +1060,7 @@ test validate {
 
         const result_line_tracking = validate(template_line_tracking);
         try testing.expect(result_line_tracking.isError());
-        try testing.expectEqual(ValidationError.OrphanedElseElif, result_line_tracking.err.err);
+        try testing.expectEqual(TemplateError.OrphanedElseElif, result_line_tracking.err.err);
         try testing.expectEqual(@as(usize, 4), result_line_tracking.err.line);
     }
 }
