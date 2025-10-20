@@ -687,7 +687,7 @@ pub fn validate(template: []const u8) ValidationResult {
                             .err = TemplateError.InvalidCondition,
                             .line = line,
                             .column = column,
-                            .message = "Invalid condition syntax",
+                            .message = "Invalid conditional syntax",
                         },
                     };
                 }
@@ -801,7 +801,7 @@ pub fn validate(template: []const u8) ValidationResult {
                 .err = TemplateError.MismatchedEnd,
                 .line = line,
                 .column = column,
-                .message = "Unclosed 'if' block(s) at end of a template",
+                .message = "Unclosed 'if' block(s) at the end of a template",
             },
         };
     }
