@@ -28,22 +28,27 @@ const Chunk = struct {
 };
 
 pub const TemplateError = error{
-    UnclosedTag,
+    IndexOutOfBounds,
     InvalidTag,
+    InvalidCondition,
+    InvalidToken,
+    MissingCondition,
+    MissingEndTag,
+    MissingDelimiter,
     MismatchedEnd,
     OrphanedElseElif,
-    InvalidCondition,
     EmptyTag,
 };
 
-const ValidationInfo = struct {
+/// Contains the error type with a message and the coordinates.
+pub const ValidationInfo = struct {
     err: TemplateError,
     line: usize,
     column: usize,
     message: []const u8,
 };
 
-const ValidationResult = union(enum) {
+pub const ValidationResult = union(enum) {
     ok: void,
     err: ValidationInfo,
 
@@ -82,7 +87,7 @@ fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
             tag_start + 2,
             TAG_END,
         ) orelse
-            return error.InvalidTemplate;
+            return TemplateError.MissingDelimiter;
 
         const raw_tag = template[tag_start + 2 .. end_tag];
         try tokens.append(.{ .tag = trimTag(raw_tag) });
@@ -111,7 +116,7 @@ fn interpret(allocator: std.mem.Allocator, tokens: []Token) ![]u8 {
                     i = try evalIfGroup(allocator, tokens, i, &w);
                 } else {
                     // outside of an if-group tags are not allowed
-                    return error.InvalidTemplateGroup;
+                    return TemplateError.MissingCondition;
                 }
             },
         }
@@ -138,7 +143,7 @@ fn countTrail(s: []const u8) usize {
 fn parseTag(template: []const u8, i: usize) !Tag {
     const start = i + 2;
     const rel_end = std.mem.indexOf(u8, template[start..], TAG_END) orelse
-        return error.InvalidTemplateEndTag;
+        return TemplateError.MissingDelimiter;
 
     const raw = template[start .. start + rel_end];
 
@@ -197,7 +202,7 @@ fn findAnchorLiteral(
         if (std.mem.startsWith(u8, template[scan..], TAG_START)) {
             const s2 = scan + 2;
             const e2 = std.mem.indexOf(u8, template[s2..], TAG_END) orelse
-                return error.InvalidTemplateEndTag;
+                return TemplateError.MissingDelimiter;
 
             const t2 = trimTag(template[s2 .. s2 + e2]);
 
@@ -291,7 +296,7 @@ fn evalIfGroup(
     start: usize,
     w: anytype,
 ) !usize {
-    if (start >= tokens.len) return error.InvalidTemplate;
+    if (start >= tokens.len) return TemplateError.IndexOutOfBounds;
 
     var i: usize = start;
     var branch_taken: bool = false;
@@ -300,7 +305,7 @@ fn evalIfGroup(
         // ensure current token is a tag
         const cur_tag = switch (tokens[i]) {
             .tag => |t| t,
-            else => return error.InvalidTemplate,
+            else => return TemplateError.InvalidToken,
         };
 
         var active: bool = false;
@@ -316,7 +321,7 @@ fn evalIfGroup(
             // consume the 'end' tag and return index after it
             return i + 1;
         } else {
-            return error.InvalidTemplateTag;
+            return TemplateError.InvalidTag;
         }
 
         // check if there is a following text token
@@ -349,7 +354,7 @@ fn evalIfGroup(
         // check that i+inc does not overflow and that it is <= tokens.len
         if (inc > tokens.len - i) {
             // past end of the token stream
-            return error.InvalidTemplateTag;
+            return TemplateError.InvalidTag;
         }
 
         i += inc;
@@ -368,17 +373,17 @@ fn evalIfGroup(
                     // according to our grammar, after a control+body we
                     // expect the next token to be another control tag or end
                     // (text tokens are invalid here)
-                    return error.InvalidTemplateTag;
+                    return TemplateError.InvalidTag;
                 },
             }
         } else {
             // reached end of tokens without an `end` tag
-            return error.InvalidTemplateEndTag;
+            return TemplateError.MissingEndTag;
         }
     }
 
     // missing `end` tag
-    return error.invalidTemplateEndTag;
+    return TemplateError.MissingEndTag;
 }
 
 fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
@@ -527,7 +532,7 @@ pub fn reverseTemplate(
                 }
             } else {
                 // no non-if tags outside of the group
-                return error.InvalidTemplateTag;
+                return TemplateError.InvalidTag;
             }
         } else {
             // handle literal text between conditional groups
@@ -627,7 +632,7 @@ pub fn validate(template: []const u8) ValidationResult {
             ) orelse {
                 return ValidationResult{
                     .err = .{
-                        .err = TemplateError.UnclosedTag,
+                        .err = TemplateError.MissingDelimiter,
                         .line = line,
                         .column = column,
                         .message = "Unclosed tag",
@@ -796,7 +801,7 @@ pub fn validate(template: []const u8) ValidationResult {
                 .err = TemplateError.MismatchedEnd,
                 .line = line,
                 .column = column,
-                .message = "Unclosed 'if' block(s) at end of template",
+                .message = "Unclosed 'if' block(s) at end of a template",
             },
         };
     }
@@ -838,7 +843,7 @@ test validate {
         const template_unclosed = "FOO{> xx";
         const result_unclosed = validate(template_unclosed);
         try testing.expect(result_unclosed.isError());
-        try testing.expectEqual(TemplateError.UnclosedTag, result_unclosed.err.err);
+        try testing.expectEqual(TemplateError.MissingDelimiter, result_unclosed.err.err);
         try testing.expectEqual(@as(usize, 1), result_unclosed.err.line);
         try testing.expectEqual(@as(usize, 4), result_unclosed.err.column);
     }
@@ -1089,7 +1094,7 @@ test interpret {
         defer std.testing.allocator.free(tokenized_invalid);
 
         const interpreted_invalid = interpret(std.testing.allocator, tokenized_invalid);
-        try std.testing.expectError(error.InvalidTemplateGroup, interpreted_invalid);
+        try std.testing.expectError(TemplateError.MissingCondition, interpreted_invalid);
     }
 
     {
@@ -1109,7 +1114,7 @@ test tokenize {
     ;
 
     const failure = tokenize(std.testing.allocator, template_invalid);
-    try std.testing.expectError(error.InvalidTemplate, failure);
+    try std.testing.expectError(TemplateError.MissingDelimiter, failure);
 
     const template =
         \\FOO{> if SYSTEM.hostname == gibson <}val="HOST2"{> else <}val="HOST1"{> end <}
@@ -1146,7 +1151,7 @@ test parseTag {
     try testing.expectEqual(@as(usize, 35), tag.after);
     try testing.expectEqualStrings("   elif SYSTEM.arch == x86_64   ", tag_whitespace.raw);
     try testing.expectEqualStrings("elif SYSTEM.arch == x86_64", tag_whitespace.trim);
-    try testing.expectError(error.InvalidTemplateEndTag, tag_invalid);
+    try testing.expectError(TemplateError.MissingDelimiter, tag_invalid);
 }
 
 test parseBody {
@@ -1266,6 +1271,7 @@ test extractChangeChunk {
         try testing.expectEqualStrings("content changed", chunk_no_anch.slice);
         try testing.expectEqual(@as(usize, 19), chunk_no_anch.end);
     }
+
     {
         const rendered_anchor_not_found = "content without the anchor";
         const anchor_lit_not_found = "missing anchor";
@@ -1387,6 +1393,33 @@ test evalCondition {
 
 test evalIfGroup {
     {
+        var tokens_oob = [_]Token{
+            .{ .tag = "if SYSTEM.os == foo" },
+            .{ .text = "content" },
+            .{ .tag = "end" },
+        };
+
+        var out = std.array_list.Managed(u8).init(testing.allocator);
+        defer out.deinit();
+
+        const result = evalIfGroup(testing.allocator, &tokens_oob, 5, out.writer());
+        try testing.expectError(TemplateError.IndexOutOfBounds, result);
+    }
+
+    {
+        var tokens_unexpected = [_]Token{
+            .{ .text = "unexpected text" },
+            .{ .tag = "end" },
+        };
+
+        var out = std.array_list.Managed(u8).init(testing.allocator);
+        defer out.deinit();
+
+        const result = evalIfGroup(testing.allocator, &tokens_unexpected, 0, out.writer());
+        try testing.expectError(TemplateError.InvalidToken, result);
+    }
+
+    {
         var tokens_invalid_end = [_]Token{
             .{ .tag = "if SYSTEM.os == foo" },
             .{ .text = "content" },
@@ -1396,7 +1429,7 @@ test evalIfGroup {
         defer out_invalid_end.deinit();
 
         const result_invalid_end = evalIfGroup(testing.allocator, &tokens_invalid_end, 0, out_invalid_end.writer());
-        try testing.expectError(error.InvalidTemplateEndTag, result_invalid_end);
+        try testing.expectError(TemplateError.MissingEndTag, result_invalid_end);
     }
 
     {
@@ -1410,7 +1443,7 @@ test evalIfGroup {
         defer out_invalid_tag.deinit();
 
         const result_invalid_tag = evalIfGroup(testing.allocator, &tokens_invalid_tag, 0, out_invalid_tag.writer());
-        try testing.expectError(error.InvalidTemplateTag, result_invalid_tag);
+        try testing.expectError(TemplateError.InvalidTag, result_invalid_tag);
     }
 
     {
@@ -1423,7 +1456,7 @@ test evalIfGroup {
         defer out_invalid_template.deinit();
 
         const result_invalid_template = evalIfGroup(testing.allocator, &tokens_invalid_template, 0, out_invalid_template.writer());
-        try testing.expectError(error.InvalidTemplateTag, result_invalid_template);
+        try testing.expectError(TemplateError.InvalidTag, result_invalid_template);
     }
 }
 
