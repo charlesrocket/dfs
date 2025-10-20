@@ -1071,25 +1071,15 @@ test validate {
 }
 
 test interpret {
-    const template_invalid =
-        \\FOO
-        \\{> else <}
-        \\val="HOST1"
-        \\{> end <}
-        \\
-    ;
-
-    const template =
-        \\FOO
-        \\{> if SYSTEM.hostname == baal <}
-        \\val="HOST2"
-        \\{> else <}
-        \\val="HOST1"
-        \\{> end <}
-        \\
-    ;
-
     {
+        const template_invalid =
+            \\FOO
+            \\{> else <}
+            \\val="HOST1"
+            \\{> end <}
+            \\
+        ;
+
         const tokenized_invalid = try tokenize(std.testing.allocator, template_invalid);
         defer std.testing.allocator.free(tokenized_invalid);
 
@@ -1098,6 +1088,16 @@ test interpret {
     }
 
     {
+        const template =
+            \\FOO
+            \\{> if SYSTEM.hostname == baal <}
+            \\val="HOST2"
+            \\{> else <}
+            \\val="HOST1"
+            \\{> end <}
+            \\
+        ;
+
         const tokenized = try tokenize(std.testing.allocator, template);
         defer std.testing.allocator.free(tokenized);
 
