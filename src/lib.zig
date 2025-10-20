@@ -606,6 +606,7 @@ fn trimTrailingNewlines(s: []const u8) []const u8 {
     return s[0..end];
 }
 
+/// Validates the provided template.
 pub fn validate(template: []const u8) ValidationResult {
     var i: usize = 0;
     var line: usize = 1;
