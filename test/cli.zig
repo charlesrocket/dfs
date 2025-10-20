@@ -90,6 +90,7 @@ test "sync" {
         \\Source is test/root/
         \\Target is test/dest/
         \\
+        \\SUMMARY
         \\TOTAL: 3
         \\UPDATED: 2
         \\TEMPLATES: 0
@@ -171,6 +172,7 @@ test "sync-dry" {
         \\
         \\--- --- ---
         \\
+        \\SUMMARY
         \\TOTAL: 1
         \\UPDATED: 0
         \\TEMPLATES: 0
