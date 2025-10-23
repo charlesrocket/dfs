@@ -34,12 +34,6 @@ const Chunk = struct {
     end: usize,
 };
 
-const ParsedCondition = struct {
-    lhs: []const u8,
-    op: []const u8,
-    rhs: []const u8,
-};
-
 pub const TemplateError = error{
     IndexOutOfBounds,
     InvalidTag,
@@ -52,6 +46,103 @@ pub const TemplateError = error{
     OrphanedElseElif,
     EmptyTag,
 };
+
+const SYSTEM = enum {
+    os,
+    hostname,
+    arch,
+
+    fn fromString(s: []const u8) ?SYSTEM {
+        inline for (@typeInfo(SYSTEM).@"enum".fields) |field| {
+            const name = "SYSTEM." ++ field.name;
+            if (std.mem.eql(u8, s, name)) {
+                return @enumFromInt(field.value);
+            }
+        }
+        return null;
+    }
+
+    fn getValue(self: SYSTEM, allocator: std.mem.Allocator) ![]const u8 {
+        return switch (self) {
+            .os => getOS(),
+            .hostname => getHostname(allocator),
+            .arch => getArch(),
+        };
+    }
+
+    fn shouldFree(self: SYSTEM) bool {
+        return switch (self) {
+            .hostname => true,
+            else => false,
+        };
+    }
+};
+
+const ParsedCondition = struct {
+    lhs: []const u8,
+    op: []const u8,
+    rhs: []const u8,
+
+    fn isValidOp(self: ParsedCondition) bool {
+        return std.mem.eql(u8, self.op, "==") or std.mem.eql(u8, self.op, "!=");
+    }
+
+    fn compare(self: ParsedCondition, actual: []const u8) bool {
+        const matches = std.mem.eql(u8, actual, self.rhs);
+
+        if (std.mem.eql(u8, self.op, "==")) return matches;
+        if (std.mem.eql(u8, self.op, "!=")) return !matches;
+
+        return false;
+    }
+};
+
+fn parseCondition(cond: []const u8) ?ParsedCondition {
+    var parts: [3][]const u8 = undefined;
+    var i: usize = 0;
+    var iter = std.mem.splitAny(u8, cond, " \t");
+
+    while (iter.next()) |part| {
+        if (i >= 3) return null;
+        parts[i] = part;
+        i += 1;
+    }
+
+    if (i != 3) return null;
+
+    return ParsedCondition{
+        .lhs = parts[0],
+        .op = parts[1],
+        .rhs = trimTag(parts[2]),
+    };
+}
+
+fn isValidCondition(condition: []const u8) bool {
+    const parsed = parseCondition(condition) orelse return false;
+
+    // check if LHS is valid system variable
+    if (SYSTEM.fromString(parsed.lhs) == null) return false;
+
+    // check if operator is valid
+    if (!parsed.isValidOp()) return false;
+
+    // check if RHS is not empty
+    return parsed.rhs.len > 0;
+}
+
+fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
+    const parsed = parseCondition(cond) orelse return false;
+
+    if (!parsed.isValidOp()) return false;
+
+    const var_type = SYSTEM.fromString(parsed.lhs) orelse return false;
+    const actual_value = var_type.getValue(allocator) catch return false;
+
+    const should_free = var_type.shouldFree();
+    defer if (should_free) allocator.free(actual_value);
+
+    return parsed.compare(actual_value);
+}
 
 /// Contains the error type with a message and the coordinates.
 pub const ValidationInfo = struct {
@@ -389,66 +480,6 @@ fn evalIfGroup(
     return TemplateError.MissingEndTag;
 }
 
-fn parseCondition(cond: []const u8) ?ParsedCondition {
-    var parts: [3][]const u8 = undefined;
-    var i: usize = 0;
-    var iter = std.mem.splitAny(u8, cond, " \t");
-
-    while (iter.next()) |part| {
-        if (i >= 3) return null;
-        parts[i] = part;
-        i += 1;
-    }
-
-    if (i != 3) return null;
-
-    return ParsedCondition{
-        .lhs = parts[0],
-        .op = parts[1],
-        .rhs = trimTag(parts[2]),
-    };
-}
-
-fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
-    const parsed = parseCondition(cond) orelse return false;
-
-    if (std.mem.eql(u8, parsed.lhs, "SYSTEM.os")) {
-        const os = getOS();
-
-        if (std.mem.eql(u8, parsed.op, "==")) return std.mem.eql(u8, os, parsed.rhs);
-        if (std.mem.eql(u8, parsed.op, "!=")) return !std.mem.eql(u8, os, parsed.rhs);
-    } else if (std.mem.eql(u8, parsed.lhs, "SYSTEM.hostname")) {
-        const host = getHostname(allocator) catch "unknown";
-        defer allocator.free(host);
-
-        if (std.mem.eql(u8, parsed.op, "==")) return std.mem.eql(u8, host, parsed.rhs);
-        if (std.mem.eql(u8, parsed.op, "!=")) return !std.mem.eql(u8, host, parsed.rhs);
-    } else if (std.mem.eql(u8, parsed.lhs, "SYSTEM.arch")) {
-        const arch = getArch();
-
-        if (std.mem.eql(u8, parsed.op, "==")) return std.mem.eql(u8, arch, parsed.rhs);
-        if (std.mem.eql(u8, parsed.op, "!=")) return !std.mem.eql(u8, arch, parsed.rhs);
-    }
-
-    return false;
-}
-
-fn isValidCondition(condition: []const u8) bool {
-    const parsed = parseCondition(condition) orelse return false;
-
-    // validate left-hand side
-    if (!(std.mem.eql(u8, parsed.lhs, "SYSTEM.os") or
-        std.mem.eql(u8, parsed.lhs, "SYSTEM.hostname") or
-        std.mem.eql(u8, parsed.lhs, "SYSTEM.arch"))) return false;
-
-    // validate operator
-    if (!(std.mem.eql(u8, parsed.op, "==") or
-        std.mem.eql(u8, parsed.op, "!="))) return false;
-
-    // right-hand side must not be empty
-    return parsed.rhs.len > 0;
-}
-
 /// Applies the provided template and returns the result.
 /// The caller owns the returned memory.
 pub fn applyTemplate(
@@ -614,7 +645,7 @@ fn getArch() []const u8 {
 fn getHostname(allocator: std.mem.Allocator) ![]const u8 {
     var buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
     const host = try std.posix.gethostname(&buf);
-    return allocator.dupe(u8, host) catch unreachable;
+    return try allocator.dupe(u8, host);
 }
 
 fn splitWhitespace(s: []const u8) struct { lead: usize, trail: usize } {
@@ -653,7 +684,6 @@ fn trimTrailingNewlines(s: []const u8) []const u8 {
     return s[0..end];
 }
 
-/// Validates the provided template.
 /// Validates the provided template.
 pub fn validate(template: []const u8) ValidationResult {
     var i: usize = 0;
@@ -1397,6 +1427,8 @@ test evalCondition {
 }
 
 test evalIfGroup {
+    const allocator = testing.allocator;
+
     {
         var tokens_oob = [_]Token{
             .{ .tag = .{ .content = "if SYSTEM.os == foo", .raw = " if SYSTEM.os == foo ", .start = 0, .end = 10 } },
@@ -1407,7 +1439,7 @@ test evalIfGroup {
         var out = std.array_list.Managed(u8).init(testing.allocator);
         defer out.deinit();
 
-        const result = evalIfGroup(testing.allocator, &tokens_oob, 5, out.writer());
+        const result = evalIfGroup(allocator, &tokens_oob, 5, out.writer());
         try testing.expectError(TemplateError.IndexOutOfBounds, result);
     }
 
@@ -1420,7 +1452,7 @@ test evalIfGroup {
         var out = std.array_list.Managed(u8).init(testing.allocator);
         defer out.deinit();
 
-        const result = evalIfGroup(testing.allocator, &tokens_unexpected, 0, out.writer());
+        const result = evalIfGroup(allocator, &tokens_unexpected, 0, out.writer());
         try testing.expectError(TemplateError.InvalidToken, result);
     }
 
@@ -1433,7 +1465,7 @@ test evalIfGroup {
         var out_invalid_end = std.array_list.Managed(u8).init(testing.allocator);
         defer out_invalid_end.deinit();
 
-        const result_invalid_end = evalIfGroup(testing.allocator, &tokens_invalid_end, 0, out_invalid_end.writer());
+        const result_invalid_end = evalIfGroup(allocator, &tokens_invalid_end, 0, out_invalid_end.writer());
         try testing.expectError(TemplateError.MissingEndTag, result_invalid_end);
     }
 
@@ -1447,7 +1479,7 @@ test evalIfGroup {
         var out_invalid_tag = std.array_list.Managed(u8).init(testing.allocator);
         defer out_invalid_tag.deinit();
 
-        const result_invalid_tag = evalIfGroup(testing.allocator, &tokens_invalid_tag, 0, out_invalid_tag.writer());
+        const result_invalid_tag = evalIfGroup(allocator, &tokens_invalid_tag, 0, out_invalid_tag.writer());
         try testing.expectError(TemplateError.InvalidTag, result_invalid_tag);
     }
 
@@ -1460,15 +1492,18 @@ test evalIfGroup {
         var out_invalid_template = std.array_list.Managed(u8).init(testing.allocator);
         defer out_invalid_template.deinit();
 
-        const result_invalid_template = evalIfGroup(testing.allocator, &tokens_invalid_template, 0, out_invalid_template.writer());
+        const result_invalid_template = evalIfGroup(allocator, &tokens_invalid_template, 0, out_invalid_template.writer());
         try testing.expectError(TemplateError.InvalidTag, result_invalid_template);
     }
 }
 
 test applyTemplate {
+    var allocator = std.testing.allocator;
     const os = @tagName(builtin.target.os.tag);
     const arch = @tagName(builtin.cpu.arch);
-    var gpa = std.testing.allocator;
+    const host = try getHostname(allocator);
+
+    defer allocator.free(host);
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1485,17 +1520,17 @@ test applyTemplate {
         \\val="test1"
         \\{{> end <}}
         \\
-        \\{{> if SYSTEM.hostname == not_my_machine <}}
-        \\val="HOST2"
-        \\{{> else <}}
+        \\{{> if SYSTEM.hostname == {s} <}}
         \\val="HOST1"
+        \\{{> else <}}
+        \\val="HOST2"
         \\{{> end <}}
         \\
     ,
-        .{ os, arch },
+        .{ os, arch, host },
     ) catch unreachable;
 
-    defer testing.allocator.free(template);
+    defer allocator.free(template);
 
     const rendered_expected =
         \\val="Bar"
@@ -1505,8 +1540,8 @@ test applyTemplate {
         \\
     ;
 
-    const rendered = try applyTemplate(gpa, template);
-    defer gpa.free(rendered);
+    const rendered = try applyTemplate(allocator, template);
+    defer allocator.free(rendered);
 
     try std.testing.expectEqualStrings(rendered_expected, rendered);
 }
@@ -1515,7 +1550,7 @@ test reverseTemplate {
     const os = @tagName(builtin.target.os.tag);
     const arch = @tagName(builtin.cpu.arch);
 
-    var gpa = std.testing.allocator;
+    var allocator = std.testing.allocator;
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1552,8 +1587,8 @@ test reverseTemplate {
         \\
     ;
 
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
+    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
         testing.allocator,
@@ -1587,7 +1622,7 @@ test reverseTemplate {
 
 test "forward" {
     const os = @tagName(builtin.target.os.tag);
-    var gpa = std.testing.allocator;
+    var allocator = std.testing.allocator;
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1610,14 +1645,14 @@ test "forward" {
         \\
     ;
 
-    const rendered = try applyTemplate(gpa, template);
-    defer gpa.free(rendered);
+    const rendered = try applyTemplate(allocator, template);
+    defer allocator.free(rendered);
     try std.testing.expectEqualStrings(rendered_expected, rendered);
 }
 
 test "forward-inline" {
     const os = @tagName(builtin.target.os.tag);
-    var gpa = std.testing.allocator;
+    var allocator = std.testing.allocator;
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1634,14 +1669,14 @@ test "forward-inline" {
         \\
     ;
 
-    const rendered = try applyTemplate(gpa, template);
-    defer gpa.free(rendered);
+    const rendered = try applyTemplate(allocator, template);
+    defer allocator.free(rendered);
     try std.testing.expectEqualStrings(rendered_expected, rendered);
 }
 
 test "back-template" {
     const os = @tagName(builtin.target.os.tag);
-    var gpa = std.testing.allocator;
+    var allocator = std.testing.allocator;
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1664,8 +1699,8 @@ test "back-template" {
         \\
     ;
 
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
+    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
         testing.allocator,
@@ -1688,7 +1723,7 @@ test "back-template" {
 
 test "back-no_template" {
     const os = @tagName(builtin.target.os.tag);
-    var gpa = std.testing.allocator;
+    var allocator = std.testing.allocator;
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1713,8 +1748,8 @@ test "back-no_template" {
         \\
     ;
 
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
+    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
         testing.allocator,
@@ -1738,7 +1773,7 @@ test "back-no_template" {
 
 test "mixed" {
     const os = @tagName(builtin.target.os.tag);
-    var gpa = std.testing.allocator;
+    var allocator = std.testing.allocator;
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1763,8 +1798,8 @@ test "mixed" {
         \\
     ;
 
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
+    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
         testing.allocator,
@@ -1788,7 +1823,7 @@ test "mixed" {
 
 test "mixed-inlie" {
     const os = @tagName(builtin.target.os.tag);
-    var gpa = std.testing.allocator;
+    var allocator = std.testing.allocator;
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1807,8 +1842,8 @@ test "mixed-inlie" {
         \\
     ;
 
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
+    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
         testing.allocator,
@@ -1825,7 +1860,7 @@ test "mixed-inlie" {
 }
 
 test "mixed-else" {
-    var gpa = std.testing.allocator;
+    var allocator = std.testing.allocator;
 
     const template =
         \\FOO
@@ -1845,8 +1880,8 @@ test "mixed-else" {
         \\
     ;
 
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
+    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    defer allocator.free(reversed);
 
     const expected_template =
         \\BAR
@@ -1866,7 +1901,7 @@ test "mixed-else" {
 test "blocks" {
     const os = @tagName(builtin.target.os.tag);
     const arch = @tagName(builtin.cpu.arch);
-    var gpa = std.testing.allocator;
+    var allocator = std.testing.allocator;
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1905,8 +1940,8 @@ test "blocks" {
         \\
     ;
 
-    const reversed = try reverseTemplate(gpa, rendered_user_edit, template);
-    defer gpa.free(reversed);
+    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
         testing.allocator,
@@ -1942,7 +1977,7 @@ test "blocks" {
 test "blocks-mixed" {
     const os = @tagName(builtin.target.os.tag);
     const arch = @tagName(builtin.cpu.arch);
-    var gpa = std.testing.allocator;
+    var allocator = std.testing.allocator;
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1962,8 +1997,8 @@ test "blocks-mixed" {
 
     defer testing.allocator.free(template);
 
-    const render = try applyTemplate(gpa, template);
-    defer gpa.free(render);
+    const render = try applyTemplate(allocator, template);
+    defer allocator.free(render);
 
     const expected =
         \\FOO
