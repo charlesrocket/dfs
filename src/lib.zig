@@ -34,6 +34,12 @@ const Chunk = struct {
     end: usize,
 };
 
+const ParsedCondition = struct {
+    lhs: []const u8,
+    op: []const u8,
+    rhs: []const u8,
+};
+
 pub const TemplateError = error{
     IndexOutOfBounds,
     InvalidTag,
@@ -182,14 +188,6 @@ fn parseBody(template: []const u8, start: usize) !Body {
     }
 
     return Body{ .slice = template[start..i], .after = i };
-}
-
-fn nextTag(template: []const u8, start: usize) ?usize {
-    if (std.mem.indexOf(u8, template[start..], TAG_START)) |pos| {
-        return start + pos;
-    } else {
-        return null;
-    }
 }
 
 fn findAnchorLiteralFromTokens(
@@ -391,47 +389,64 @@ fn evalIfGroup(
     return TemplateError.MissingEndTag;
 }
 
-fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
-    // split on any whitespace (handles multiple spaces/tabs)
-    var parts: [3][]const u8 = undefined; // 3 parts: lhs, op, rhs
+fn parseCondition(cond: []const u8) ?ParsedCondition {
+    var parts: [3][]const u8 = undefined;
     var i: usize = 0;
     var iter = std.mem.splitAny(u8, cond, " \t");
 
-    while (true) {
-        const part = iter.next();
-
-        if (part == null) break;
-        if (i >= 3) return false;
-
-        parts[i] = part.?;
+    while (iter.next()) |part| {
+        if (i >= 3) return null;
+        parts[i] = part;
         i += 1;
     }
 
-    if (i != 3) return false;
+    if (i != 3) return null;
 
-    const lhs = parts[0];
-    const op = parts[1];
-    const rhs = trimTag(parts[2]);
+    return ParsedCondition{
+        .lhs = parts[0],
+        .op = parts[1],
+        .rhs = trimTag(parts[2]),
+    };
+}
 
-    if (std.mem.eql(u8, lhs, "SYSTEM.os")) {
+fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
+    const parsed = parseCondition(cond) orelse return false;
+
+    if (std.mem.eql(u8, parsed.lhs, "SYSTEM.os")) {
         const os = getOS();
 
-        if (std.mem.eql(u8, op, "==")) return std.mem.eql(u8, os, rhs);
-        if (std.mem.eql(u8, op, "!=")) return !std.mem.eql(u8, os, rhs);
-    } else if (std.mem.eql(u8, lhs, "SYSTEM.hostname")) {
+        if (std.mem.eql(u8, parsed.op, "==")) return std.mem.eql(u8, os, parsed.rhs);
+        if (std.mem.eql(u8, parsed.op, "!=")) return !std.mem.eql(u8, os, parsed.rhs);
+    } else if (std.mem.eql(u8, parsed.lhs, "SYSTEM.hostname")) {
         const host = getHostname(allocator) catch "unknown";
         defer allocator.free(host);
 
-        if (std.mem.eql(u8, op, "==")) return std.mem.eql(u8, host, rhs);
-        if (std.mem.eql(u8, op, "!=")) return !std.mem.eql(u8, host, rhs);
-    } else if (std.mem.eql(u8, lhs, "SYSTEM.arch")) {
-        const host = getArch();
+        if (std.mem.eql(u8, parsed.op, "==")) return std.mem.eql(u8, host, parsed.rhs);
+        if (std.mem.eql(u8, parsed.op, "!=")) return !std.mem.eql(u8, host, parsed.rhs);
+    } else if (std.mem.eql(u8, parsed.lhs, "SYSTEM.arch")) {
+        const arch = getArch();
 
-        if (std.mem.eql(u8, op, "==")) return std.mem.eql(u8, host, rhs);
-        if (std.mem.eql(u8, op, "!=")) return !std.mem.eql(u8, host, rhs);
+        if (std.mem.eql(u8, parsed.op, "==")) return std.mem.eql(u8, arch, parsed.rhs);
+        if (std.mem.eql(u8, parsed.op, "!=")) return !std.mem.eql(u8, arch, parsed.rhs);
     }
 
     return false;
+}
+
+fn isValidCondition(condition: []const u8) bool {
+    const parsed = parseCondition(condition) orelse return false;
+
+    // validate left-hand side
+    if (!(std.mem.eql(u8, parsed.lhs, "SYSTEM.os") or
+        std.mem.eql(u8, parsed.lhs, "SYSTEM.hostname") or
+        std.mem.eql(u8, parsed.lhs, "SYSTEM.arch"))) return false;
+
+    // validate operator
+    if (!(std.mem.eql(u8, parsed.op, "==") or
+        std.mem.eql(u8, parsed.op, "!="))) return false;
+
+    // right-hand side must not be empty
+    return parsed.rhs.len > 0;
 }
 
 /// Applies the provided template and returns the result.
@@ -829,35 +844,6 @@ pub fn validate(template: []const u8) ValidationResult {
     return ValidationResult{ .ok = {} };
 }
 
-fn isValidCondition(condition: []const u8) bool {
-    var parts: [3][]const u8 = undefined;
-    var part_count: usize = 0;
-    var iter = std.mem.splitAny(u8, condition, " \t");
-
-    while (iter.next()) |part| {
-        if (part_count >= 3) return false;
-        parts[part_count] = part;
-        part_count += 1;
-    }
-
-    if (part_count != 3) return false;
-
-    const lhs = parts[0];
-    const op = parts[1];
-    const rhs = parts[2];
-
-    // validate left-hand side
-    if (!(std.mem.eql(u8, lhs, "SYSTEM.os") or
-        std.mem.eql(u8, lhs, "SYSTEM.hostname") or
-        std.mem.eql(u8, lhs, "SYSTEM.arch"))) return false;
-
-    // validate operator
-    if (!(std.mem.eql(u8, op, "==") or std.mem.eql(u8, op, "!="))) return false;
-
-    // right-hand side must not be empty
-    return rhs.len > 0;
-}
-
 test validate {
     {
         const template_unclosed = "FOO{> xx";
@@ -1149,13 +1135,6 @@ test tokenize {
     try std.testing.expectEqualStrings("else", tokenized[3].tag.content);
     try std.testing.expectEqualStrings("val=\"HOST1\"", tokenized[4].text);
     try std.testing.expectEqualStrings("end", tokenized[5].tag.content);
-}
-
-test nextTag {
-    const template = "text{>tagA<}more{>tagB<}end";
-    try testing.expectEqual(@as(?usize, 4), nextTag(template, 0));
-    try testing.expectEqual(@as(?usize, 16), nextTag(template, 10));
-    try testing.expectEqual(@as(?usize, null), nextTag(template, 22));
 }
 
 test parseTag {
