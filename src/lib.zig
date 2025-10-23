@@ -1161,17 +1161,20 @@ test nextTag {
 test parseTag {
     const template = "prefix{> if SYSTEM.os == openbsd <}suffix";
     const template_whitespace = "{>   elif SYSTEM.arch == x86_64   <}";
-    const template_invalid = "prefix{> if SYSTEM.os == openbsd <suffix";
+    const template_missing_delim = "prefix{> if SYSTEM.os == openbsd <suffix";
+    const template_invalid_tag = "prefix> if SYSTEM.os == openbsd <suffix";
     const tag = try parseTag(template, 6);
     const tag_whitespace = try parseTag(template_whitespace, 0);
-    const tag_invalid = parseTag(template_invalid, 6);
+    const tag_missing_delim = parseTag(template_missing_delim, 6);
+    const tag_invalid = parseTag(template_invalid_tag, 6);
 
     try testing.expectEqualStrings(" if SYSTEM.os == openbsd ", tag.raw);
     try testing.expectEqualStrings("if SYSTEM.os == openbsd", tag.trim);
     try testing.expectEqual(@as(usize, 35), tag.after);
     try testing.expectEqualStrings("   elif SYSTEM.arch == x86_64   ", tag_whitespace.raw);
     try testing.expectEqualStrings("elif SYSTEM.arch == x86_64", tag_whitespace.trim);
-    try testing.expectError(TemplateError.MissingDelimiter, tag_invalid);
+    try testing.expectError(TemplateError.MissingDelimiter, tag_missing_delim);
+    try testing.expectError(TemplateError.InvalidTag, tag_invalid);
 }
 
 test parseBody {
