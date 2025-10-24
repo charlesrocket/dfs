@@ -87,13 +87,17 @@ const ParsedCondition = struct {
         return std.mem.eql(u8, self.op, "==") or std.mem.eql(u8, self.op, "!=");
     }
 
-    fn compare(self: ParsedCondition, actual: []const u8) bool {
+    fn compare(self: ParsedCondition, actual: []const u8) !bool {
+        if (self.lhs.len == 0) {
+            return TemplateError.InvalidCondition;
+        }
+
         const matches = std.mem.eql(u8, actual, self.rhs);
 
         if (std.mem.eql(u8, self.op, "==")) return matches;
         if (std.mem.eql(u8, self.op, "!=")) return !matches;
 
-        return false;
+        return TemplateError.InvalidCondition;
     }
 };
 
@@ -141,7 +145,7 @@ fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
     const should_free = var_type.shouldFree();
     defer if (should_free) allocator.free(actual_value);
 
-    return parsed.compare(actual_value);
+    return parsed.compare(actual_value) catch false;
 }
 
 /// Contains the error type with a message and the coordinates.
@@ -302,11 +306,12 @@ fn findAnchorLiteralFromTokens(
                     depth += 1;
                 } else if (std.mem.eql(u8, tag_info.content, "end")) {
                     if (depth == 0) {
-                        // found matching end, look for next text token
+                        // found the matching end, look for next text token
                         if (i + 1 < tokens.len and tokens[i + 1] == .text) {
                             return tokens[i + 1].text;
                         }
-                        // no text after end tag
+
+                        // no text after the end tag—this is fine
                         return template[template.len..template.len];
                     }
                     depth -= 1;
@@ -317,7 +322,8 @@ fn findAnchorLiteralFromTokens(
         i += 1;
     }
 
-    return template[template.len..template.len];
+    // reached end without finding the matching 'end' tag
+    return TemplateError.MissingEndTag;
 }
 
 fn extractChangeChunk(
@@ -446,11 +452,6 @@ fn evalIfGroup(
         // compute increment and ensure we don't step past tokens.len
         const inc: usize = if (had_body) 2 else 1;
 
-        if (inc > tokens.len - i) {
-            // past end of the token stream
-            return TemplateError.InvalidTag;
-        }
-
         i += inc;
 
         // next token is `end`, consume it and return
@@ -520,7 +521,7 @@ fn reverseFromTokens(
     while (tok_i < tokens.len) {
         switch (tokens[tok_i]) {
             .text => |lit| {
-                // copy corresponding content from rendered output
+                // copy corresponding content from the rendered output
                 var len = lit.len;
 
                 if (rnd_i + len > render.len) {
@@ -615,14 +616,14 @@ fn reverseIfGroup(
             branch_taken = true;
             active_branch_processed = true;
 
-            // find anchor literal (look ahead in tokens)
+            // find the anchor literal (look ahead in tokens)
             const anchor_lit = try findAnchorLiteralFromTokens(tokens, tok_i, template);
             const change_chunk = extractChangeChunk(render, rnd_i.*, anchor_lit);
 
             try copyWithWhitespace(out, body, change_chunk.slice);
             rnd_i.* = change_chunk.end;
         } else {
-            // inactive branch: copy template body as-is
+            // inactive branch: copy the template body as-is
             try out.appendSlice(body);
         }
 
@@ -652,12 +653,12 @@ fn splitWhitespace(s: []const u8) struct { lead: usize, trail: usize } {
     var lead: usize = 0;
     var trail: usize = 0;
 
-    // count leading whitespace
+    // count leading whitespaces
     while (lead < s.len and (s[lead] == ' ' or
         s[lead] == '\t')) : (lead += 1)
     {}
 
-    // count trailing whitespace
+    // count trailing whitespaces
     var j = s.len;
 
     while (j > lead and (s[j - 1] == ' ' or
@@ -872,6 +873,53 @@ pub fn validate(template: []const u8) ValidationResult {
     }
 
     return ValidationResult{ .ok = {} };
+}
+
+test parseCondition {
+    {
+        const parsed = ParsedCondition{
+            .lhs = "SYSTEM.os",
+            .op = "==",
+            .rhs = "freebsd",
+        };
+
+        try testing.expect(try parsed.compare("freebsd"));
+        try testing.expect(!try parsed.compare("linux"));
+        try testing.expect(!try parsed.compare("macos"));
+    }
+
+    {
+        const parsed = ParsedCondition{
+            .lhs = "SYSTEM.os",
+            .op = "!=",
+            .rhs = "openbsd",
+        };
+
+        try testing.expect(try parsed.compare("linux"));
+        try testing.expect(try parsed.compare("macos"));
+        try testing.expect(!try parsed.compare("openbsd"));
+    }
+
+    {
+        const parsed = ParsedCondition{
+            .lhs = "SYSTEM.os",
+            .op = ">=",
+            .rhs = "linux",
+        };
+
+        try testing.expectError(TemplateError.InvalidCondition, parsed.compare("linux"));
+        try testing.expectError(TemplateError.InvalidCondition, parsed.compare("windows"));
+    }
+
+    {
+        const parsed = ParsedCondition{
+            .lhs = "",
+            .op = "==",
+            .rhs = "linux",
+        };
+
+        try testing.expectError(TemplateError.InvalidCondition, parsed.compare("linux"));
+    }
 }
 
 test validate {
@@ -1293,6 +1341,19 @@ test findAnchorLiteralFromTokens {
         const anchor_without = try findAnchorLiteralFromTokens(tokens_noanchor, 1, template_noanchor);
         try testing.expectEqualStrings("", anchor_without);
     }
+
+    {
+        const template_missing_tag =
+            \\{> if SYSTEM.os == foo <}
+            \\content without end tag
+        ;
+
+        const tokens = try tokenize(allocator, template_missing_tag);
+        defer allocator.free(tokens);
+
+        const result = findAnchorLiteralFromTokens(tokens, 1, template_missing_tag);
+        try testing.expectError(TemplateError.MissingEndTag, result);
+    }
 }
 
 test extractChangeChunk {
@@ -1457,19 +1518,6 @@ test evalIfGroup {
     }
 
     {
-        var tokens_invalid_end = [_]Token{
-            .{ .tag = .{ .content = "if SYSTEM.os == foo", .raw = " if SYSTEM.os == foo ", .start = 0, .end = 10 } },
-            .{ .text = "content" },
-        };
-
-        var out_invalid_end = std.array_list.Managed(u8).init(testing.allocator);
-        defer out_invalid_end.deinit();
-
-        const result_invalid_end = evalIfGroup(allocator, &tokens_invalid_end, 0, out_invalid_end.writer());
-        try testing.expectError(TemplateError.MissingEndTag, result_invalid_end);
-    }
-
-    {
         var tokens_invalid_tag = [_]Token{
             .{ .tag = .{ .content = "if SYSTEM.os == foo", .raw = " if SYSTEM.os == foo ", .start = 0, .end = 10 } },
             .{ .text = "content" },
@@ -1494,6 +1542,19 @@ test evalIfGroup {
 
         const result_invalid_template = evalIfGroup(allocator, &tokens_invalid_template, 0, out_invalid_template.writer());
         try testing.expectError(TemplateError.InvalidTag, result_invalid_template);
+    }
+
+    {
+        var tokens_missing_end = [_]Token{
+            .{ .tag = .{ .content = "if true", .raw = "if true", .start = 0, .end = 7 } },
+            .{ .text = "body" },
+        };
+
+        var out = std.array_list.Managed(u8).init(allocator);
+        defer out.deinit();
+
+        const result = evalIfGroup(allocator, &tokens_missing_end, 0, out.writer());
+        try testing.expectError(TemplateError.MissingEndTag, result);
     }
 }
 
