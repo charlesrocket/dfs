@@ -611,27 +611,6 @@ fn getHostname(allocator: std.mem.Allocator) ![]const u8 {
     return try allocator.dupe(u8, host);
 }
 
-fn splitWhitespace(s: []const u8) struct { lead: usize, trail: usize } {
-    var lead: usize = 0;
-    var trail: usize = 0;
-
-    // count leading whitespaces
-    while (lead < s.len and (s[lead] == ' ' or
-        s[lead] == '\t')) : (lead += 1)
-    {}
-
-    // count trailing whitespaces
-    var j = s.len;
-
-    while (j > lead and (s[j - 1] == ' ' or
-        s[j - 1] == '\t')) : (j -= 1)
-    {}
-
-    trail = s.len - j;
-
-    return .{ .lead = lead, .trail = trail };
-}
-
 fn trimTag(tag: []const u8) []const u8 {
     return std.mem.trim(u8, tag, " \t\r\n");
 }
@@ -1385,20 +1364,6 @@ test copyWithWhitespace {
         try copyWithWhitespace(&out_leading, body_leading, change_leading);
         try testing.expectEqualStrings("\n\rnew", out_leading.items);
     }
-}
-
-test splitWhitespace {
-    const result1 = splitWhitespace("  zoot  ");
-    try testing.expectEqual(@as(usize, 2), result1.lead);
-    try testing.expectEqual(@as(usize, 2), result1.trail);
-
-    const result2 = splitWhitespace("zoot");
-    try testing.expectEqual(@as(usize, 0), result2.lead);
-    try testing.expectEqual(@as(usize, 0), result2.trail);
-
-    const result3 = splitWhitespace("\t\ttest\t");
-    try testing.expectEqual(@as(usize, 2), result3.lead);
-    try testing.expectEqual(@as(usize, 1), result3.trail);
 }
 
 test normalizeTrailing {
