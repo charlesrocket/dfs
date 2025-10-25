@@ -101,28 +101,40 @@ const ParsedCondition = struct {
     }
 };
 
-fn parseCondition(cond: []const u8) ?ParsedCondition {
-    var parts: [3][]const u8 = undefined;
-    var i: usize = 0;
-    var iter = std.mem.splitAny(u8, cond, " \t");
+fn parseCondition(cond: []const u8) !ParsedCondition {
+    // try to find '==' operator
+    if (std.mem.indexOf(u8, cond, "==")) |pos| {
+        const lhs = std.mem.trim(u8, cond[0..pos], " \t");
+        const rhs = std.mem.trim(u8, cond[pos + 2 ..], " \t");
 
-    while (iter.next()) |part| {
-        if (i >= 3) return null;
-        parts[i] = part;
-        i += 1;
+        if (lhs.len == 0 or rhs.len == 0) return TemplateError.InvalidCondition;
+
+        return ParsedCondition{
+            .lhs = lhs,
+            .op = "==",
+            .rhs = rhs,
+        };
     }
 
-    if (i != 3) return null;
+    // try to find '!=' operator
+    if (std.mem.indexOf(u8, cond, "!=")) |pos| {
+        const lhs = std.mem.trim(u8, cond[0..pos], " \t");
+        const rhs = std.mem.trim(u8, cond[pos + 2 ..], " \t");
 
-    return ParsedCondition{
-        .lhs = parts[0],
-        .op = parts[1],
-        .rhs = parts[2],
-    };
+        if (lhs.len == 0 or rhs.len == 0) return TemplateError.InvalidCondition;
+
+        return ParsedCondition{
+            .lhs = lhs,
+            .op = "!=",
+            .rhs = rhs,
+        };
+    }
+
+    return TemplateError.InvalidCondition;
 }
 
 fn isValidCondition(condition: []const u8) bool {
-    const parsed = parseCondition(condition) orelse return false;
+    const parsed = parseCondition(condition) catch return false;
 
     // check if LHS is valid system variable
     if (SYSTEM.fromString(parsed.lhs) == null) return false;
@@ -134,8 +146,8 @@ fn isValidCondition(condition: []const u8) bool {
     return parsed.rhs.len > 0;
 }
 
-fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
-    const parsed = parseCondition(cond) orelse return false;
+fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) !bool {
+    const parsed = try parseCondition(cond);
 
     if (!parsed.isValidOp()) return false;
 
@@ -145,7 +157,7 @@ fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) bool {
     const should_free = var_type.shouldFree();
     defer if (should_free) allocator.free(actual_value);
 
-    return parsed.compare(actual_value) catch false;
+    return try parsed.compare(actual_value);
 }
 
 /// Contains the error type with a message and the coordinates.
@@ -412,9 +424,9 @@ fn evalIfGroup(
 
         var active = false;
         if (std.mem.startsWith(u8, tag_info.content, "if")) {
-            active = evalCondition(allocator, tag_info.content[3..]) and !branch_taken;
+            active = try evalCondition(allocator, tag_info.content[3..]) and !branch_taken;
         } else if (std.mem.startsWith(u8, tag_info.content, "elif")) {
-            active = evalCondition(allocator, tag_info.content[5..]) and !branch_taken;
+            active = try evalCondition(allocator, tag_info.content[5..]) and !branch_taken;
         } else if (std.mem.eql(u8, tag_info.content, "else")) {
             active = !branch_taken;
         } else {
@@ -567,9 +579,9 @@ fn reverseIfGroup(
         // decide if this branch is active
         var active = false;
         if (std.mem.startsWith(u8, tag_info.content, "if")) {
-            active = evalCondition(allocator, tag_info.content[3..]) and !branch_taken;
+            active = try evalCondition(allocator, tag_info.content[3..]) and !branch_taken;
         } else if (std.mem.startsWith(u8, tag_info.content, "elif")) {
-            active = evalCondition(allocator, tag_info.content[5..]) and !branch_taken;
+            active = try evalCondition(allocator, tag_info.content[5..]) and !branch_taken;
         } else if (std.mem.eql(u8, tag_info.content, "else")) {
             active = !branch_taken;
         }
@@ -1407,16 +1419,58 @@ test trimTrailingNewlines {
 }
 
 test evalCondition {
-    const current_os = @tagName(builtin.target.os.tag);
-    const condition = std.fmt.allocPrint(
-        testing.allocator,
-        "SYSTEM.os == {s}",
-        .{current_os},
-    ) catch unreachable;
+    {
+        const current_os = @tagName(builtin.target.os.tag);
+        const condition = std.fmt.allocPrint(
+            testing.allocator,
+            "SYSTEM.os == {s}",
+            .{current_os},
+        ) catch unreachable;
 
-    defer testing.allocator.free(condition);
+        defer testing.allocator.free(condition);
 
-    try testing.expect(evalCondition(testing.allocator, condition));
+        try testing.expect(try evalCondition(testing.allocator, condition));
+    }
+
+    {
+        const current_os = @tagName(builtin.target.os.tag);
+        const condition = std.fmt.allocPrint(
+            testing.allocator,
+            "SYSTEM.os=={s}",
+            .{current_os},
+        ) catch unreachable;
+
+        defer testing.allocator.free(condition);
+
+        try testing.expect(try evalCondition(testing.allocator, condition));
+    }
+
+    {
+        const current_os = @tagName(builtin.target.os.tag);
+        const condition = std.fmt.allocPrint(
+            testing.allocator,
+            "SYSTEM.os    ==    {s}",
+            .{current_os},
+        ) catch unreachable;
+
+        defer testing.allocator.free(condition);
+
+        try testing.expect(try evalCondition(testing.allocator, condition));
+    }
+
+    {
+        const current_os = @tagName(builtin.target.os.tag);
+        const condition = std.fmt.allocPrint(
+            testing.allocator,
+            "SYSTEM.os ?= {s}",
+            .{current_os},
+        ) catch unreachable;
+
+        defer testing.allocator.free(condition);
+
+        const result = evalCondition(testing.allocator, condition);
+        try testing.expectError(TemplateError.InvalidCondition, result);
+    }
 }
 
 test reverseIfGroup {
@@ -1503,7 +1557,7 @@ test evalIfGroup {
 
     {
         var tokens_missing_end = [_]Token{
-            .{ .tag = .{ .content = "if true", .raw = "if true", .start = 0, .end = 7 } },
+            .{ .tag = .{ .content = "if SYSTEM.os == foo", .raw = " if SYSTEM.os == foo ", .start = 0, .end = 10 } },
             .{ .text = "body" },
         };
 
