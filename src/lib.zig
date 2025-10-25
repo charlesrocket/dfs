@@ -244,13 +244,6 @@ fn interpret(allocator: std.mem.Allocator, tokens: []Token) ![]u8 {
     return out.toOwnedSlice();
 }
 
-fn countTrail(s: []const u8) usize {
-    var i: usize = s.len;
-    while (i > 0 and (s[i - 1] == '\n' or s[i - 1] == '\r')) : (i -= 1) {}
-
-    return s.len - i;
-}
-
 fn parseTag(template: []const u8, i: usize) !Tag {
     // i should point to the { of TAG_START
     if (!std.mem.startsWith(u8, template[i..], TAG_START)) {
@@ -379,8 +372,10 @@ fn normalizeTrailing(
     result: []u8,
     template: []const u8,
 ) ![]u8 {
-    const tmpl_trail = countTrail(template);
-    const res_trail = countTrail(result);
+    const tmpl_trimmed = trimTrailingNewlines(template);
+    const res_trimmed = trimTrailingNewlines(result);
+    const tmpl_trail = template.len - tmpl_trimmed.len;
+    const res_trail = result.len - res_trimmed.len;
 
     if (res_trail == tmpl_trail) return result;
 
