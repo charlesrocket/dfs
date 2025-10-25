@@ -396,51 +396,42 @@ fn evalIfGroup(
 ) !usize {
     if (start >= tokens.len) return TemplateError.IndexOutOfBounds;
 
-    var i: usize = start;
-    var branch_taken: bool = false;
+    var i = start;
+    var branch_taken = false;
 
-    while (i < tokens.len) {
-        // ensure current token is a tag
-        const cur_tag_info = switch (tokens[i]) {
+    while (i < tokens.len) : (i += 0) {
+        // tag check
+        const tag_info = switch (tokens[i]) {
             .tag => |t| t,
             else => return TemplateError.InvalidToken,
         };
 
-        const cur_tag = cur_tag_info.content;
-
-        var active: bool = false;
-
-        // decide whether this branch is active
-        if (std.mem.startsWith(u8, cur_tag, "if")) {
-            active = evalCondition(allocator, cur_tag[3..]) and !branch_taken;
-        } else if (std.mem.startsWith(u8, cur_tag, "elif")) {
-            active = evalCondition(allocator, cur_tag[5..]) and !branch_taken;
-        } else if (std.mem.eql(u8, cur_tag, "else")) {
-            active = !branch_taken;
-        } else if (std.mem.eql(u8, cur_tag, "end")) {
-            // consume the 'end' tag and return index after it
+        if (std.mem.eql(u8, tag_info.content, "end")) {
             return i + 1;
+        }
+
+        var active = false;
+        if (std.mem.startsWith(u8, tag_info.content, "if")) {
+            active = evalCondition(allocator, tag_info.content[3..]) and !branch_taken;
+        } else if (std.mem.startsWith(u8, tag_info.content, "elif")) {
+            active = evalCondition(allocator, tag_info.content[5..]) and !branch_taken;
+        } else if (std.mem.eql(u8, tag_info.content, "else")) {
+            active = !branch_taken;
         } else {
             return TemplateError.InvalidTag;
         }
 
-        // check if there is a following text token
-        // (the body for this control tag)
-        var had_body: bool = false;
         var body: []const u8 = &[_]u8{};
+        var has_body = false;
+        if (i + 1 < tokens.len and tokens[i + 1] == .text) {
+            body = tokens[i + 1].text;
 
-        if (i + 1 < tokens.len) {
-            switch (tokens[i + 1]) {
-                .text => |t| {
-                    had_body = true;
-                    body = t;
-                    // trim exactly one leading newline after the control tag
-                    if (body.len > 0 and (body[0] == '\n' or body[0] == '\r')) {
-                        body = body[1..];
-                    }
-                },
-                else => {},
+            // trim exactly one leading newline after the control tag
+            if (body.len > 0 and (body[0] == '\n' or body[0] == '\r')) {
+                body = body[1..];
             }
+
+            has_body = true;
         }
 
         if (active) {
@@ -449,35 +440,14 @@ fn evalIfGroup(
             try w.print("{s}", .{trimmed});
         }
 
-        // compute increment and ensure we don't step past tokens.len
-        const inc: usize = if (had_body) 2 else 1;
+        i += if (has_body) 2 else 1;
 
-        i += inc;
-
-        // next token is `end`, consume it and return
-        if (i < tokens.len) {
-            switch (tokens[i]) {
-                .tag => |t2| {
-                    if (std.mem.eql(u8, t2.content, "end")) {
-                        // i < tokens.len here
-                        return i + 1;
-                    }
-                    // or continue loop to handle next elif/else
-                },
-                else => {
-                    // according to our grammar, after a control+body we
-                    // expect the next token to be another control tag or end
-                    // (text tokens are invalid here)
-                    return TemplateError.InvalidTag;
-                },
-            }
-        } else {
-            // reached end of tokens without an `end` tag
-            return TemplateError.MissingEndTag;
+        if (i < tokens.len and tokens[i] != .tag) {
+            return TemplateError.InvalidTag;
         }
     }
 
-    unreachable;
+    return TemplateError.MissingEndTag;
 }
 
 /// Applies the provided template and returns the result.
