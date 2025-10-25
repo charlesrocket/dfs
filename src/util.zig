@@ -1,4 +1,5 @@
 pub var LOG_FILE: []const u8 = "dfs.log";
+const LOG_SIZE_MAX = 10 * 1024 * 1024; // 10 MB
 var LOG_FILE_BUF: [std.fs.max_path_bytes]u8 = undefined;
 
 pub const Level = enum {
@@ -255,11 +256,10 @@ pub fn log(
         return;
     };
 
-    const max_size = 10 * 1024 * 1024; // 10 MB
     const stat = file.stat() catch return;
 
     // cycle log file
-    if (stat.size > max_size) {
+    if (stat.size > LOG_SIZE_MAX) {
         file.close();
 
         var old_buf: [std.fs.max_path_bytes]u8 = undefined;
