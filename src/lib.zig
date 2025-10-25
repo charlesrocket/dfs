@@ -798,17 +798,7 @@ pub fn validate(template: []const u8) ValidationResult {
             }
 
             // update position tracking using tag.after
-            var j = i;
-            while (j < tag.after and j < template.len) {
-                if (template[j] == '\n') {
-                    line += 1;
-                    column = 1;
-                } else {
-                    column += 1;
-                }
-                j += 1;
-            }
-
+            column += (tag.after - i);
             i = tag.after;
         } else {
             if (template[i] == '\n') {
