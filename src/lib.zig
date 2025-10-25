@@ -491,12 +491,7 @@ fn reverseFromTokens(
         switch (tokens[tok_i]) {
             .text => |lit| {
                 // copy corresponding content from the rendered output
-                var len = lit.len;
-
-                if (rnd_i + len > render.len) {
-                    len = render.len - rnd_i;
-                }
-
+                const len = lit.len;
                 try out.appendSlice(render[rnd_i .. rnd_i + len]);
 
                 rnd_i += len;
