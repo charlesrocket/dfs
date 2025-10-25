@@ -976,6 +976,21 @@ test validate {
     }
 
     {
+        const template_bad_elif_cond =
+            \\{> if SYSTEM.os == linux <}
+            \\content1
+            \\{> elif SYSTEM.os >= windows <}
+            \\content2
+            \\{> end <}
+        ;
+
+        const result = validate(template_bad_elif_cond);
+        try testing.expect(result.isError());
+        try testing.expectEqual(TemplateError.InvalidCondition, result.err.err);
+        try testing.expectEqualStrings("Invalid 'elif' condition syntax", result.err.message);
+    }
+
+    {
         const template_bad_condition_parts = "{> if SYSTEM.os <}content{> end <}";
         const result_bad_condition_parts = validate(template_bad_condition_parts);
         try testing.expect(result_bad_condition_parts.isError());
