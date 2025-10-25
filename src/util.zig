@@ -313,26 +313,50 @@ test "isGitPresent" {
 
 test log {
     const allocator = std.testing.allocator;
-    const message = "Log test";
-    log(Level.INFO, message, .{});
 
-    const log_file = try std.fs.cwd().openFile("dfs.log", .{});
-    defer log_file.close();
+    {
+        const message = "Log test";
+        log(Level.INFO, message, .{});
 
-    const log_size: usize = @intCast((try log_file.stat()).size);
-    const log_content = try log_file.readToEndAlloc(
-        allocator,
-        log_size,
-    );
+        const log_file = try std.fs.cwd().openFile("dfs.log", .{});
+        defer log_file.close();
 
-    const expected = "] [INFO] Log test\n";
+        const log_size: usize = @intCast((try log_file.stat()).size);
+        const log_content = try log_file.readToEndAlloc(
+            allocator,
+            log_size,
+        );
 
-    defer {
-        allocator.free(log_content);
-        std.fs.cwd().deleteFile("dfs.log") catch unreachable;
+        const expected = "] [INFO] Log test\n";
+
+        defer {
+            allocator.free(log_content);
+            std.fs.cwd().deleteFile("dfs.log") catch unreachable;
+        }
+
+        try std.testing.expectStringEndsWith(log_content, expected);
     }
 
-    try std.testing.expectStringEndsWith(log_content, expected);
+    {
+        const message = "All WORK AND NO PLAY MAKES JACK A DULL BOY.";
+
+        var file = try std.fs.cwd().createFile(LOG_FILE, .{ .truncate = true });
+        var written: usize = 0;
+        const buffer = try allocator.alloc(u8, message.len);
+        defer allocator.free(buffer);
+
+        @memcpy(buffer, message);
+
+        while (written < LOG_SIZE_MAX) {
+            try file.writeAll(buffer);
+            written += buffer.len;
+        }
+
+        file.close();
+        log(Level.WARNING, message, .{});
+        std.fs.cwd().deleteFile("dfs.log.old") catch unreachable;
+        std.fs.cwd().deleteFile("dfs.log") catch unreachable;
+    }
 }
 
 const std = @import("std");
