@@ -117,7 +117,7 @@ fn parseCondition(cond: []const u8) ?ParsedCondition {
     return ParsedCondition{
         .lhs = parts[0],
         .op = parts[1],
-        .rhs = trimTag(parts[2]),
+        .rhs = parts[2],
     };
 }
 
