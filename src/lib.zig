@@ -477,8 +477,7 @@ fn evalIfGroup(
         }
     }
 
-    // missing `end` tag
-    return TemplateError.MissingEndTag;
+    unreachable;
 }
 
 /// Applies the provided template and returns the result.
@@ -1491,16 +1490,11 @@ test evalIfGroup {
     const allocator = testing.allocator;
 
     {
-        var tokens_oob = [_]Token{
-            .{ .tag = .{ .content = "if SYSTEM.os == foo", .raw = " if SYSTEM.os == foo ", .start = 0, .end = 10 } },
-            .{ .text = "content" },
-            .{ .tag = .{ .content = "end", .raw = " end ", .start = 20, .end = 30 } },
-        };
-
-        var out = std.array_list.Managed(u8).init(testing.allocator);
+        const tokens_oob = &[_]Token{};
+        var out = std.array_list.Managed(u8).init(allocator);
         defer out.deinit();
 
-        const result = evalIfGroup(allocator, &tokens_oob, 5, out.writer());
+        const result = evalIfGroup(allocator, tokens_oob, 0, out.writer());
         try testing.expectError(TemplateError.IndexOutOfBounds, result);
     }
 
@@ -1555,6 +1549,18 @@ test evalIfGroup {
 
         const result = evalIfGroup(allocator, &tokens_missing_end, 0, out.writer());
         try testing.expectError(TemplateError.MissingEndTag, result);
+    }
+
+    {
+        var tokens_end_only = [_]Token{
+            .{ .tag = .{ .content = "end", .raw = " end ", .start = 0, .end = 5 } },
+        };
+
+        var out = std.array_list.Managed(u8).init(allocator);
+        defer out.deinit();
+
+        const result = try evalIfGroup(allocator, &tokens_end_only, 0, out.writer());
+        try testing.expect(result == 1);
     }
 }
 
