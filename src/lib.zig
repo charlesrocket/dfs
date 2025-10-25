@@ -537,7 +537,7 @@ fn reverseIfGroup(
     var branch_taken = false;
     var active_branch_processed = false;
 
-    while (tok_i < tokens.len) {
+    while (tok_i < tokens.len) : (tok_i += 0) {
         const tag_info = switch (tokens[tok_i]) {
             .tag => |t| t,
             else => return TemplateError.InvalidToken,
@@ -559,11 +559,9 @@ fn reverseIfGroup(
         var body: []const u8 = &[_]u8{};
         var has_body = false;
 
-        if (tok_i < tokens.len) {
-            if (tokens[tok_i] == .text) {
-                body = tokens[tok_i].text;
-                has_body = true;
-            }
+        if (tok_i < tokens.len and tokens[tok_i] == .text) {
+            body = tokens[tok_i].text;
+            has_body = true;
         }
 
         // decide if this branch is active
@@ -1449,6 +1447,36 @@ test evalCondition {
     defer testing.allocator.free(condition);
 
     try testing.expect(evalCondition(testing.allocator, condition));
+}
+
+test reverseIfGroup {
+    const allocator = testing.allocator;
+
+    const template =
+        \\{> if SYSTEM.os == doom <}
+        \\content
+    ;
+
+    const tokens = try tokenize(allocator, template);
+    defer allocator.free(tokens);
+
+    var out = std.array_list.Managed(u8).init(allocator);
+    defer out.deinit();
+
+    const rendered = "content";
+    var rnd_i: usize = 0;
+
+    const result = reverseIfGroup(
+        allocator,
+        &out,
+        rendered,
+        &rnd_i,
+        template,
+        tokens,
+        0,
+    );
+
+    try testing.expectError(TemplateError.MissingEndTag, result);
 }
 
 test evalIfGroup {
