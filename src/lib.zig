@@ -34,6 +34,11 @@ const Chunk = struct {
     end: usize,
 };
 
+const Branch = struct {
+    active: bool,
+    condition: ?[]const u8,
+};
+
 pub const TemplateError = error{
     IndexOutOfBounds,
     InvalidTag,
@@ -395,6 +400,31 @@ fn normalizeTrailing(
     return new_slice;
 }
 
+fn evalBranch(
+    allocator: std.mem.Allocator,
+    tag_content: []const u8,
+    branch_taken: bool,
+) !Branch {
+    if (std.mem.eql(u8, tag_content, "end")) {
+        return .{ .active = false, .condition = null };
+    }
+
+    if (std.mem.eql(u8, tag_content, "else")) {
+        return .{ .active = !branch_taken, .condition = null };
+    }
+
+    const condition = cnd: {
+        if (std.mem.startsWith(u8, tag_content, "if "))
+            break :cnd tag_content[3..];
+        if (std.mem.startsWith(u8, tag_content, "elif "))
+            break :cnd tag_content[5..];
+        return TemplateError.InvalidTag;
+    };
+
+    const active = try evalCondition(allocator, condition) and !branch_taken;
+    return .{ .active = active, .condition = condition };
+}
+
 fn evalIfGroup(
     allocator: std.mem.Allocator,
     tokens: []Token,
@@ -417,19 +447,15 @@ fn evalIfGroup(
             return i + 1;
         }
 
-        var active = false;
-        if (std.mem.startsWith(u8, tag_info.content, "if")) {
-            active = try evalCondition(allocator, tag_info.content[3..]) and !branch_taken;
-        } else if (std.mem.startsWith(u8, tag_info.content, "elif")) {
-            active = try evalCondition(allocator, tag_info.content[5..]) and !branch_taken;
-        } else if (std.mem.eql(u8, tag_info.content, "else")) {
-            active = !branch_taken;
-        } else {
-            return TemplateError.InvalidTag;
-        }
+        const branch = try evalBranch(
+            allocator,
+            tag_info.content,
+            branch_taken,
+        );
 
         var body: []const u8 = &[_]u8{};
         var has_body = false;
+
         if (i + 1 < tokens.len and tokens[i + 1] == .text) {
             body = tokens[i + 1].text;
 
@@ -441,7 +467,7 @@ fn evalIfGroup(
             has_body = true;
         }
 
-        if (active) {
+        if (branch.active) {
             branch_taken = true;
             const trimmed = trimTrailingNewlines(body);
             try w.print("{s}", .{trimmed});
@@ -571,23 +597,28 @@ fn reverseIfGroup(
             has_body = true;
         }
 
-        // decide if this branch is active
-        var active = false;
-        if (std.mem.startsWith(u8, tag_info.content, "if")) {
-            active = try evalCondition(allocator, tag_info.content[3..]) and !branch_taken;
-        } else if (std.mem.startsWith(u8, tag_info.content, "elif")) {
-            active = try evalCondition(allocator, tag_info.content[5..]) and !branch_taken;
-        } else if (std.mem.eql(u8, tag_info.content, "else")) {
-            active = !branch_taken;
-        }
+        const branch = try evalBranch(
+            allocator,
+            tag_info.content,
+            branch_taken,
+        );
 
-        if (active and !active_branch_processed) {
+        if (branch.active and !active_branch_processed) {
             branch_taken = true;
             active_branch_processed = true;
 
             // find the anchor literal (look ahead in tokens)
-            const anchor_lit = try findAnchorLiteralFromTokens(tokens, tok_i, template);
-            const change_chunk = extractChangeChunk(render, rnd_i.*, anchor_lit);
+            const anchor_lit = try findAnchorLiteralFromTokens(
+                tokens,
+                tok_i,
+                template,
+            );
+
+            const change_chunk = extractChangeChunk(
+                render,
+                rnd_i.*,
+                anchor_lit,
+            );
 
             try copyWithWhitespace(out, body, change_chunk.slice);
             rnd_i.* = change_chunk.end;
