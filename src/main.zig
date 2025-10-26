@@ -464,7 +464,7 @@ pub fn main() !void {
                 );
 
                 defer allocator.free(stats);
-                try Cli.sendNotification(
+                Cli.sendNotification(
                     allocator,
                     "DFS Sync completed",
                     stats,

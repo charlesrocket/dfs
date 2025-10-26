@@ -266,7 +266,7 @@ pub fn sendNotification(
     summary: []const u8,
     body: []const u8,
     urgency: []const u8,
-) !void {
+) void {
     const args = [5][]const u8{
         "notify-send",
         summary,
@@ -282,7 +282,7 @@ pub fn sendNotification(
     proc.stdout_behavior = .Ignore;
     proc.stderr_behavior = .Ignore;
 
-    _ = try proc.spawnAndWait();
+    _ = proc.spawnAndWait() catch {};
 }
 
 const main = @import("main.zig");
