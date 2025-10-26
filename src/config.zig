@@ -14,6 +14,7 @@ repository: []const u8,
 source: []const u8,
 target: []const u8,
 logging: bool,
+notifications: bool,
 ignore_list: [][]const u8,
 
 pub fn new(
@@ -32,6 +33,7 @@ pub fn new(
         .source = source,
         .target = path,
         .logging = false,
+        .notifications = false,
         .ignore_list = &[_][]u8{},
     };
 }
@@ -287,6 +289,7 @@ pub fn migrateConfig(
         else
             "",
         .logging = if (old_config.logging) |v| v else false,
+        .notifications = if (old_config.notifications) |v| v else false,
         .ignore_list = ignore_list,
     };
 
@@ -442,6 +445,7 @@ test migrateConfig {
         \\    .source = "test/root-back",
         \\    .target = "/tmp/test",
         \\    .logging = false,
+        \\    .notifications = false,
         \\    .ignore_list = .{ "foo", "bar" },
         \\}
         \\

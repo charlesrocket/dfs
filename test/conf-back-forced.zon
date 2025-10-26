@@ -3,5 +3,6 @@
     .source = "test/root-back-forced",
     .target = "test/dest-back-forced",
     .logging = false,
+    .notifications = false,
     .ignore_list = .{},
 }

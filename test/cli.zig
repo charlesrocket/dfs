@@ -455,6 +455,7 @@ test "config bad" {
         \\    .source = "$HOME/src/dotfiles",
         \\    .target = "/tmp/test",
         \\    .logging = false,
+        \\    .notifications = false,
         \\    .ignore_list = .{},
         \\}
     ;

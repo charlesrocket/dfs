@@ -21,6 +21,8 @@ zig build --release=fast
     .repository = "https://github.com/charlesrocket/dotfiles",
     .source = "$HOME/src/dotfiles",
     .target = "$HOME",
+    .logging = false,
+    .notifications = true,
     .ignore_list = .{},
 }
 ```

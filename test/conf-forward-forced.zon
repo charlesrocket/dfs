@@ -3,5 +3,6 @@
     .source = "test/root-forward-forced",
     .target = "test/dest-forward-forced",
     .logging = false,
+    .notifications = false,
     .ignore_list = .{},
 }

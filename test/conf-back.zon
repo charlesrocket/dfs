@@ -3,5 +3,6 @@
     .source = "test/root-back",
     .target = "test/dest-back",
     .logging = false,
+    .notifications = false,
     .ignore_list = .{},
 }

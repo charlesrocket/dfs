@@ -150,6 +150,10 @@ pub fn main() !void {
         config.source = try src.val.getAs([]const u8);
     }
 
+    if (opts.get("notifications")) |src| {
+        config.notifications = try src.val.getAs(bool);
+    }
+
     const source_with_slash = try Config.pathFormat(
         allocator,
         config.source,
@@ -444,6 +448,29 @@ pub fn main() !void {
                 counter.errors,
                 Cli.reset,
             });
+
+            if (config.notifications) {
+                const stats = try std.fmt.allocPrint(
+                    allocator,
+                    "Summary: total {d}, updated {d}, templates {d}, renders {d}, binaries {d}, errors {d}",
+                    .{
+                        counter.total,
+                        counter.updated,
+                        counter.template,
+                        counter.render,
+                        counter.binary,
+                        counter.errors,
+                    },
+                );
+
+                defer allocator.free(stats);
+                try Cli.sendNotification(
+                    allocator,
+                    "DFS Sync completed",
+                    stats,
+                    "normal",
+                );
+            }
         }
     }
 

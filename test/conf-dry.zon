@@ -3,5 +3,6 @@
     .source = "test/root-dry",
     .target = "test/dest-dry",
     .logging = false,
+    .notifications = false,
     .ignore_list = .{},
 }

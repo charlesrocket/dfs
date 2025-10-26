@@ -199,6 +199,12 @@ pub const setup_cmd: CommandT = .{
             }),
         },
         .{
+            .name = "notifications",
+            .description = "Show desktop notifications.",
+            .short_name = 'n',
+            .long_name = "notifications",
+        },
+        .{
             .name = "json",
             .description = "Output JSON status string.",
             .long_name = "json",
@@ -253,6 +259,30 @@ pub fn getUserInput(
 
     try list.appendSlice(buf[0..len]);
     return list;
+}
+
+pub fn sendNotification(
+    allocator: std.mem.Allocator,
+    summary: []const u8,
+    body: []const u8,
+    urgency: []const u8,
+) !void {
+    const args = [5][]const u8{
+        "notify-send",
+        summary,
+        body,
+        "-u",
+        urgency,
+        //"-a",
+        //"dfs",
+    };
+
+    var proc = std.process.Child.init(&args, allocator);
+
+    proc.stdout_behavior = .Ignore;
+    proc.stderr_behavior = .Ignore;
+
+    _ = try proc.spawnAndWait();
 }
 
 const main = @import("main.zig");
