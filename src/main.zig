@@ -150,8 +150,8 @@ pub fn main() !void {
         config.source = try src.val.getAs([]const u8);
     }
 
-    if (opts.get("notifications")) |src| {
-        config.notifications = try src.val.getAs(bool);
+    if (opts.get("notifications")) |notif| {
+        config.notifications = try notif.val.getAs(bool);
     }
 
     const source_with_slash = try Config.pathFormat(
