@@ -3,7 +3,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const build_options = b.addOptions();
 
-    const lib_mod = b.createModule(.{
+    const lib_mod = b.addModule("libdfs", .{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
@@ -35,6 +35,13 @@ pub fn build(b: *std.Build) void {
 
     const cova_mod = cova_dep.module("cova");
 
+    const stray_dep = b.dependency("libstray", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const stray_mod = stray_dep.module("stray");
+
     if (target.query.cpu_arch == null) {
         const cova_gen = @import("cova").addCovaDocGenStep(b, cova_dep, exe, .{
             .kinds = &.{.all},
@@ -54,6 +61,7 @@ pub fn build(b: *std.Build) void {
     }
 
     exe.root_module.addImport("cova", cova_mod);
+    exe.root_module.addImport("stray", stray_mod);
     exe.root_module.addOptions("build_options", build_options);
     build_options.addOption([]const u8, "version", version(b));
 
@@ -169,6 +177,7 @@ const manifest: struct {
     minimum_zig_version: []const u8,
     dependencies: struct {
         cova: Dependency,
+        libstray: Dependency,
         ghext: Dependency,
     },
 } = @import("build.zig.zon");
