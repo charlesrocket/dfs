@@ -162,6 +162,10 @@ pub const setup_cmd: CommandT = .{
             .description = "Run template validation.",
         },
         .{
+            .name = "daemon",
+            .description = "Start DFS daemon.",
+        },
+        .{
             .name = "purge",
             .description = "Delete application data (meta, backups, logs).",
         },

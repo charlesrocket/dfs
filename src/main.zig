@@ -41,6 +41,7 @@ pub fn main() !void {
 
     const sync_cmd = main_cmd.checkSubCmd("sync");
     const validate_cmd = main_cmd.checkSubCmd("validate");
+    const daemon_cmd = main_cmd.checkSubCmd("daemon");
     const opts = try main_cmd.getOpts(.{});
 
     if (usage_help_called) {
@@ -199,6 +200,14 @@ pub fn main() !void {
                 Cli.reset,
             });
         }
+
+        if (daemon_cmd) {
+            try core.stdout.print("{s}{s}DAEMON STARTED{s}\n", .{
+                Cli.magenta,
+                Cli.bold,
+                Cli.reset,
+            });
+        }
     }
 
     if (main_cmd.matchSubCmd("sync")) |cmd| {
@@ -265,7 +274,7 @@ pub fn main() !void {
     try core.stdout.flush();
     // progress
     const no_progress = (core.json or core.verbose or core.dry) and
-        (!sync_cmd or !validate_cmd);
+        (!sync_cmd or !validate_cmd or !daemon_cmd);
 
     const main_node = std.Progress.start(
         .{
@@ -273,6 +282,8 @@ pub fn main() !void {
             .initial_delay_ns = 80,
         },
     );
+
+    if (daemon_cmd) try Daemon.start(allocator, stdout, stderr);
 
     // get target files from the source directory
     var walker = try src_dir.walk(allocator);
@@ -511,6 +522,7 @@ const cova = @import("cova");
 const Core = @import("core.zig");
 const Config = @import("config.zig");
 const Cli = @import("cli.zig");
+const Daemon = @import("daemon.zig");
 const Dotfile = @import("dotfile.zig");
 const Util = @import("util.zig");
 const assets = @import("assets.zig");
