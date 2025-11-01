@@ -288,7 +288,7 @@ pub fn main() !void {
     if (sync_cmd or validate_cmd or daemon_cmd) {
         try Core.scan(
             allocator,
-            &main_node,
+            if (!no_progress) &main_node else null,
             &src_dir,
             source_with_slash,
             target_with_slash,
@@ -300,7 +300,7 @@ pub fn main() !void {
 
     if (daemon_cmd) try Daemon.start(allocator, stdout, stderr);
 
-    if (validate_cmd and !sync_cmd) {
+    if (validate_cmd and !sync_cmd and !daemon_cmd) {
         const validate_node = main_node.start(
             "Validating templates",
             files.items.len,
@@ -324,52 +324,18 @@ pub fn main() !void {
     }
 
     if (sync_cmd and !validate_cmd) {
-        if (!core.json and (core.verbose or core.dry))
-            _ = try core.stdout.write("\n");
-
         const sync_opts = try main_cmd.getSubCmd("sync").?.getOpts(.{});
-        const sync_node = main_node.start(
-            "Syncing",
-            files.items.len,
-        );
-
-        defer sync_node.end();
 
         if (sync_opts.get("direction")) |opt|
             core.direction = try opt.val.getAs(Cli.Direction);
 
-        if (core.logs) Util.log(
-            INFO,
-            "Syncing ({s}/{s})",
-            .{ @tagName(core.direction), switch (core.dry) {
-                true => "dry",
-                false => "live",
-            } },
+        try Core.sync(
+            allocator,
+            if (!no_progress) &main_node else null,
+            &files,
+            &counter,
+            &core,
         );
-
-        for (files.items) |file| {
-            file.processFile(
-                allocator,
-                &counter,
-                &core,
-            ) catch |err| {
-                if (core.logs) Util.log(ERR, "{}: {s}", .{ err, file.src });
-                if (!core.json) {
-                    try core.stderr.print("{s}{s}ERROR | {}:{s} {s}\n", .{
-                        Cli.bold,
-                        Cli.red,
-                        err,
-                        Cli.reset,
-                        file.src,
-                    });
-
-                    try core.stderr.flush();
-                }
-            };
-
-            try core.stdout.flush();
-            sync_node.completeOne();
-        }
     }
 
     main_node.end();

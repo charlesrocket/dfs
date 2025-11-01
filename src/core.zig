@@ -86,7 +86,7 @@ pub fn init(
 
 pub fn scan(
     allocator: std.mem.Allocator,
-    progress: *std.Progress.Node,
+    progress: ?*std.Progress.Node,
     src_dir: *std.fs.Dir,
     source: []const u8,
     target: []const u8,
@@ -97,12 +97,13 @@ pub fn scan(
     // get target files from the source directory
     var walker = try src_dir.walk(allocator);
     defer walker.deinit();
-    const scan_node = progress.start(
+
+    const scan_node = if (progress != null) progress.?.start(
         "Scanning",
         files.items.len,
-    );
+    ) else null;
 
-    defer scan_node.end();
+    defer if (progress != null) scan_node.?.end();
 
     if (core.logs) Util.log(INFO, "Scanning the source", .{});
 
@@ -121,7 +122,7 @@ pub fn scan(
             continue :walk;
         }
 
-        scan_node.completeOne();
+        if (progress != null) scan_node.?.completeOne();
 
         switch (entry.kind) {
             .file => {
@@ -144,6 +145,57 @@ pub fn scan(
     }
 }
 
+pub fn sync(
+    allocator: std.mem.Allocator,
+    progress: ?*std.Progress.Node,
+    files: *std.array_list.Aligned(Dotfile, null),
+    counter: *Util.Counter,
+    core: *Core,
+) !void {
+    if (!core.json and (core.verbose or core.dry))
+        _ = try core.stdout.write("\n");
+
+    const sync_node = if (progress != null) progress.?.start(
+        "Syncing",
+        files.items.len,
+    ) else null;
+
+    defer if (progress != null) sync_node.?.end();
+
+    if (core.logs) Util.log(
+        INFO,
+        "Syncing ({s}/{s})",
+        .{ @tagName(core.direction), switch (core.dry) {
+            true => "dry",
+            false => "live",
+        } },
+    );
+
+    for (files.items) |file| {
+        file.processFile(
+            allocator,
+            counter,
+            core,
+        ) catch |err| {
+            if (core.logs) Util.log(ERR, "{}: {s}", .{ err, file.src });
+            if (!core.json) {
+                try core.stderr.print("{s}{s}ERROR | {}:{s} {s}\n", .{
+                    Cli.bold,
+                    Cli.red,
+                    err,
+                    Cli.reset,
+                    file.src,
+                });
+
+                try core.stderr.flush();
+            }
+        };
+
+        try core.stdout.flush();
+        if (progress != null) sync_node.?.completeOne();
+    }
+}
+
 const Core = @This();
 const std = @import("std");
 const assets = @import("assets.zig");
@@ -153,3 +205,4 @@ const Cli = @import("cli.zig");
 const Util = @import("util.zig");
 
 const INFO = Util.Level.INFO;
+const ERR = Util.Level.ERROR;
