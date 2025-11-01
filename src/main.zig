@@ -19,7 +19,7 @@ pub fn main() !void {
     const main_cmd = try setup_cmd.init(allocator, .{});
     defer main_cmd.deinit();
 
-    var core = Core.new(stdout, stderr);
+    var core = Core.new(allocator, stdout, stderr);
     var custom_config_path: ?[]const u8 = null;
     var usage_help_called = false;
     var args_iter = try cova.ArgIteratorGeneric.init(allocator);
@@ -155,22 +155,22 @@ pub fn main() !void {
         config.notifications = try notif.val.getAs(bool);
     }
 
-    const source_with_slash = try Config.pathFormat(
+    core.source = try Config.pathFormat(
         allocator,
         config.source,
     );
 
-    const target_with_slash = try Config.pathFormat(
+    core.target = try Config.pathFormat(
         allocator,
         config.target,
     );
 
     defer {
-        if (!std.mem.eql(u8, source_with_slash, config.source))
-            allocator.free(source_with_slash);
+        if (!std.mem.eql(u8, core.source, config.source))
+            allocator.free(core.source);
 
-        if (!std.mem.eql(u8, target_with_slash, config.target))
-            allocator.free(target_with_slash);
+        if (!std.mem.eql(u8, core.target, config.target))
+            allocator.free(core.target);
     }
 
     var ignore_list = std.array_list.Managed([]const u8).init(allocator);
@@ -225,27 +225,24 @@ pub fn main() !void {
         }
     }
 
-    var counter = Util.Counter.new(core.dry);
-    var files = std.ArrayListUnmanaged(Dotfile).empty;
-
     defer {
-        for (files.items) |file| {
+        for (core.files.items) |file| {
             file.deinit(allocator);
         }
 
-        files.deinit(allocator);
+        core.files.deinit(allocator);
     }
 
     try core.stdout.print("\nSource is {s}{s}{s}\n", .{
         Cli.underline,
-        source_with_slash,
+        core.source,
         Cli.reset,
     });
 
     try core.stdout.flush();
 
-    var src_dir = std.fs.cwd().openDir(
-        source_with_slash,
+    core.src_dir = std.fs.cwd().openDir(
+        core.source,
         .{ .iterate = true },
     ) catch |err| {
         switch (err) {
@@ -253,7 +250,7 @@ pub fn main() !void {
                 if (core.logs) Util.log(
                     ERR,
                     "Source not found: {s}",
-                    .{source_with_slash},
+                    .{core.source},
                 );
 
                 try core.stderr.flush();
@@ -263,57 +260,49 @@ pub fn main() !void {
         }
     };
 
-    defer src_dir.close();
+    defer core.src_dir.close();
 
     try core.stdout.print("Target is {s}{s}{s}\n", .{
         Cli.underline,
-        target_with_slash,
+        core.target,
         Cli.reset,
     });
 
     try core.stdout.flush();
     // progress
     const no_progress = (core.json or core.verbose or core.dry) and
-        (!sync_cmd or !validate_cmd or !daemon_cmd);
+        (!sync_cmd or !validate_cmd) or daemon_cmd;
 
-    var main_node = std.Progress.start(
+    var main_node = if (no_progress) null else std.Progress.start(
         .{
             .disable_printing = no_progress,
             .initial_delay_ns = 80,
         },
     );
 
-    const ignore_items = ignore_list.items;
+    if (!no_progress) core.progress = main_node.?;
 
-    if (sync_cmd or validate_cmd or daemon_cmd) {
-        try Core.scan(
-            allocator,
-            if (!no_progress) &main_node else null,
-            &src_dir,
-            source_with_slash,
-            target_with_slash,
-            &files,
-            ignore_items,
-            &core,
-        );
+    core.ignore_items = ignore_list.items;
+
+    if (sync_cmd or validate_cmd) {
+        try core.scan();
     }
 
-    if (daemon_cmd) try Daemon.start(allocator, stdout, stderr);
-
+    if (daemon_cmd) try Daemon.start(&core);
     if (validate_cmd and !sync_cmd and !daemon_cmd) {
-        const validate_node = main_node.start(
+        const validate_node = main_node.?.start(
             "Validating templates",
-            files.items.len,
+            core.files.items.len,
         );
 
         defer validate_node.end();
 
         if (core.logs) Util.log(INFO, "Validating", .{});
 
-        for (files.items) |file| {
+        for (core.files.items) |file| {
             _ = file.validate(
                 allocator,
-                &counter,
+                &core.counter,
                 core.json,
             );
 
@@ -323,25 +312,19 @@ pub fn main() !void {
         }
     }
 
-    if (sync_cmd and !validate_cmd) {
+    if (sync_cmd and !validate_cmd and !daemon_cmd) {
         const sync_opts = try main_cmd.getSubCmd("sync").?.getOpts(.{});
 
         if (sync_opts.get("direction")) |opt|
             core.direction = try opt.val.getAs(Cli.Direction);
 
-        try Core.sync(
-            allocator,
-            if (!no_progress) &main_node else null,
-            &files,
-            &counter,
-            &core,
-        );
+        try core.sync();
     }
 
-    main_node.end();
+    if (!no_progress) core.progress.?.end();
 
     if (core.json) {
-        try counter.json(core.stdout);
+        try core.counter.json(core.stdout);
         _ = try core.stdout.write("\n");
     } else {
         if (sync_cmd) {
@@ -353,37 +336,37 @@ pub fn main() !void {
 
             try core.stdout.print("TOTAL: {s}{d}{s}\n", .{
                 Cli.underline,
-                counter.total,
+                core.counter.total,
                 Cli.reset,
             });
 
             try core.stdout.print("UPDATED: {s}{d}{s}\n", .{
                 Cli.underline,
-                counter.updated,
+                core.counter.updated,
                 Cli.reset,
             });
 
             try core.stdout.print("TEMPLATES: {s}{d}{s}\n", .{
                 Cli.underline,
-                counter.template,
+                core.counter.template,
                 Cli.reset,
             });
 
             try core.stdout.print("RENDERS: {s}{d}{s}\n", .{
                 Cli.underline,
-                counter.render,
+                core.counter.render,
                 Cli.reset,
             });
 
             try core.stdout.print("BINARIES: {s}{d}{s}\n", .{
                 Cli.underline,
-                counter.binary,
+                core.counter.binary,
                 Cli.reset,
             });
 
             try core.stdout.print("ERRORS: {s}{d}{s}\n", .{
                 Cli.underline,
-                counter.errors,
+                core.counter.errors,
                 Cli.reset,
             });
 
@@ -392,12 +375,12 @@ pub fn main() !void {
                     allocator,
                     "Summary: total {d}, updated {d}, templates {d}, renders {d}, binaries {d}, errors {d}",
                     .{
-                        counter.total,
-                        counter.updated,
-                        counter.template,
-                        counter.render,
-                        counter.binary,
-                        counter.errors,
+                        core.counter.total,
+                        core.counter.updated,
+                        core.counter.template,
+                        core.counter.render,
+                        core.counter.binary,
+                        core.counter.errors,
                     },
                 );
 
@@ -416,12 +399,12 @@ pub fn main() !void {
         INFO,
         "Finished: total {d}, updated {d}, templates {d}, renders {d}, binaries {d}, errors {d}",
         .{
-            counter.total,
-            counter.updated,
-            counter.template,
-            counter.render,
-            counter.binary,
-            counter.errors,
+            core.counter.total,
+            core.counter.updated,
+            core.counter.template,
+            core.counter.render,
+            core.counter.binary,
+            core.counter.errors,
         },
     );
 
@@ -437,7 +420,9 @@ pub fn main() !void {
 }
 
 test {
+    _ = Core;
     _ = Config;
+    _ = Daemon;
     _ = Dotfile;
     _ = Util;
 }

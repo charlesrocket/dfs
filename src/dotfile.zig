@@ -593,7 +593,11 @@ test processFile {
     var bufe: [4096]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&bufo);
     var stderr_writer = std.fs.File.stderr().writer(&bufe);
-    var core = Core.new(&stdout_writer.interface, &stderr_writer.interface);
+    var core = Core.new(
+        std.testing.allocator,
+        &stdout_writer.interface,
+        &stderr_writer.interface,
+    );
 
     errdefer {
         std.fs.cwd().deleteTree("test/root2") catch unreachable;

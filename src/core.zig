@@ -15,19 +15,39 @@ pub const MAC_SPECIFIC = [_][]const u8{
     ".yabairc",
 };
 
+allocator: std.mem.Allocator,
 stdout: *std.Io.Writer,
 stderr: *std.Io.Writer,
 direction: Cli.Direction,
+src_dir: std.fs.Dir,
+source: []const u8,
+target: []const u8,
+ignore_items: [][]const u8,
+progress: ?std.Progress.Node,
+files: std.array_list.Aligned(Dotfile, null),
+counter: Util.Counter,
 logs: bool,
 dry: bool,
 verbose: bool,
 json: bool,
 
-pub fn new(out: *std.Io.Writer, err: *std.Io.Writer) Core {
+pub fn new(
+    allocator: std.mem.Allocator,
+    out: *std.Io.Writer,
+    err: *std.Io.Writer,
+) Core {
     return .{
+        .allocator = allocator,
         .stdout = out,
         .stderr = err,
         .direction = Cli.Direction.dual,
+        .src_dir = std.fs.cwd(),
+        .source = undefined,
+        .target = undefined,
+        .ignore_items = undefined,
+        .progress = null,
+        .files = std.array_list.Aligned(Dotfile, null).empty,
+        .counter = Util.Counter.new(false),
         .logs = false,
         .dry = false,
         .verbose = false,
@@ -85,31 +105,34 @@ pub fn init(
 }
 
 pub fn scan(
-    allocator: std.mem.Allocator,
-    progress: ?*std.Progress.Node,
-    src_dir: *std.fs.Dir,
-    source: []const u8,
-    target: []const u8,
-    files: *std.array_list.Aligned(Dotfile, null),
-    ignore_items: [][]const u8,
-    core: *Core,
+    self: *Core,
 ) !void {
+    if (self.files.items.len > 0) {
+        // make sure previous files are removed
+        for (self.files.items) |file| {
+            self.allocator.free(file.src);
+            self.allocator.free(file.dest);
+        }
+
+        self.files.clearAndFree(self.allocator);
+    }
+
     // get target files from the source directory
-    var walker = try src_dir.walk(allocator);
+    var walker = try self.src_dir.walk(self.allocator);
     defer walker.deinit();
 
-    const scan_node = if (progress != null) progress.?.start(
+    const scan_node = if (self.progress != null) self.progress.?.start(
         "Scanning",
-        files.items.len,
+        self.files.items.len,
     ) else null;
 
-    defer if (progress != null) scan_node.?.end();
+    defer if (self.progress != null) scan_node.?.end();
 
-    if (core.logs) Util.log(INFO, "Scanning the source", .{});
+    if (self.logs) Util.log(INFO, "Scanning the source", .{});
 
     walk: while (try walker.next()) |entry| {
-        if (Util.isIgnored(entry.basename, ignore_items)) {
-            if (core.logs)
+        if (Util.isIgnored(entry.basename, self.ignore_items)) {
+            if (self.logs)
                 Util.log(INFO, "Ignoring: {s}", .{entry.basename});
 
             if (entry.kind == .directory) {
@@ -122,23 +145,23 @@ pub fn scan(
             continue :walk;
         }
 
-        if (progress != null) scan_node.?.completeOne();
+        if (self.progress != null) scan_node.?.completeOne();
 
         switch (entry.kind) {
             .file => {
                 const src_path = try std.fs.path.join(
-                    allocator,
-                    &.{ source, entry.path },
+                    self.allocator,
+                    &.{ self.source, entry.path },
                 );
 
                 const target_path = try std.fs.path.join(
-                    allocator,
-                    &.{ target, entry.path },
+                    self.allocator,
+                    &.{ self.target, entry.path },
                 );
 
                 const file = Dotfile.new(src_path, target_path);
 
-                try files.append(allocator, file);
+                try self.files.append(self.allocator, file);
             },
             else => continue :walk,
         }
@@ -146,40 +169,36 @@ pub fn scan(
 }
 
 pub fn sync(
-    allocator: std.mem.Allocator,
-    progress: ?*std.Progress.Node,
-    files: *std.array_list.Aligned(Dotfile, null),
-    counter: *Util.Counter,
-    core: *Core,
+    self: *Core,
 ) !void {
-    if (!core.json and (core.verbose or core.dry))
-        _ = try core.stdout.write("\n");
+    if (!self.json and (self.verbose or self.dry))
+        _ = try self.stdout.write("\n");
 
-    const sync_node = if (progress != null) progress.?.start(
+    const sync_node = if (self.progress != null) self.progress.?.start(
         "Syncing",
-        files.items.len,
+        self.files.items.len,
     ) else null;
 
-    defer if (progress != null) sync_node.?.end();
+    defer if (self.progress != null) sync_node.?.end();
 
-    if (core.logs) Util.log(
+    if (self.logs) Util.log(
         INFO,
         "Syncing ({s}/{s})",
-        .{ @tagName(core.direction), switch (core.dry) {
+        .{ @tagName(self.direction), switch (self.dry) {
             true => "dry",
             false => "live",
         } },
     );
 
-    for (files.items) |file| {
+    for (self.files.items) |file| {
         file.processFile(
-            allocator,
-            counter,
-            core,
+            self.allocator,
+            &self.counter,
+            self,
         ) catch |err| {
-            if (core.logs) Util.log(ERR, "{}: {s}", .{ err, file.src });
-            if (!core.json) {
-                try core.stderr.print("{s}{s}ERROR | {}:{s} {s}\n", .{
+            if (self.logs) Util.log(ERR, "{}: {s}", .{ err, file.src });
+            if (!self.json) {
+                try self.stderr.print("{s}{s}ERROR | {}:{s} {s}\n", .{
                     Cli.bold,
                     Cli.red,
                     err,
@@ -187,12 +206,12 @@ pub fn sync(
                     file.src,
                 });
 
-                try core.stderr.flush();
+                try self.stderr.flush();
             }
         };
 
-        try core.stdout.flush();
-        if (progress != null) sync_node.?.completeOne();
+        try self.stdout.flush();
+        if (self.progress != null) sync_node.?.completeOne();
     }
 }
 
