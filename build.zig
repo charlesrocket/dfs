@@ -22,6 +22,20 @@ pub fn build(b: *std.Build) void {
 
     exe_mod.addImport("libdfs", lib_mod);
 
+    const dbus = b.option(bool, "dbus", "D-Bus support") orelse true;
+
+    if (dbus) {
+        const stray_dep = b.dependency("libstray", .{
+            .target = target,
+            .optimize = optimize,
+        });
+
+        const stray_mod = stray_dep.module("stray");
+        exe.root_module.addImport("stray", stray_mod);
+    }
+
+    build_options.addOption(bool, "dbus", dbus);
+
     const lib = b.addLibrary(.{
         .linkage = .static,
         .name = "dfs_lib",
@@ -34,13 +48,6 @@ pub fn build(b: *std.Build) void {
     });
 
     const cova_mod = cova_dep.module("cova");
-
-    const stray_dep = b.dependency("libstray", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const stray_mod = stray_dep.module("stray");
 
     if (target.query.cpu_arch == null) {
         const cova_gen = @import("cova").addCovaDocGenStep(b, cova_dep, exe, .{
@@ -61,7 +68,6 @@ pub fn build(b: *std.Build) void {
     }
 
     exe.root_module.addImport("cova", cova_mod);
-    exe.root_module.addImport("stray", stray_mod);
     exe.root_module.addOptions("build_options", build_options);
     build_options.addOption([]const u8, "version", version(b));
 
