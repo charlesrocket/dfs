@@ -16,6 +16,10 @@ cli:
 - changed-files:
   - any-glob-to-any-file: 'src/cli.zig'
 
+daemon:
+- changed-files:
+  - any-glob-to-any-file: 'src/daemon.zig'
+
 util:
 - changed-files:
   - any-glob-to-any-file: 'src/util.zig'
