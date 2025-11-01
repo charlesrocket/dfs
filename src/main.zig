@@ -276,68 +276,29 @@ pub fn main() !void {
     const no_progress = (core.json or core.verbose or core.dry) and
         (!sync_cmd or !validate_cmd or !daemon_cmd);
 
-    const main_node = std.Progress.start(
+    var main_node = std.Progress.start(
         .{
             .disable_printing = no_progress,
             .initial_delay_ns = 80,
         },
     );
 
-    if (daemon_cmd) try Daemon.start(allocator, stdout, stderr);
-
-    // get target files from the source directory
-    var walker = try src_dir.walk(allocator);
-    defer walker.deinit();
-
     const ignore_items = ignore_list.items;
 
-    if (sync_cmd or validate_cmd) {
-        const scan_node = main_node.start(
-            "Scanning",
-            files.items.len,
+    if (sync_cmd or validate_cmd or daemon_cmd) {
+        try Core.scan(
+            allocator,
+            &main_node,
+            &src_dir,
+            source_with_slash,
+            target_with_slash,
+            &files,
+            ignore_items,
+            &core,
         );
-
-        defer scan_node.end();
-
-        if (core.logs) Util.log(INFO, "Scanning the source", .{});
-
-        walk: while (try walker.next()) |entry| {
-            if (Util.isIgnored(entry.basename, ignore_items)) {
-                if (core.logs)
-                    Util.log(INFO, "Ignoring: {s}", .{entry.basename});
-
-                if (entry.kind == .directory) {
-                    // remove from stack, with prejudice
-                    var item = walker.stack.pop().?;
-                    // don't let this be the root directory
-                    item.iter.dir.close();
-                }
-
-                continue :walk;
-            }
-
-            scan_node.completeOne();
-
-            switch (entry.kind) {
-                .file => {
-                    const src_path = try std.fs.path.join(
-                        allocator,
-                        &.{ source_with_slash, entry.path },
-                    );
-
-                    const target_path = try std.fs.path.join(
-                        allocator,
-                        &.{ target_with_slash, entry.path },
-                    );
-
-                    const file = Dotfile.new(src_path, target_path);
-
-                    try files.append(allocator, file);
-                },
-                else => continue :walk,
-            }
-        }
     }
+
+    if (daemon_cmd) try Daemon.start(allocator, stdout, stderr);
 
     if (validate_cmd and !sync_cmd) {
         const validate_node = main_node.start(

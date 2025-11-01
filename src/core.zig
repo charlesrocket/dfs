@@ -84,9 +84,72 @@ pub fn init(
     try self.stdout.flush();
 }
 
+pub fn scan(
+    allocator: std.mem.Allocator,
+    progress: *std.Progress.Node,
+    src_dir: *std.fs.Dir,
+    source: []const u8,
+    target: []const u8,
+    files: *std.array_list.Aligned(Dotfile, null),
+    ignore_items: [][]const u8,
+    core: *Core,
+) !void {
+    // get target files from the source directory
+    var walker = try src_dir.walk(allocator);
+    defer walker.deinit();
+    const scan_node = progress.start(
+        "Scanning",
+        files.items.len,
+    );
+
+    defer scan_node.end();
+
+    if (core.logs) Util.log(INFO, "Scanning the source", .{});
+
+    walk: while (try walker.next()) |entry| {
+        if (Util.isIgnored(entry.basename, ignore_items)) {
+            if (core.logs)
+                Util.log(INFO, "Ignoring: {s}", .{entry.basename});
+
+            if (entry.kind == .directory) {
+                // remove from stack, with prejudice
+                var item = walker.stack.pop().?;
+                // don't let this be the root directory
+                item.iter.dir.close();
+            }
+
+            continue :walk;
+        }
+
+        scan_node.completeOne();
+
+        switch (entry.kind) {
+            .file => {
+                const src_path = try std.fs.path.join(
+                    allocator,
+                    &.{ source, entry.path },
+                );
+
+                const target_path = try std.fs.path.join(
+                    allocator,
+                    &.{ target, entry.path },
+                );
+
+                const file = Dotfile.new(src_path, target_path);
+
+                try files.append(allocator, file);
+            },
+            else => continue :walk,
+        }
+    }
+}
+
 const Core = @This();
 const std = @import("std");
 const assets = @import("assets.zig");
 const Config = @import("config.zig");
+const Dotfile = @import("dotfile.zig");
 const Cli = @import("cli.zig");
 const Util = @import("util.zig");
+
+const INFO = Util.Level.INFO;
