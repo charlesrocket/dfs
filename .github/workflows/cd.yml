@@ -36,28 +36,25 @@ jobs:
           changelog: CHANGELOG.md
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  build-linux:
-    name: Build / Linux
-    runs-on: ubuntu-latest
+  build-linux-arm:
+    name: Build / Linux ARM
+    runs-on: ubuntu-24.04-arm
     needs: [release]
     permissions:
       id-token: write
       contents: write
       attestations: write
 
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - "x86-linux"
-          - "x86_64-linux"
-          - "aarch64-linux"
-
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
 
       - name: Install Zig
         uses: mlugg/setup-zig@v2
@@ -66,9 +63,9 @@ jobs:
 
       - name: Build
         run: |
-          zig build -Dtarget=${{ matrix.target }} --release=safe
+          zig build --release=safe
           mv zig-out/bin/dfs dfs
-          tar -czvf dfs-${{ matrix.target}}.tar.gz dfs
+          tar -czvf dfs-linux-aarch64.tar.gz dfs
 
       - name: Upload
         env:
@@ -76,12 +73,12 @@ jobs:
 
         run: |
           gh release upload ${{ inputs.tag_name }} \
-          dfs-${{ matrix.target }}.tar.gz
+          dfs-linux-aarch64.tar.gz
 
       - name: Attest
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: 'dfs-${{ matrix.target}}.tar.gz'
+          subject-path: 'dfs-linux-aarch64.tar.gz'
 
       - name: Verify attestation
         shell: bash
@@ -89,7 +86,59 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
         run: |
-          gh attestation verify dfs-${{ matrix.target}}.tar.gz --owner "$GITHUB_REPOSITORY_OWNER"
+          gh attestation verify dfs-linux-aarch64.tar.gz --owner "$GITHUB_REPOSITORY_OWNER"
+
+  build-linux-x86:
+    name: Build / Linux X86
+    runs-on: ubuntu-latest
+    needs: [release]
+    permissions:
+      id-token: write
+      contents: write
+      attestations: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Build
+        run: |
+          zig build --release=safe
+          mv zig-out/bin/dfs dfs
+          tar -czvf dfs-linux-x86_64.tar.gz dfs
+
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+        run: |
+          gh release upload ${{ inputs.tag_name }} \
+          dfs-linux-x86_64.tar.gz
+
+      - name: Attest
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: 'dfs-linux-x86_64.tar.gz'
+
+      - name: Verify attestation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+        run: |
+          gh attestation verify dfs-linux-x86_64.tar.gz --owner "$GITHUB_REPOSITORY_OWNER"
 
   build-macos:
     name: Build / macOS
@@ -100,18 +149,16 @@ jobs:
       contents: write
       attestations: write
 
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - "x86_64-macos"
-          - "aarch64-macos"
-
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install dbus
 
       - name: Install Zig
         uses: mlugg/setup-zig@v2
@@ -120,9 +167,9 @@ jobs:
 
       - name: Build
         run: |
-          zig build -Dtarget=${{ matrix.target }} --release=safe
+          zig build --release=safe
           mv zig-out/bin/dfs dfs
-          tar -czvf dfs-${{ matrix.target }}.tar.gz dfs
+          tar -czvf dfs-macos.tar.gz dfs
 
       - name: Upload
         env:
@@ -130,12 +177,12 @@ jobs:
 
         run: |
           gh release upload ${{ inputs.tag_name }} \
-          dfs-${{ matrix.target }}.tar.gz
+          dfs-macos.tar.gz
 
       - name: Attest
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: 'dfs-${{ matrix.target }}.tar.gz'
+          subject-path: 'dfs-macos.tar.gz'
 
       - name: Verify attestation
         shell: bash
@@ -143,7 +190,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
         run: |
-          gh attestation verify dfs-${{ matrix.target }}.tar.gz \
+          gh attestation verify dfs-macos.tar.gz \
           --owner "$GITHUB_REPOSITORY_OWNER"
 
   deploy:
@@ -158,8 +205,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+
       - name: Setup Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
+
       - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
