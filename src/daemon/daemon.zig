@@ -110,6 +110,6 @@ fn onQuit(menu_id: i32, user_data: ?*anyopaque) void {
 
 const std = @import("std");
 const build_options = @import("build_options");
-const Core = @import("core.zig");
-const Cli = @import("cli.zig");
+const Core = @import("../core.zig");
+const Cli = @import("../cli.zig");
 const Thread = std.Thread;
