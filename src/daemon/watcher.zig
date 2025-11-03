@@ -72,33 +72,35 @@ fn addPath(self: *Watcher, path: []const u8) !void {
         .auto => KQUEUE and self.kqueue_fd != null,
     };
 
-    if (use_kqueue) {
-        // try to open the file
-        const fd = std.posix.open(path, .{ .ACCMODE = .RDONLY }, 0) catch |err| switch (err) {
-            error.FileNotFound => {
-                // file does not exist yet, add with no values
-                try self.files.append(.{ .path = path_copy, .mtime = 0, .fd = null });
-                return;
-            },
-            else => return err,
-        };
-        errdefer std.posix.close(fd);
+    if (use_kqueue and KQUEUE) {
+        if (comptime KQUEUE) {
+            // try to open the file
+            const fd = std.posix.open(path, .{ .ACCMODE = .RDONLY }, 0) catch |err| switch (err) {
+                error.FileNotFound => {
+                    // file does not exist yet, add with no values
+                    try self.files.append(.{ .path = path_copy, .mtime = 0, .fd = null });
+                    return;
+                },
+                else => return err,
+            };
+            errdefer std.posix.close(fd);
 
-        // add to kqueue
-        var kev: std.posix.Kevent = undefined;
-        kev.ident = @intCast(fd);
-        kev.filter = std.posix.system.EVFILT.VNODE;
-        kev.flags = std.posix.system.EV.ADD | std.posix.system.EV.CLEAR;
-        kev.fflags = std.posix.system.NOTE.WRITE | std.posix.system.NOTE.DELETE | std.posix.system.NOTE.RENAME;
-        kev.data = 0;
-        kev.udata = 0;
+            // add to kqueue
+            var kev: std.posix.Kevent = undefined;
+            kev.ident = @intCast(fd);
+            kev.filter = std.posix.system.EVFILT.VNODE;
+            kev.flags = std.posix.system.EV.ADD | std.posix.system.EV.CLEAR;
+            kev.fflags = std.posix.system.NOTE.WRITE | std.posix.system.NOTE.DELETE | std.posix.system.NOTE.RENAME;
+            kev.data = 0;
+            kev.udata = 0;
 
-        const changes = [_]std.posix.Kevent{kev};
-        _ = try std.posix.kevent(self.kqueue_fd.?, &changes, &[_]std.posix.Kevent{}, null);
+            const changes = [_]std.posix.Kevent{kev};
+            _ = try std.posix.kevent(self.kqueue_fd.?, &changes, &[_]std.posix.Kevent{}, null);
 
-        const stat = try std.posix.fstat(fd);
-        const mtime_ns = @as(i128, stat.mtime().sec) * std.time.ns_per_s + stat.mtime().nsec;
-        try self.files.append(.{ .path = path_copy, .mtime = mtime_ns, .fd = fd });
+            const stat = try std.posix.fstat(fd);
+            const mtime_ns = @as(i128, stat.mtime().sec) * std.time.ns_per_s + stat.mtime().nsec;
+            try self.files.append(.{ .path = path_copy, .mtime = mtime_ns, .fd = fd });
+        }
     } else {
         // fallback to polling mode
         const stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
@@ -144,6 +146,7 @@ fn startKqueue(
     active: *bool,
     queue: *anyopaque,
 ) !void {
+    if (comptime !KQUEUE) return;
     try core.stdout.print("Watcher is active (KQUEUE)\n", .{});
     try core.stdout.flush();
     try self.watchKqueue(core, active, queue);
@@ -155,6 +158,7 @@ fn watchKqueue(
     active: *bool,
     queue: *anyopaque,
 ) !void {
+    if (comptime !KQUEUE) return;
     var events: [32]std.posix.Kevent = undefined;
     const timeout = std.posix.timespec{ .sec = 1, .nsec = 0 };
 
@@ -201,6 +205,7 @@ fn recheckMissingFiles(self: *Watcher) !void {
     self.mutex.lock();
     defer self.mutex.unlock();
 
+    if (comptime !KQUEUE) return;
     if (!KQUEUE or self.kqueue_fd == null) return;
 
     for (self.files.items) |*item| {
