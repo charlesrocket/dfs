@@ -5,6 +5,12 @@ pub const XdgDir = enum {
     Home,
 };
 
+pub const WatcherMode = enum {
+    polling,
+    kqueue,
+    auto,
+};
+
 pub const ConfigResult = union(enum) {
     ok: Config,
     parse_error: [:0]const u8,
@@ -15,6 +21,7 @@ source: []const u8,
 target: []const u8,
 logging: bool,
 notifications: bool,
+watcher: WatcherMode,
 ignore_list: [][]const u8,
 
 pub fn new(
@@ -34,6 +41,7 @@ pub fn new(
         .target = path,
         .logging = false,
         .notifications = false,
+        .watcher = WatcherMode.auto,
         .ignore_list = &[_][]u8{},
     };
 }
@@ -80,7 +88,7 @@ fn read(
         switch (err) {
             error.FileNotFound => {
                 try core.stderr.print(
-                    "{s}Config not found!{s}\nRun `dfs init`.",
+                    "{s}Config not found!{s}\nRun `dfs init`.\n",
                     .{
                         Cli.red,
                         Cli.reset,
@@ -290,6 +298,7 @@ pub fn migrateConfig(
             "",
         .logging = if (old_config.logging) |v| v else false,
         .notifications = if (old_config.notifications) |v| v else false,
+        .watcher = if (old_config.watcher) |v| v else WatcherMode.auto,
         .ignore_list = ignore_list,
     };
 
@@ -446,6 +455,7 @@ test migrateConfig {
         \\    .target = "/tmp/test",
         \\    .logging = false,
         \\    .notifications = false,
+        \\    .watcher = .auto,
         \\    .ignore_list = .{ "foo", "bar" },
         \\}
         \\

@@ -456,6 +456,7 @@ test "config bad" {
         \\    .target = "/tmp/test",
         \\    .logging = false,
         \\    .notifications = false,
+        \\    .watcher = .auto,
         \\    .ignore_list = .{},
         \\}
     ;
@@ -483,6 +484,7 @@ test "config not found" {
 
     const expected_err =
         \\Run `dfs init`.
+        \\
     ;
 
     const out = try stripAnsi(allocator, proc.out);

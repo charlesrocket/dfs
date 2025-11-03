@@ -4,5 +4,6 @@
     .target = "test/dest",
     .logging = false,
     .notifications = true,
+    .watcher = .auto,
     .ignore_list = .{},
 }

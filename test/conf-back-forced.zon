@@ -4,5 +4,6 @@
     .target = "test/dest-back-forced",
     .logging = false,
     .notifications = false,
+    .watcher = .auto,
     .ignore_list = .{},
 }

@@ -288,7 +288,7 @@ pub fn main() !void {
         try core.scan();
     }
 
-    if (daemon_cmd) try Daemon.start(&core);
+    if (daemon_cmd) try Daemon.start(&core, &config);
     if (validate_cmd and !sync_cmd and !daemon_cmd) {
         const validate_node = main_node.?.start(
             "Validating templates",
@@ -395,7 +395,7 @@ pub fn main() !void {
         }
     }
 
-    if (core.logs) Util.log(
+    if (core.logs and (!daemon_cmd and !validate_cmd)) Util.log(
         INFO,
         "Finished: total {d}, updated {d}, templates {d}, renders {d}, binaries {d}, errors {d}",
         .{

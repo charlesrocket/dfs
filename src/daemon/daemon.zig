@@ -1,13 +1,31 @@
-const SyncQueue = struct {
+pub const SyncQueue = struct {
     mutex: std.Thread.Mutex = .{},
     should_sync: bool = false,
 };
 
 pub fn start(
     core: *Core,
+    config: *Config,
 ) !void {
     var active = true;
     var queue = SyncQueue{ .should_sync = false };
+
+    // initial scan to get the file list
+    try core.scan();
+    // initial sync
+    try core.sync();
+
+    var watcher = try Watcher.init(core.allocator, config.watcher);
+    defer watcher.deinit();
+
+    try watcher.addPaths(core.files.items);
+
+    const watcher_thread = try std.Thread.spawn(
+        .{},
+        Watcher.watch,
+        .{ &watcher, core, &active, &queue },
+    );
+    watcher_thread.detach();
 
     if (build_options.dbus) {
         const tray_thread = try std.Thread.spawn(
@@ -30,6 +48,7 @@ pub fn start(
                 .{ Cli.bold, Cli.yellow, Cli.reset },
             ) catch {};
 
+            // re-scan to catch new files
             try core.scan();
 
             core.sync() catch {
@@ -46,6 +65,8 @@ pub fn start(
 
         Thread.sleep(500 * std.time.ns_per_ms);
     }
+
+    if (core.logs) Util.log(.INFO, "Stopping the daemon", .{});
 
     // TODO
     std.Thread.sleep(500 * std.time.ns_per_ms);
@@ -109,7 +130,11 @@ fn onQuit(menu_id: i32, user_data: ?*anyopaque) void {
 }
 
 const std = @import("std");
+const builtin = @import("builtin");
 const build_options = @import("build_options");
 const Core = @import("../core.zig");
+const Config = @import("../config.zig");
 const Cli = @import("../cli.zig");
+const Util = @import("../util.zig");
+const Watcher = @import("watcher.zig");
 const Thread = std.Thread;
