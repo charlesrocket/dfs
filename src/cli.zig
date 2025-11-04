@@ -118,7 +118,7 @@ pub const setup_cmd: CommandT = .{
                     .name = "bootstrap",
                     .description = "Download and deploy an external config file.",
                     .examples = &.{
-                        "dfs init bootstrap https://example.com/git/dotfiles/.config/dfs.zon",
+                        "dfs init bootstrap https://example.com/git/dotfiles/.config/dfs/config.zon",
                     },
                     .vals = &.{
                         ValueT.ofType([]const u8, .{
