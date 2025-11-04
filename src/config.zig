@@ -209,12 +209,7 @@ pub fn bootstrap(
     const config_home = try getXdgDir(allocator, XdgDir.Config);
     defer allocator.free(config_home);
 
-    const config_path = try std.fmt.allocPrint(
-        allocator,
-        "{s}/dfs.zon",
-        .{config_home},
-    );
-
+    const config_path = try defaultConfigPath(allocator);
     defer allocator.free(config_path);
 
     var client = std.http.Client{ .allocator = allocator };
@@ -417,6 +412,7 @@ pub fn getXdgDir(allocator: std.mem.Allocator, env_var: XdgDir) ![]const u8 {
             .Config => return try std.fs.path.join(allocator, &.{
                 home,
                 ".config",
+                "dfs",
             }),
             .Data => return try std.fs.path.join(allocator, &.{
                 home,
@@ -434,7 +430,27 @@ pub fn getXdgDir(allocator: std.mem.Allocator, env_var: XdgDir) ![]const u8 {
         }
     };
 
-    return path;
+    switch (env_var) {
+        .Home => return path,
+        .Config, .Data, .State => {
+            defer allocator.free(path);
+            return try std.fs.path.join(allocator, &.{
+                path,
+                "dfs",
+            });
+        },
+    }
+}
+
+pub fn defaultConfigPath(allocator: std.mem.Allocator) ![]const u8 {
+    const config_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
+    defer allocator.free(config_home);
+
+    return try std.fmt.allocPrint(
+        allocator,
+        "{s}/config.zon",
+        .{config_home},
+    );
 }
 
 test migrateConfig {

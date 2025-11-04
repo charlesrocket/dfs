@@ -67,15 +67,7 @@ pub fn main() !void {
         custom_config_path = try dest.val.getAs([]const u8);
     }
 
-    const config_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
-    defer allocator.free(config_home);
-
-    const config_default = try std.fmt.allocPrint(
-        allocator,
-        "{s}/dfs.zon",
-        .{config_home},
-    );
-
+    const config_default = try Config.defaultConfigPath(allocator);
     defer allocator.free(config_default);
 
     const config_path = if (custom_config_path == null)
