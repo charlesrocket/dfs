@@ -453,6 +453,26 @@ pub fn defaultConfigPath(allocator: std.mem.Allocator) ![]const u8 {
     );
 }
 
+// might fail with non-default XDG env vars
+test defaultConfigPath {
+    const allocator = std.testing.allocator;
+    const home = try getXdgDir(allocator, XdgDir.Home);
+    const config_path = try defaultConfigPath(allocator);
+    const expected_path = try std.fmt.allocPrint(
+        allocator,
+        "{s}/.config/dfs/config.zon",
+        .{home},
+    );
+
+    defer {
+        allocator.free(home);
+        allocator.free(config_path);
+        allocator.free(expected_path);
+    }
+
+    try std.testing.expectEqualStrings(expected_path, config_path);
+}
+
 test migrateConfig {
     const old_config =
         \\.{
