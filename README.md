@@ -22,7 +22,8 @@ zig build --release=fast
     .source = "$HOME/src/dotfiles",
     .target = "$HOME",
     .logging = false,
-    .notifications = true,
+    .notifications = false,
+    .watcher = .auto,
     .ignore_list = .{},
 }
 ```
