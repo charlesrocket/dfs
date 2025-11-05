@@ -1,5 +1,9 @@
 ---
 
+asset:
+- changed-files:
+  - any-glob-to-any-file: 'assets/**/*'
+
 documentation:
 - changed-files:
   - any-glob-to-any-file: 'README.md'
