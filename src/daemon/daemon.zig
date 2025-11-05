@@ -88,7 +88,7 @@ fn spawnTray(
     var icon = try TrayIcon.create(
         core.allocator,
         "org.hellbyte.dfs",
-        "starred",
+        "dfs-bright",
         "DFS",
     );
 

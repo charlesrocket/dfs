@@ -155,6 +155,18 @@ pub fn build(b: *std.Build) void {
     const build_docs_step = b.step("docs", "Build library documentation");
     build_docs_step.dependOn(&build_docs.step);
 
+    const install_icons = b.addInstallFile(
+        b.path("assets/icon-bright.png"),
+        "share/icons/dfs-bright.png",
+    );
+
+    install_icons.step.dependOn(&b.addInstallFile(
+        b.path("assets/icon-dark.png"),
+        "share/icons/dfs-dark.png",
+    ).step);
+
+    b.getInstallStep().dependOn(&install_icons.step);
+
     const clean_step = b.step("clean", "Clean up project directory");
     clean_step.dependOn(&b.addRemoveDirTree(b.path("meta")).step);
     clean_step.dependOn(&b.addRemoveDirTree(b.path("zig-out")).step);
