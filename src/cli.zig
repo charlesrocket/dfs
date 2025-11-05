@@ -163,7 +163,7 @@ pub const setup_cmd: CommandT = .{
         },
         .{
             .name = "daemon",
-            .description = "Start DFS daemon.",
+            .description = "Start the daemon.",
         },
         .{
             .name = "purge",
