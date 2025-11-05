@@ -25,6 +25,7 @@ zig build --release=fast
     .notifications = false,
     .watcher = .auto,
     .ignore_list = .{},
+    .tray = .{ .enabled = true, .icon = .bright },
 }
 ```
 
