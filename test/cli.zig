@@ -458,6 +458,7 @@ test "config bad" {
         \\    .notifications = false,
         \\    .watcher = .auto,
         \\    .ignore_list = .{},
+        \\    .tray = .{ .enabled = true, .icon = .bright },
         \\}
     ;
 

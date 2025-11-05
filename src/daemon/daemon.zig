@@ -8,6 +8,7 @@ pub fn start(
     core: *Core,
     config: *Config,
 ) !void {
+    const tray_enabled = config.tray.enabled;
     var active = true;
     var queue = SyncQueue{
         .should_sync = false,
@@ -29,13 +30,14 @@ pub fn start(
         Watcher.watch,
         .{ &watcher, core, &active, &queue },
     );
+
     watcher_thread.detach();
 
-    if (build_options.dbus) {
+    if (build_options.dbus and tray_enabled) {
         const tray_thread = try std.Thread.spawn(
             .{},
             spawnTray,
-            .{ core, &active, &queue },
+            .{ core, config, &active, &queue },
         );
 
         tray_thread.detach();
@@ -71,24 +73,28 @@ pub fn start(
             try openConfig(core.allocator, core.config_path);
         } else queue.mutex.unlock();
 
-        Thread.sleep(500 * std.time.ns_per_ms);
+        Thread.sleep(1 * std.time.ns_per_s);
     }
 
     if (core.logs) Util.log(.INFO, "Stopping the daemon", .{});
 
     // TODO
-    std.Thread.sleep(500 * std.time.ns_per_ms);
+    std.Thread.sleep(1 * std.time.ns_per_s);
 }
 
 fn spawnTray(
     core: *Core,
+    config: *Config,
     active: *bool,
     queue: *SyncQueue,
 ) !void {
     var icon = try TrayIcon.create(
         core.allocator,
         "org.hellbyte.dfs",
-        "dfs-bright",
+        switch (config.tray.icon) {
+            .bright => "dfs-bright",
+            .dark => "dfs-dark",
+        },
         "DFS",
     );
 
