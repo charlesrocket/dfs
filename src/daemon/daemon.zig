@@ -1,6 +1,7 @@
 pub const SyncQueue = struct {
     mutex: std.Thread.Mutex = .{},
-    should_sync: bool = false,
+    should_sync: bool,
+    config_call: bool,
 };
 
 pub fn start(
@@ -8,7 +9,10 @@ pub fn start(
     config: *Config,
 ) !void {
     var active = true;
-    var queue = SyncQueue{ .should_sync = false };
+    var queue = SyncQueue{
+        .should_sync = false,
+        .config_call = false,
+    };
 
     // initial scan to get the file list
     try core.scan();
@@ -61,6 +65,10 @@ pub fn start(
             ) catch {};
 
             try core.stdout.flush();
+        } else if (queue.config_call) {
+            queue.config_call = false;
+            queue.mutex.unlock();
+            try openConfig(core.allocator, core.config_path);
         } else queue.mutex.unlock();
 
         Thread.sleep(500 * std.time.ns_per_ms);
@@ -77,10 +85,6 @@ fn spawnTray(
     active: *bool,
     queue: *SyncQueue,
 ) !void {
-    const stray = @import("stray");
-    const TrayIcon = stray.TrayIcon;
-    const TrayMenu = stray.TrayMenu;
-
     var icon = try TrayIcon.create(
         core.allocator,
         "org.hellbyte.dfs",
@@ -95,6 +99,7 @@ fn spawnTray(
 
     _ = try menu.addItem("Sync", onSync, queue);
     _ = try menu.addSeparator();
+    _ = try menu.addItem("Configuration", onConfig, queue);
     _ = try menu.addItem("Quit", onQuit, active);
 
     icon.setMenu(&menu);
@@ -120,6 +125,17 @@ fn onSync(menu_id: i32, queue_data: ?*anyopaque) void {
     }
 }
 
+fn onConfig(menu_id: i32, queue_data: ?*anyopaque) void {
+    _ = menu_id;
+
+    if (queue_data) |ptr| {
+        const queue = @as(*SyncQueue, @ptrCast(@alignCast(ptr)));
+        queue.mutex.lock();
+        queue.*.config_call = true;
+        queue.mutex.unlock();
+    }
+}
+
 fn onQuit(menu_id: i32, user_data: ?*anyopaque) void {
     _ = menu_id;
 
@@ -129,12 +145,26 @@ fn onQuit(menu_id: i32, user_data: ?*anyopaque) void {
     }
 }
 
+fn openConfig(allocator: std.mem.Allocator, path: []const u8) !void {
+    const xdg_command = [_][]const u8{
+        "xdg-open",
+        path,
+    };
+
+    var proc = std.process.Child.init(&xdg_command, allocator);
+    try proc.spawn();
+    _ = try proc.wait();
+}
+
 const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
+const stray = @import("stray");
 const Core = @import("../core.zig");
 const Config = @import("../config.zig");
 const Cli = @import("../cli.zig");
 const Util = @import("../util.zig");
 const Watcher = @import("watcher.zig");
+const TrayIcon = stray.TrayIcon;
+const TrayMenu = stray.TrayMenu;
 const Thread = std.Thread;

@@ -131,6 +131,7 @@ pub fn main() !void {
     var config = try Config.open(allocator, config_path, &core);
     defer std.zon.parse.free(allocator, config);
 
+    core.config_path = config_path;
     core.logs = config.logging;
 
     if (core.logs) try Util.setLogger(allocator);
