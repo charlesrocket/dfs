@@ -514,6 +514,18 @@ fn reverseFromTokens(
     template: []const u8,
     tokens: []Token,
 ) ![]u8 {
+    // first, check if template has any conditionals
+    const has_conditionals = hasAnyConditionals(tokens);
+
+    if (!has_conditionals) {
+        // no structure to preserve, just return render as the new template.
+        // this is the correct behavior: if user edits a pure literal template
+        // the new template is the edited version
+        const result = try allocator.dupe(u8, render);
+        return try normalizeTrailing(allocator, result, template);
+    }
+
+    // template has a structure, preserving it
     var out = std.array_list.Managed(u8).init(allocator);
     defer out.deinit();
 
@@ -523,21 +535,24 @@ fn reverseFromTokens(
     while (tok_i < tokens.len) {
         switch (tokens[tok_i]) {
             .text => |lit| {
-                // copy corresponding content from the rendered output
-                const len = lit.len;
-
-                // check if we have enough data in render
-                const available = if (rnd_i < render.len) render.len - rnd_i else 0;
-                const copy_len = @min(len, available);
-
-                if (copy_len < len) {
-                    // the rendered output is shorter than expected
-                    return TemplateError.InvalidToken;
+                // check if we're out of render content
+                if (rnd_i >= render.len) {
+                    // render is exhausted—skip remaining literals
+                    tok_i += 1;
+                    continue;
                 }
 
-                try out.appendSlice(render[rnd_i .. rnd_i + len]);
+                // try to intelligently consume from render
+                try consumeLiteral(
+                    &out,
+                    render,
+                    &rnd_i,
+                    lit,
+                    tokens,
+                    tok_i,
+                    allocator,
+                );
 
-                rnd_i += len;
                 tok_i += 1;
             },
             .tag => |tag_info| {
@@ -565,6 +580,128 @@ fn reverseFromTokens(
 
     const result = try out.toOwnedSlice();
     return try normalizeTrailing(allocator, result, template);
+}
+
+fn hasAnyConditionals(tokens: []Token) bool {
+    for (tokens) |token| {
+        if (token == .tag) return true;
+    }
+
+    return false;
+}
+
+// consume literal content from render
+fn consumeLiteral(
+    out: *std.array_list.Managed(u8),
+    render: []const u8,
+    rnd_i: *usize,
+    lit: []const u8,
+    tokens: []Token,
+    tok_i: usize,
+    allocator: std.mem.Allocator,
+) !void {
+    const len = lit.len;
+    const available = render.len - rnd_i.*;
+
+    // strategy: Look ahead to see if next token is a conditional
+    const next_is_conditional = (tok_i + 1 < tokens.len and
+        tokens[tok_i + 1] == .tag);
+
+    if (next_is_conditional) {
+        // next is a conditional—try to find where it starts in render
+        // by rendering it and searching for that output
+
+        // get what the next conditional would output
+        if (findConditionalOutputInRender(
+            render,
+            rnd_i.*,
+            tokens,
+            tok_i + 1,
+            allocator,
+        )) |anchor_pos| {
+            // found where the conditional content starts
+            // everything before it is the literal content
+            try out.appendSlice(render[rnd_i.*..anchor_pos]);
+            rnd_i.* = anchor_pos;
+            return;
+        } else |_| {
+            // could not find an anchor
+            // fall through to simple approach
+        }
+    }
+
+    // simple approach: consume based on the expected length
+    if (len <= available) {
+        try out.appendSlice(render[rnd_i.* .. rnd_i.* + len]);
+        rnd_i.* += len;
+    } else {
+        // not enough content—consume what is left
+        try out.appendSlice(render[rnd_i.*..]);
+        rnd_i.* = render.len;
+    }
+}
+
+// try to find where a conditional's output appears in the render
+fn findConditionalOutputInRender(
+    render: []const u8,
+    start_pos: usize,
+    tokens: []Token,
+    cond_idx: usize,
+    allocator: std.mem.Allocator,
+) !usize {
+    // try to find where a conditional's output appears in the render
+
+    if (cond_idx >= tokens.len or tokens[cond_idx] != .tag) {
+        return error.NoConditional;
+    }
+
+    // we need to evaluate just this conditional group to get its output
+    // then search for that output in the render starting from 'start_pos'
+
+    // extract the conditional group tokens
+    const group_end = try findConditionalGroupEnd(tokens, cond_idx);
+    const group_tokens = tokens[cond_idx .. group_end + 1];
+
+    // interpret just this group
+    const expected_output = interpret(allocator, group_tokens) catch {
+        return error.InterpretFailed;
+    };
+
+    defer allocator.free(expected_output);
+
+    // search for this output in render
+    const trimmed_output = trimTrailingNewlines(expected_output);
+    if (trimmed_output.len == 0) {
+        return error.EmptyOutput;
+    }
+
+    // search in the remaining render content
+    if (std.mem.indexOf(u8, render[start_pos..], trimmed_output)) |offset| {
+        return start_pos + offset;
+    }
+
+    return error.AnchorNotFound;
+}
+
+fn findConditionalGroupEnd(tokens: []Token, start: usize) !usize {
+    if (tokens[start] != .tag) return TemplateError.InvalidTag;
+
+    var depth: usize = 1;
+    var i = start + 1;
+
+    while (i < tokens.len) : (i += 1) {
+        if (tokens[i] == .tag) {
+            const content = tokens[i].tag.content;
+            if (std.mem.startsWith(u8, content, "if")) {
+                depth += 1;
+            } else if (std.mem.eql(u8, content, "end")) {
+                depth -= 1;
+                if (depth == 0) return i;
+            }
+        }
+    }
+
+    return TemplateError.MissingEndTag;
 }
 
 fn reverseIfGroup(
