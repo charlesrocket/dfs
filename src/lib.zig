@@ -525,6 +525,16 @@ fn reverseFromTokens(
             .text => |lit| {
                 // copy corresponding content from the rendered output
                 const len = lit.len;
+
+                // check if we have enough data in render
+                const available = if (rnd_i < render.len) render.len - rnd_i else 0;
+                const copy_len = @min(len, available);
+
+                if (copy_len < len) {
+                    // the rendered output is shorter than expected
+                    return TemplateError.InvalidToken;
+                }
+
                 try out.appendSlice(render[rnd_i .. rnd_i + len]);
 
                 rnd_i += len;
