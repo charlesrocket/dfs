@@ -1,7 +1,9 @@
 pub const SyncQueue = struct {
-    mutex: std.Thread.Mutex = .{},
-    should_sync: bool,
-    config_call: bool,
+    mutex: Thread.Mutex = .{},
+    should_sync: bool = true,
+    config_call: bool = false,
+    syncing: bool = false,
+    sync_state_changed: bool = false,
 };
 
 pub fn start(
@@ -10,22 +12,14 @@ pub fn start(
 ) !void {
     const tray_enabled = config.tray.enabled;
     var active = true;
-    var queue = SyncQueue{
-        .should_sync = false,
-        .config_call = false,
-    };
-
-    // initial scan to get the file list
-    try core.scan();
-    // initial sync
-    try core.sync();
+    var queue = SyncQueue{};
 
     var watcher = try Watcher.init(core.allocator, config.watcher);
     defer watcher.deinit();
 
     try watcher.addPaths(core.files.items);
 
-    const watcher_thread = try std.Thread.spawn(
+    const watcher_thread = try Thread.spawn(
         .{},
         Watcher.watch,
         .{ &watcher, core, &active, &queue },
@@ -34,7 +28,7 @@ pub fn start(
     watcher_thread.detach();
 
     if (build_options.dbus and tray_enabled) {
-        const tray_thread = try std.Thread.spawn(
+        const tray_thread = try Thread.spawn(
             .{},
             spawnTray,
             .{ core, config, &active, &queue },
@@ -45,8 +39,11 @@ pub fn start(
 
     while (active) {
         queue.mutex.lock();
+
         if (queue.should_sync) {
             queue.should_sync = false;
+            queue.syncing = true;
+            queue.sync_state_changed = true;
             queue.mutex.unlock();
 
             core.stdout.print(
@@ -58,6 +55,10 @@ pub fn start(
             try core.scan();
 
             core.sync() catch {
+                queue.mutex.lock();
+                queue.syncing = false;
+                queue.sync_state_changed = true;
+                queue.mutex.unlock();
                 continue; // do not crash
             };
 
@@ -67,6 +68,11 @@ pub fn start(
             ) catch {};
 
             try core.stdout.flush();
+
+            queue.mutex.lock();
+            queue.syncing = false;
+            queue.sync_state_changed = true;
+            queue.mutex.unlock();
         } else if (queue.config_call) {
             queue.config_call = false;
             queue.mutex.unlock();
@@ -79,7 +85,7 @@ pub fn start(
     if (core.logs) Util.log(.INFO, "Stopping the daemon", .{});
 
     // TODO
-    std.Thread.sleep(1 * std.time.ns_per_s);
+    Thread.sleep(1 * std.time.ns_per_s);
 }
 
 fn spawnTray(
@@ -88,7 +94,7 @@ fn spawnTray(
     active: *bool,
     queue: *SyncQueue,
 ) !void {
-    var icon = try TrayIcon.create(
+    var icon = try Icon.create(
         core.allocator,
         "org.hellbyte.dfs",
         switch (config.tray.icon) {
@@ -100,10 +106,9 @@ fn spawnTray(
 
     defer icon.destroy();
 
-    var menu = try TrayMenu.create(core.allocator);
-    defer menu.destroy();
+    var menu = try Menu.create(core.allocator);
 
-    _ = try menu.addItem("Sync", onSync, queue);
+    const sync_item = try menu.addItem("Sync", onSync, queue);
     _ = try menu.addSeparator();
     _ = try menu.addItem("Configuration", onConfig, queue);
     _ = try menu.addItem("Quit", onQuit, active);
@@ -116,8 +121,16 @@ fn spawnTray(
     };
 
     while (active.*) {
+        queue.mutex.lock();
+
+        if (queue.sync_state_changed) {
+            queue.sync_state_changed = false;
+            icon.setMenuItemEnabled(sync_item, !queue.syncing);
+            queue.mutex.unlock();
+        } else queue.mutex.unlock();
+
         icon.processEvents();
-        std.Thread.sleep(500 * std.time.ns_per_ms);
+        Thread.sleep(500 * std.time.ns_per_ms);
     }
 }
 
@@ -171,6 +184,6 @@ const Config = @import("../config.zig");
 const Cli = @import("../cli.zig");
 const Util = @import("../util.zig");
 const Watcher = @import("watcher.zig");
-const TrayIcon = stray.TrayIcon;
-const TrayMenu = stray.TrayMenu;
+const Icon = stray.Icon;
+const Menu = stray.Menu;
 const Thread = std.Thread;
