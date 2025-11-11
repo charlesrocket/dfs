@@ -4,6 +4,22 @@ pub const SyncQueue = struct {
     config_call: bool = false,
     syncing: bool = false,
     sync_state_changed: bool = false,
+    sync_time: ?[]const u8 = null,
+    sync_time_updated: bool = false,
+
+    fn updateSyncTime(self: *SyncQueue, allocator: std.mem.Allocator) !void {
+        if (self.sync_time) |old_val| allocator.free(old_val);
+        var buf: [16]u8 = undefined;
+        var time_str: time.tm = undefined;
+        var current_time = time.time(null);
+        const local_time = time.localtime_r(&current_time, &time_str);
+        const format = "%b %d %H:%M:%S";
+        const len = time.strftime(&buf, buf.len, format, local_time);
+        self.sync_time = try allocator.dupe(
+            u8,
+            if (len == 0) "unknown" else buf[0..len],
+        );
+    }
 };
 
 pub fn start(
@@ -13,6 +29,7 @@ pub fn start(
     const tray_enabled = config.tray.enabled;
     var active = true;
     var queue = SyncQueue{};
+    defer if (queue.sync_time) |v| core.allocator.free(v);
 
     var watcher = try Watcher.init(core.allocator, config.watcher);
     defer watcher.deinit();
@@ -70,8 +87,10 @@ pub fn start(
             try core.stdout.flush();
 
             queue.mutex.lock();
+            try queue.updateSyncTime(core.allocator);
             queue.syncing = false;
             queue.sync_state_changed = true;
+            queue.sync_time_updated = true;
             queue.mutex.unlock();
         } else if (queue.config_call) {
             queue.config_call = false;
@@ -123,12 +142,19 @@ fn spawnTray(
     while (active.*) {
         queue.mutex.lock();
 
+        if (queue.sync_time_updated) {
+            queue.sync_time_updated = false;
+
+            if (queue.sync_time) |sync_time|
+                try icon.setTooltip("Last sync", sync_time);
+        }
+
         if (queue.sync_state_changed) {
             queue.sync_state_changed = false;
             icon.setMenuItemEnabled(sync_item, !queue.syncing);
-            queue.mutex.unlock();
-        } else queue.mutex.unlock();
+        }
 
+        queue.mutex.unlock();
         icon.processEvents();
         Thread.sleep(500 * std.time.ns_per_ms);
     }
@@ -176,6 +202,7 @@ fn openConfig(allocator: std.mem.Allocator, path: []const u8) !void {
 }
 
 const std = @import("std");
+const time = @cImport(@cInclude("time.h"));
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 const stray = @import("stray");
