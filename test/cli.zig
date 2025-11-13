@@ -458,8 +458,13 @@ test "config bad" {
         \\    .notifications = false,
         \\    .watcher = .auto,
         \\    .ignore_list = .{},
-        \\    .tray = .{ .enabled = true, .icon = .bright },
+        \\    .tray = .{
+        \\        .enabled = true,
+        \\        .icon = .bright,
+        \\        .menu_icons = true,
+        \\    },
         \\}
+        \\
     ;
 
     const out = try stripAnsi(allocator, proc.out);

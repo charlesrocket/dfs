@@ -24,6 +24,7 @@ pub const ConfigResult = union(enum) {
 const Tray = struct {
     enabled: bool,
     icon: Icon,
+    menu_icons: bool,
 };
 
 repository: []const u8,
@@ -55,7 +56,11 @@ pub fn new(
         .notifications = false,
         .watcher = WatcherMode.auto,
         .ignore_list = &[_][]u8{},
-        .tray = .{ .enabled = true, .icon = .bright },
+        .tray = .{
+            .enabled = true,
+            .icon = .bright,
+            .menu_icons = true,
+        },
     };
 }
 
@@ -308,9 +313,14 @@ pub fn migrateConfig(
         .notifications = if (old_config.notifications) |v| v else false,
         .watcher = if (old_config.watcher) |v| v else WatcherMode.auto,
         .ignore_list = ignore_list,
-        .tray = if (old_config.tray) |v| v else .{
+        .tray = if (old_config.tray) |v| .{
+            .enabled = v.enabled orelse true,
+            .icon = v.icon orelse .bright,
+            .menu_icons = v.menu_icons orelse true,
+        } else .{
             .enabled = true,
             .icon = .bright,
+            .menu_icons = true,
         },
     };
 
@@ -337,9 +347,15 @@ fn MigrationType(comptime T: type) type {
         undefined;
 
     inline for (config_fields, 0..) |field, i| {
+        const field_type_info = @typeInfo(field.type);
+        const FieldType = switch (field_type_info) {
+            .@"struct" => MigrationType(field.type),
+            else => field.type,
+        };
+
         const OptionalType = @Type(.{
             .optional = .{
-                .child = field.type,
+                .child = FieldType,
             },
         });
 
@@ -510,7 +526,11 @@ test migrateConfig {
         \\    .notifications = false,
         \\    .watcher = .auto,
         \\    .ignore_list = .{ "foo", "bar" },
-        \\    .tray = .{ .enabled = true, .icon = .bright },
+        \\    .tray = .{
+        \\        .enabled = true,
+        \\        .icon = .bright,
+        \\        .menu_icons = true,
+        \\    },
         \\}
         \\
     ;

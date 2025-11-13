@@ -134,9 +134,11 @@ fn spawnTray(
     const config_item = try menu.addItem("Configuration", onConfig, queue);
     const quit_item = try menu.addItem("Quit", onQuit, active);
 
-    try menu.setItemIcon(sync_item, "emblem-synchronizing");
-    try menu.setItemIcon(config_item, "preferences-system");
-    try menu.setItemIcon(quit_item, "application-exit");
+    if (config.tray.menu_icons) {
+        try menu.setItemIcon(sync_item, "emblem-synchronizing");
+        try menu.setItemIcon(config_item, "preferences-system");
+        try menu.setItemIcon(quit_item, "application-exit");
+    }
 
     icon.setMenu(&menu);
 
