@@ -10,8 +10,8 @@
             .hash = "cova-0.10.1-_OE4Rw-xBAB9zj1dPhUxLKnar89L5nouEmYY6Q1S23jU",
         },
         .libstray = .{
-            .url = "https://github.com/charlesrocket/libstray/archive/9c4c412bff240a47e1b15e9285c80c759df54fe2.zip",
-            .hash = "libstray-0.1.1-KHBc_-3aAADAEhQbs2uV5iwl5U7fpGqDuSa9AiqLjX7Q",
+            .url = "https://github.com/charlesrocket/libstray/archive/0fba7fbf4a1369746732ba6d45e096bd56ca2c39.zip",
+            .hash = "libstray-0.1.1-KHBc_5AOAQDOlyT0dDVy5AK8DaFNrATO_RAqkRTKT4BO",
         },
         .ghext = .{
             .url = "https://github.com/charlesrocket/ghext/archive/refs/tags/0.7.4.tar.gz",
