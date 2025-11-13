@@ -803,7 +803,7 @@ fn getHostname(allocator: std.mem.Allocator) ![]const u8 {
 fn getDesktop(allocator: std.mem.Allocator) ![]const u8 {
     const xdg_session_desktop = std.process.getEnvVarOwned(
         allocator,
-        "XDG_SESSION_DESKTOzzzP",
+        "XDG_SESSION_DESKTOP",
     ) catch {
         const desktop_session = std.process.getEnvVarOwned(
             allocator,
