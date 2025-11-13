@@ -2,6 +2,95 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2025-11-13
+
+### Bug Fixes
+
+- Highlight summary
+- [**breaking**] Switch to immutable strings
+- [**breaking**] `ValidationError` -> `TemplateError`
+- [**breaking**] Update error set
+- Update validation messages
+- Improve conditionals
+- Fix position tracking
+- Remove `splitWhitespace()`
+- Optimize `parseCondition()`
+- Make `sendNotification()` silent
+- Gate kqueue functions
+- [**breaking**] Move config/app data
+- Update `bootstrap` example
+- Update `daemon` description
+- Check the rendered output
+- Properly handle literal changes
+- Reflect sync status
+- Adjust registration procedure
+- Fix xdg desktop string
+
+### Documentation
+
+- Comment main functions
+- Comment `validate()`
+- Update example config
+- Add `tray` setting
+
+### Features
+
+- Add desktop notifications
+- Prepare daemon
+- Add `spawnTray()`
+- Implement file watcher
+- Add `Configuration` item
+- Add `tray`
+- Add sync time tooltip
+- Set named icons
+- Add `Tray.menu_icons`
+- Add `SYSTEM.desktop`
+
+### Operations
+
+- Install dbus
+- Add `daemon` label
+- Update `daemon` label
+- Add `asset` label
+
+### Performance
+
+- Drop redundant check
+- Drop redundant `trimTag()`
+
+### Refactor
+
+- Utilize `parseTag()`
+- Improve conditional fns
+- Add `SYSTEM`
+- Rewrite `evalIfGroup()`
+- Update `reverseIfGroup()`
+- Remove `countTrail()`
+- Add `LOG_SIZE_MAX`
+- Add `evalBranch()`
+- Fix notifications check
+- Add `scan()`
+- Add `sync()`
+- Move daemon
+
+### Testing
+
+- Update layout
+- Reformat `interpret`
+- Fix `parseTag`
+- Update `evalIfGroup`
+- Update `validate`
+- Update `log`
+- Add `defaultConfigPath`
+
+### Build
+
+- Add `libstray`
+- Add `dbus` option
+- Add icons
+- Bump `libstray` to `9c4c412`
+- Bump `libstray` to `0fba7fb`
+
 ## [0.5.1] - 2025-10-19
 
 ### Bug Fixes
