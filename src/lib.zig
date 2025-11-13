@@ -53,6 +53,7 @@ pub const TemplateError = error{
 };
 
 const SYSTEM = enum {
+    desktop,
     os,
     hostname,
     arch,
@@ -64,12 +65,14 @@ const SYSTEM = enum {
                 return @enumFromInt(field.value);
             }
         }
+
         return null;
     }
 
     fn getValue(self: SYSTEM, allocator: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .os => getOS(),
+            .desktop => getDesktop(allocator),
             .hostname => getHostname(allocator),
             .arch => getArch(),
         };
@@ -78,6 +81,7 @@ const SYSTEM = enum {
     fn shouldFree(self: SYSTEM) bool {
         return switch (self) {
             .hostname => true,
+            .desktop => true,
             else => false,
         };
     }
@@ -794,6 +798,25 @@ fn getHostname(allocator: std.mem.Allocator) ![]const u8 {
     var buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
     const host = try std.posix.gethostname(&buf);
     return try allocator.dupe(u8, host);
+}
+
+fn getDesktop(allocator: std.mem.Allocator) ![]const u8 {
+    const xdg_session_desktop = std.process.getEnvVarOwned(
+        allocator,
+        "XDG_SESSION_DESKTOzzzP",
+    ) catch {
+        const desktop_session = std.process.getEnvVarOwned(
+            allocator,
+            "DESKTOP_SESSION",
+            // the library always frees the output
+        ) catch return std.ascii.allocLowerString(allocator, "UNKNOWN");
+
+        defer allocator.free(desktop_session);
+        return std.ascii.allocLowerString(allocator, desktop_session);
+    };
+
+    defer allocator.free(xdg_session_desktop);
+    return std.ascii.allocLowerString(allocator, xdg_session_desktop);
 }
 
 fn trimTag(tag: []const u8) []const u8 {
@@ -1782,6 +1805,7 @@ test applyTemplate {
         \\{{> else <}}
         \\val="HOST2"
         \\{{> end <}}
+        \\val="{{> if SYSTEM.desktop == Z00t <}}13{{> else <}}23{{> end <}}"
         \\
     ,
         .{ os, arch, host },
@@ -1794,6 +1818,7 @@ test applyTemplate {
         \\val="test0"
         \\
         \\val="HOST1"
+        \\val="23"
         \\
     ;
 
