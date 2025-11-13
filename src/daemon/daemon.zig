@@ -54,6 +54,8 @@ pub fn start(
         tray_thread.detach();
     }
 
+    Thread.sleep(500 * std.time.ns_per_ms);
+
     while (active) {
         queue.mutex.lock();
 
@@ -135,7 +137,12 @@ fn spawnTray(
     icon.setMenu(&menu);
 
     icon.register() catch {
-        try core.stderr.print("Failed to register with D-Bus!\n", .{});
+        try core.stderr.print("{s}{s}Warning:{s} D-Bus failure!\n", .{
+            Cli.blue,
+            Cli.bold,
+            Cli.reset,
+        });
+
         try core.stderr.flush();
     };
 
