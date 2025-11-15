@@ -1,6 +1,6 @@
 pub const SyncQueue = struct {
     mutex: Thread.Mutex = .{},
-    should_sync: bool = true,
+    should_sync: bool = false,
     config_call: bool = false,
     syncing: bool = false,
     sync_state_changed: bool = false,
@@ -30,6 +30,16 @@ pub fn start(
     var active = true;
     var queue = SyncQueue{};
     defer if (queue.sync_time) |v| core.allocator.free(v);
+
+    // initial sync
+    try core.scan();
+    try core.sync();
+    try queue.updateSyncTime(core.allocator);
+    queue.sync_time_updated = true;
+    core.stdout.print(
+        "Initialization completed\n",
+        .{},
+    ) catch {};
 
     var watcher = try Watcher.init(core.allocator, config.watcher);
     defer watcher.deinit();
