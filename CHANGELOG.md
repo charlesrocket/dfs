@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1] - 2025-11-18
+
+### Bug Fixes
+
+- Fix init sequence
+
 ## [0.6.0] - 2025-11-13
 
 ### Bug Fixes
