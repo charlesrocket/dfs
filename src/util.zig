@@ -359,6 +359,18 @@ test log {
     }
 }
 
+pub fn createTestFile(path: []const u8, content: []const u8) !void {
+    const file = try std.fs.cwd().createFile(path, .{});
+    defer file.close();
+    try file.writeAll(content);
+}
+
+pub fn modifyTestFile(path: []const u8, content: []const u8) !void {
+    // ensure mtime changes
+    std.Thread.sleep(std.time.ns_per_ms * 10);
+    try createTestFile(path, content);
+}
+
 const std = @import("std");
 const builtin = @import("builtin");
 const Core = @import("core.zig");

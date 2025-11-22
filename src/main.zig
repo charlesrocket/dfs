@@ -419,6 +419,7 @@ test {
     _ = Dotfile;
     _ = Syntax;
     _ = Util;
+    _ = Watcher;
 }
 
 const std = @import("std");
@@ -432,6 +433,7 @@ const Daemon = @import("daemon/daemon.zig");
 const Dotfile = @import("dotfile.zig");
 const Syntax = @import("syntax.zig");
 const Util = @import("util.zig");
+const Watcher = @import("daemon/watcher.zig");
 const assets = @import("assets.zig");
 
 const INFO = Util.Level.INFO;
