@@ -628,7 +628,9 @@ test processFile {
         const expected_dual_content =
             \\# TEST
             \\Foo
+            \\
             \\val="Bar"
+            \\
             \\
         ;
 
@@ -660,7 +662,9 @@ test processFile {
         const expected_fwd_content =
             \\# TEST
             \\Foo
+            \\
             \\val="Bar"
+            \\
             \\
         ;
 

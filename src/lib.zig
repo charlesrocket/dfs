@@ -3,8 +3,8 @@
 //! Dfs is a template engine with reverse translation.
 
 // {> x <}
-const TAG_START = "{>";
-const TAG_END = "<}";
+pub const TAG_START = "{>";
+pub const TAG_END = "<}";
 
 const TagInfo = struct {
     content: []const u8, // trimmed tag content
@@ -52,7 +52,7 @@ pub const TemplateError = error{
     EmptyTag,
 };
 
-const SYSTEM = enum {
+pub const SYSTEM = enum {
     desktop,
     os,
     hostname,
@@ -462,19 +462,13 @@ fn evalIfGroup(
 
         if (i + 1 < tokens.len and tokens[i + 1] == .text) {
             body = tokens[i + 1].text;
-
-            // trim exactly one leading newline after the control tag
-            if (body.len > 0 and (body[0] == '\n' or body[0] == '\r')) {
-                body = body[1..];
-            }
-
             has_body = true;
         }
 
         if (branch.active) {
             branch_taken = true;
-            const trimmed = trimTrailingNewlines(body);
-            try w.print("{s}", .{trimmed});
+            // preserve body
+            try w.print("{s}", .{body});
         }
 
         i += if (has_body) 2 else 1;
@@ -674,13 +668,12 @@ fn findConditionalOutputInRender(
     defer allocator.free(expected_output);
 
     // search for this output in render
-    const trimmed_output = trimTrailingNewlines(expected_output);
-    if (trimmed_output.len == 0) {
+    if (expected_output.len == 0) {
         return error.EmptyOutput;
     }
 
     // search in the remaining render content
-    if (std.mem.indexOf(u8, render[start_pos..], trimmed_output)) |offset| {
+    if (std.mem.indexOf(u8, render[start_pos..], expected_output)) |offset| {
         return start_pos + offset;
     }
 
@@ -1342,7 +1335,7 @@ test interpret {
         const interpreted = try interpret(std.testing.allocator, tokenized);
         defer std.testing.allocator.free(interpreted);
 
-        try std.testing.expectEqualStrings("FOO\nval=\"HOST1\"\n", interpreted);
+        try std.testing.expectEqualStrings("FOO\n\nval=\"HOST1\"\n\n", interpreted);
     }
 }
 
@@ -1814,10 +1807,16 @@ test applyTemplate {
     defer allocator.free(template);
 
     const rendered_expected =
+        \\
         \\val="Bar"
+        \\
+        \\
         \\val="test0"
         \\
+        \\
+        \\
         \\val="HOST1"
+        \\
         \\val="23"
         \\
     ;
@@ -1923,7 +1922,9 @@ test "forward" {
     defer testing.allocator.free(template);
 
     const rendered_expected =
+        \\
         \\val="Bar"
+        \\
         \\
     ;
 
@@ -2285,7 +2286,9 @@ test "blocks-mixed" {
     const expected =
         \\FOO
         \\val="Inline"
+        \\
         \\val="test0"
+        \\
         \\
         \\val="HOST1"
         \\

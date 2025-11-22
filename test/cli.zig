@@ -168,7 +168,9 @@ test "sync-dry" {
         \\
         \\# TEST
         \\Foo
+        \\
         \\val="Dry"
+        \\
         \\
         \\--- --- ---
         \\
@@ -334,7 +336,9 @@ test "sync-forward-forced" {
     const expected_render =
         \\# TEST
         \\Foo
+        \\
         \\val="Bar"
+        \\
         \\
     ;
 
