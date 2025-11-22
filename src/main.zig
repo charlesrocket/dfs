@@ -417,6 +417,7 @@ test {
     _ = Config;
     _ = Daemon;
     _ = Dotfile;
+    _ = Syntax;
     _ = Util;
 }
 
@@ -429,6 +430,7 @@ const Config = @import("config.zig");
 const Cli = @import("cli.zig");
 const Daemon = @import("daemon/daemon.zig");
 const Dotfile = @import("dotfile.zig");
+const Syntax = @import("syntax.zig");
 const Util = @import("util.zig");
 const assets = @import("assets.zig");
 
