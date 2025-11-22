@@ -283,7 +283,7 @@ fn parseBody(template: []const u8, start: usize) !Body {
 
             if (std.mem.startsWith(u8, t.trim, "if")) {
                 depth += 1;
-            } else if (std.mem.eql(u8, t.trim, "end")) {
+            } else if (std.mem.eql(u8, t.trim, "endif")) {
                 if (depth == 0) break;
                 depth -= 1;
             } else if ((std.mem.startsWith(u8, t.trim, "elif") or
@@ -318,7 +318,7 @@ fn findAnchorLiteralFromTokens(
             .tag => |tag_info| {
                 if (std.mem.startsWith(u8, tag_info.content, "if")) {
                     depth += 1;
-                } else if (std.mem.eql(u8, tag_info.content, "end")) {
+                } else if (std.mem.eql(u8, tag_info.content, "endif")) {
                     if (depth == 0) {
                         // found the matching end, look for next text token
                         if (i + 1 < tokens.len and tokens[i + 1] == .text) {
@@ -336,7 +336,7 @@ fn findAnchorLiteralFromTokens(
         i += 1;
     }
 
-    // reached end without finding the matching 'end' tag
+    // reached end without finding the matching 'endif' tag
     return TemplateError.MissingEndTag;
 }
 
@@ -409,7 +409,7 @@ fn evalBranch(
     tag_content: []const u8,
     branch_taken: bool,
 ) !Branch {
-    if (std.mem.eql(u8, tag_content, "end")) {
+    if (std.mem.eql(u8, tag_content, "endif")) {
         return .{ .active = false, .condition = null };
     }
 
@@ -447,7 +447,7 @@ fn evalIfGroup(
             else => return TemplateError.InvalidToken,
         };
 
-        if (std.mem.eql(u8, tag_info.content, "end")) {
+        if (std.mem.eql(u8, tag_info.content, "endif")) {
             return i + 1;
         }
 
@@ -691,7 +691,7 @@ fn findConditionalGroupEnd(tokens: []Token, start: usize) !usize {
             const content = tokens[i].tag.content;
             if (std.mem.startsWith(u8, content, "if")) {
                 depth += 1;
-            } else if (std.mem.eql(u8, content, "end")) {
+            } else if (std.mem.eql(u8, content, "endif")) {
                 depth -= 1;
                 if (depth == 0) return i;
             }
@@ -728,7 +728,7 @@ fn reverseIfGroup(
         tok_i += 1;
 
         // check if this is the end tag
-        if (std.mem.eql(u8, tag_info.content, "end")) {
+        if (std.mem.eql(u8, tag_info.content, "endif")) {
             return tok_i;
         }
 
@@ -949,14 +949,14 @@ pub fn validate(template: []const u8) ValidationResult {
                         },
                     };
                 }
-            } else if (std.mem.eql(u8, tag.trim, "end")) {
+            } else if (std.mem.eql(u8, tag.trim, "endif")) {
                 if (if_depth == 0) {
                     return ValidationResult{
                         .err = .{
                             .err = TemplateError.MismatchedEnd,
                             .line = tag_line,
                             .column = tag_column,
-                            .message = "Mismatched 'end' tag without matching 'if'",
+                            .message = "Mismatched 'endif' tag without matching 'if'",
                         },
                     };
                 }
@@ -1083,7 +1083,7 @@ test validate {
             \\FOO
             \\{> else <}
             \\val="HOST1"
-            \\{> end <}
+            \\{> endif <}
         ;
 
         const result_orphaned_else = validate(template_orphaned_else);
@@ -1097,7 +1097,7 @@ test validate {
             \\FOO
             \\{> elif SYSTEM.os == freebsd <}
             \\val="HOST1"
-            \\{> end <}
+            \\{> endif <}
         ;
 
         const result_orphaned_elif = validate(template_orphaned_elif);
@@ -1106,7 +1106,7 @@ test validate {
     }
 
     {
-        const template_mismatched = "{> end <}";
+        const template_mismatched = "{> endif <}";
         const result_mismatched = validate(template_mismatched);
         try testing.expect(result_mismatched.isError());
         try testing.expectEqual(TemplateError.MismatchedEnd, result_mismatched.err.err);
@@ -1125,7 +1125,7 @@ test validate {
     }
 
     {
-        const template_bad_if_format = "{> ifSYSTEM.os == linux <}content{> end <}";
+        const template_bad_if_format = "{> ifSYSTEM.os == linux <}content{> endif <}";
         const result_bad_if_format = validate(template_bad_if_format);
         try testing.expect(result_bad_if_format.isError());
         try testing.expectEqual(TemplateError.InvalidCondition, result_bad_if_format.err.err);
@@ -1137,7 +1137,7 @@ test validate {
             \\content1
             \\{> elifSYSTEM.os == bar <}
             \\content2
-            \\{> end <}
+            \\{> endif <}
         ;
 
         const result_bad_elif_format = validate(template_bad_elif_format);
@@ -1151,7 +1151,7 @@ test validate {
             \\content1
             \\{> elif SYSTEM.os >= windows <}
             \\content2
-            \\{> end <}
+            \\{> endif <}
         ;
 
         const result = validate(template_bad_elif_cond);
@@ -1161,21 +1161,21 @@ test validate {
     }
 
     {
-        const template_bad_condition_parts = "{> if SYSTEM.os <}content{> end <}";
+        const template_bad_condition_parts = "{> if SYSTEM.os <}content{> endif <}";
         const result_bad_condition_parts = validate(template_bad_condition_parts);
         try testing.expect(result_bad_condition_parts.isError());
         try testing.expectEqual(TemplateError.InvalidCondition, result_bad_condition_parts.err.err);
     }
 
     {
-        const template_bad_lhs = "{> if INVALID.var == value <}content{> end <}";
+        const template_bad_lhs = "{> if INVALID.var == value <}content{> endif <}";
         const result_bad_lhs = validate(template_bad_lhs);
         try testing.expect(result_bad_lhs.isError());
         try testing.expectEqual(TemplateError.InvalidCondition, result_bad_lhs.err.err);
     }
 
     {
-        const template_bad_operator = "{> if SYSTEM.os >= linux <}content{> end <}";
+        const template_bad_operator = "{> if SYSTEM.os >= linux <}content{> endif <}";
         const result_bad_operator = validate(template_bad_operator);
         try testing.expect(result_bad_operator.isError());
         try testing.expectEqual(TemplateError.InvalidCondition, result_bad_operator.err.err);
@@ -1195,7 +1195,7 @@ test validate {
             \\val="HOST2"
             \\{> else <}
             \\val="HOST1"
-            \\{> end <}
+            \\{> endif <}
         ;
 
         const result_valid_simple = validate(template_valid_simple);
@@ -1212,7 +1212,7 @@ test validate {
             \\freebsd_content
             \\{> else <}
             \\other_content
-            \\{> end <}
+            \\{> endif <}
         ;
 
         const result_valid_chain = validate(template_valid_chain);
@@ -1226,8 +1226,8 @@ test validate {
             \\freebsd_x64
             \\{> else <}
             \\freebsd_other
-            \\{> end <}
-            \\{> end <}
+            \\{> endif <}
+            \\{> endif <}
         ;
 
         const result_valid_nested = validate(template_valid_nested);
@@ -1238,11 +1238,11 @@ test validate {
         const template_valid_multiple =
             \\{> if SYSTEM.os == freebsd <}
             \\first_block
-            \\{> end <}
+            \\{> endif <}
             \\some text
             \\{> if SYSTEM.arch == arm64 <}
             \\second_block
-            \\{> end <}
+            \\{> endif <}
         ;
 
         const result_valid_multiple = validate(template_valid_multiple);
@@ -1251,9 +1251,9 @@ test validate {
 
     {
         const template_valid_all_vars =
-            \\{> if SYSTEM.os == openbsd <}os_content{> end <}
-            \\{> if SYSTEM.hostname == host <}host_content{> end <}
-            \\{> if SYSTEM.arch == x86_64 <}arch_content{> end <}
+            \\{> if SYSTEM.os == openbsd <}os_content{> endif <}
+            \\{> if SYSTEM.hostname == host <}host_content{> endif <}
+            \\{> if SYSTEM.arch == x86_64 <}arch_content{> endif <}
         ;
 
         const result_valid_all_vars = validate(template_valid_all_vars);
@@ -1262,8 +1262,8 @@ test validate {
 
     {
         const template_valid_operators =
-            \\{> if SYSTEM.os == linux <}equal{> end <}
-            \\{> if SYSTEM.os != windows <}not_equal{> end <}
+            \\{> if SYSTEM.os == linux <}equal{> endif <}
+            \\{> if SYSTEM.os != windows <}not_equal{> endif <}
         ;
 
         const result_valid_operators = validate(template_valid_operators);
@@ -1307,7 +1307,7 @@ test interpret {
             \\FOO
             \\{> else <}
             \\val="HOST1"
-            \\{> end <}
+            \\{> endif <}
             \\
         ;
 
@@ -1325,7 +1325,7 @@ test interpret {
             \\val="HOST2"
             \\{> else <}
             \\val="HOST1"
-            \\{> end <}
+            \\{> endif <}
             \\
         ;
 
@@ -1348,7 +1348,7 @@ test tokenize {
     try std.testing.expectError(TemplateError.MissingDelimiter, failure);
 
     const template =
-        \\FOO{> if SYSTEM.hostname == gibson <}val="HOST2"{> else <}val="HOST1"{> end <}
+        \\FOO{> if SYSTEM.hostname == gibson <}val="HOST2"{> else <}val="HOST1"{> endif <}
     ;
 
     const tokenized = try tokenize(std.testing.allocator, template);
@@ -1359,7 +1359,7 @@ test tokenize {
     try std.testing.expectEqualStrings("val=\"HOST2\"", tokenized[2].text);
     try std.testing.expectEqualStrings("else", tokenized[3].tag.content);
     try std.testing.expectEqualStrings("val=\"HOST1\"", tokenized[4].text);
-    try std.testing.expectEqualStrings("end", tokenized[5].tag.content);
+    try std.testing.expectEqualStrings("endif", tokenized[5].tag.content);
 }
 
 test parseTag {
@@ -1385,7 +1385,7 @@ test parseBody {
     {
         const template =
             \\content content content
-            \\{> end <}
+            \\{> endif <}
         ;
 
         const body = try parseBody(template, 0);
@@ -1399,9 +1399,9 @@ test parseBody {
             \\outer content
             \\{> if SYSTEM.os == linux <}
             \\inner content
-            \\{> end <}
+            \\{> endif <}
             \\more outer
-            \\{> end <}
+            \\{> endif <}
         ;
 
         const body_nested = try parseBody(template_nested, 0);
@@ -1410,7 +1410,7 @@ test parseBody {
             \\outer content
             \\{> if SYSTEM.os == linux <}
             \\inner content
-            \\{> end <}
+            \\{> endif <}
             \\more outer
             \\
         ;
@@ -1446,7 +1446,7 @@ test findAnchorLiteralFromTokens {
         const template =
             \\{> if SYSTEM.os == foo <}
             \\content
-            \\{> end <}
+            \\{> endif <}
             \\anchor text here
             \\{> if SYSTEM.arch == bar <}
         ;
@@ -1463,8 +1463,8 @@ test findAnchorLiteralFromTokens {
             \\{> if outer == true <}
             \\{> if inner == true <}
             \\inner content
-            \\{> end <}
-            \\{> end <}
+            \\{> endif <}
+            \\{> endif <}
             \\final anchor
         ;
 
@@ -1479,7 +1479,7 @@ test findAnchorLiteralFromTokens {
         const template_noanchor =
             \\{> if SYSTEM.os == zoot <}
             \\content
-            \\{> end <}
+            \\{> endif <}
         ;
 
         const tokens_noanchor = try tokenize(allocator, template_noanchor);
@@ -1492,7 +1492,7 @@ test findAnchorLiteralFromTokens {
     {
         const template_missing_tag =
             \\{> if SYSTEM.os == foo <}
-            \\content without end tag
+            \\content without endif tag
         ;
 
         const tokens = try tokenize(allocator, template_missing_tag);
@@ -1596,7 +1596,7 @@ test trimTag {
     try testing.expectEqualStrings("test", trimTag("  test  "));
     try testing.expectEqualStrings("if SYSTEM.os == netbsd", trimTag("\n\r if SYSTEM.os == netbsd \t\n"));
     try testing.expectEqualStrings("", trimTag("   \t\r\n   "));
-    try testing.expectEqualStrings("end", trimTag("end"));
+    try testing.expectEqualStrings("endif", trimTag("endif"));
 }
 
 test trimTrailingNewlines {
@@ -1707,7 +1707,7 @@ test evalIfGroup {
     {
         var tokens_unexpected = [_]Token{
             .{ .text = "unexpected text" },
-            .{ .tag = .{ .content = "end", .raw = " end ", .start = 0, .end = 10 } },
+            .{ .tag = .{ .content = "endif", .raw = " endif ", .start = 0, .end = 10 } },
         };
 
         var out = std.array_list.Managed(u8).init(testing.allocator);
@@ -1734,7 +1734,7 @@ test evalIfGroup {
     {
         var tokens_invalid_template = [_]Token{
             .{ .tag = .{ .content = "unknown_tag", .raw = " unknown_tag ", .start = 0, .end = 10 } },
-            .{ .tag = .{ .content = "end", .raw = " end ", .start = 20, .end = 30 } },
+            .{ .tag = .{ .content = "endif", .raw = " endif ", .start = 20, .end = 30 } },
         };
 
         var out_invalid_template = std.array_list.Managed(u8).init(testing.allocator);
@@ -1759,7 +1759,7 @@ test evalIfGroup {
 
     {
         var tokens_end_only = [_]Token{
-            .{ .tag = .{ .content = "end", .raw = " end ", .start = 0, .end = 5 } },
+            .{ .tag = .{ .content = "endif", .raw = " endif ", .start = 0, .end = 5 } },
         };
 
         var out = std.array_list.Managed(u8).init(allocator);
@@ -1786,19 +1786,19 @@ test applyTemplate {
         \\val="Bar"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0"
         \\{{> else <}}
         \\val="test1"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
         \\{{> if SYSTEM.hostname == {s} <}}
         \\val="HOST1"
         \\{{> else <}}
         \\val="HOST2"
-        \\{{> end <}}
-        \\val="{{> if SYSTEM.desktop == Z00t <}}13{{> else <}}23{{> end <}}"
+        \\{{> endif <}}
+        \\val="{{> if SYSTEM.desktop == Z00t <}}13{{> else <}}23{{> endif <}}"
         \\
     ,
         .{ os, arch, host },
@@ -1841,18 +1841,18 @@ test reverseTemplate {
         \\val="Bar"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0"
         \\{{> else <}}
         \\val="test1"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
         \\{{> if SYSTEM.hostname == not_my_machine <}}
         \\val="HOST2"
         \\{{> else <}}
         \\val="HOST1"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
     ,
         .{ os, arch },
@@ -1879,18 +1879,18 @@ test reverseTemplate {
         \\val="Zoot"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0-back"
         \\{{> else <}}
         \\val="test1"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
         \\{{> if SYSTEM.hostname == not_my_machine <}}
         \\val="HOST2"
         \\{{> else <}}
         \\val="HOST3"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
     ,
         .{ os, arch },
@@ -1913,7 +1913,7 @@ test "forward" {
         \\val="Bar"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
     ,
         .{os},
@@ -1939,7 +1939,7 @@ test "forward-inline" {
 
     const template = std.fmt.allocPrint(
         testing.allocator,
-        \\{{> if SYSTEM.os == foo <}}val="Foo"{{> elif SYSTEM.os == {s} <}}val="Bar"{{> else <}}val="Else"{{> end <}}
+        \\{{> if SYSTEM.os == foo <}}val="Foo"{{> elif SYSTEM.os == {s} <}}val="Bar"{{> else <}}val="Else"{{> endif <}}
         \\
     ,
         .{os},
@@ -1969,7 +1969,7 @@ test "back-template" {
         \\val="Bar"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
     ,
         .{os},
@@ -1993,7 +1993,7 @@ test "back-template" {
         \\val="Zoot"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
     ,
         .{os},
@@ -2017,7 +2017,7 @@ test "back-no_template" {
         \\val="Bar"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
     ,
         .{os},
@@ -2043,7 +2043,7 @@ test "back-no_template" {
         \\val="Bar"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
     ,
         .{os},
@@ -2067,7 +2067,7 @@ test "mixed" {
         \\val="Bar"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
     ,
         .{os},
@@ -2093,7 +2093,7 @@ test "mixed" {
         \\val="Zoot"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
     ,
         .{os},
@@ -2111,7 +2111,7 @@ test "mixed-inlie" {
     const template = std.fmt.allocPrint(
         testing.allocator,
         \\FOO
-        \\{{> if SYSTEM.os == foo <}}val="Foo"{{> elif SYSTEM.os == {s} <}}val="Bar"{{> else <}}val="Else"{{> end <}}
+        \\{{> if SYSTEM.os == foo <}}val="Foo"{{> elif SYSTEM.os == {s} <}}val="Bar"{{> else <}}val="Else"{{> endif <}}
         \\
     ,
         .{os},
@@ -2131,7 +2131,7 @@ test "mixed-inlie" {
     const expected_template = std.fmt.allocPrint(
         testing.allocator,
         \\BAR
-        \\{{> if SYSTEM.os == foo <}}val="Foo"{{> elif SYSTEM.os == {s} <}}val="Zoot"{{> else <}}val="Else"{{> end <}}
+        \\{{> if SYSTEM.os == foo <}}val="Foo"{{> elif SYSTEM.os == {s} <}}val="Zoot"{{> else <}}val="Else"{{> endif <}}
         \\
     ,
         .{os},
@@ -2153,7 +2153,7 @@ test "mixed-else" {
         \\val="Bar"
         \\{> else <}
         \\val="Else"
-        \\{> end <}
+        \\{> endif <}
         \\
     ;
 
@@ -2174,7 +2174,7 @@ test "mixed-else" {
         \\val="Bar"
         \\{> else <}
         \\val="Zoot"
-        \\{> end <}
+        \\{> endif <}
         \\
     ;
 
@@ -2195,18 +2195,18 @@ test "blocks" {
         \\val="Bar"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0"
         \\{{> else <}}
         \\val="test1"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
         \\{{> if SYSTEM.hostname == not_my_machine <}}
         \\val="HOST2"
         \\{{> else <}}
         \\val="HOST1"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
     ,
         .{ os, arch },
@@ -2235,18 +2235,18 @@ test "blocks" {
         \\val="Zoot"
         \\{{> else <}}
         \\val="Else"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0-back"
         \\{{> else <}}
         \\val="test1"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
         \\{{> if SYSTEM.hostname == not_my_machine <}}
         \\val="HOST2"
         \\{{> else <}}
         \\val="HOST3"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
     ,
         .{ os, arch },
@@ -2265,14 +2265,14 @@ test "blocks-mixed" {
     const template = std.fmt.allocPrint(
         testing.allocator,
         \\FOO
-        \\val="{{> if SYSTEM.os == {s} <}}Inline{{> else <}}Bar{{> end <}}"
+        \\val="{{> if SYSTEM.os == {s} <}}Inline{{> else <}}Bar{{> endif <}}"
         \\{{> if SYSTEM.arch == {s} <}}
         \\val="test0"
         \\{{> else <}}
         \\val="test1"
-        \\{{> end <}}
+        \\{{> endif <}}
         \\
-        \\val="{{> if SYSTEM.hostname == not_my_machine <}}HOST2{{> else <}}HOST1{{> end <}}"
+        \\val="{{> if SYSTEM.hostname == not_my_machine <}}HOST2{{> else <}}HOST1{{> endif <}}"
         \\
     ,
         .{ os, arch },

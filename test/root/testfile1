@@ -4,4 +4,4 @@ Foo
 val="Zoot"
 {> else <}
 val="Bar"
-{> end <}
+{> endif <}

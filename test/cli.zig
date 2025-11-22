@@ -133,7 +133,7 @@ test "sync-dry" {
         \\val="Zoot"
         \\{> else <}
         \\val="Dry"
-        \\{> end <}
+        \\{> endif <}
         \\
     ;
 
@@ -216,7 +216,7 @@ test "sync-back" {
         \\val="Zoot"
         \\{> else <}
         \\val="Bar"
-        \\{> end <}
+        \\{> endif <}
         \\
     ;
 
@@ -257,7 +257,7 @@ test "sync-back" {
         \\val="Zoot"
         \\{> else <}
         \\val="TEST"
-        \\{> end <}
+        \\{> endif <}
         \\
     ;
 
@@ -302,7 +302,7 @@ test "sync-forward-forced" {
         \\val="Foo"
         \\{> else <}
         \\val="Bar"
-        \\{> end <}
+        \\{> endif <}
         \\
     ;
 
@@ -380,7 +380,7 @@ test "sync-back-forced" {
         \\val="Foo"
         \\{> else <}
         \\val="Bar"
-        \\{> end <}
+        \\{> endif <}
         \\
     ;
 
@@ -418,7 +418,7 @@ test "sync-back-forced" {
         \\val="Foo"
         \\{> else <}
         \\val="TEST"
-        \\{> end <}
+        \\{> endif <}
         \\
     ;
 
