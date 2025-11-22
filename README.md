@@ -33,14 +33,14 @@ zig build --release=fast
 
 ```
 # TEST
-val="{> if SYSTEM.hostname == target <}target_val{> else <}none{> end <}"
+val="{> if SYSTEM.hostname == target <}target_val{> else <}none{> endif <}"
 {> if SYSTEM.os == freebsd <}
 val="Foo"
 {> elif SYSTEM.os == openbsd <}
 val="Bar"
 {> else <}
 val="Zoot"
-{> end <}
+{> endif <}
 ```
 
 ## [Roadmap](https://github.com/users/charlesrocket/projects/8)
