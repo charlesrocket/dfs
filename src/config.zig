@@ -8,6 +8,7 @@ pub const XdgDir = enum {
 pub const WatcherMode = enum {
     polling,
     kqueue,
+    epoll,
     auto,
 };
 
