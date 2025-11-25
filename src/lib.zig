@@ -801,8 +801,16 @@ fn getDesktop(allocator: std.mem.Allocator) ![]const u8 {
         const desktop_session = std.process.getEnvVarOwned(
             allocator,
             "DESKTOP_SESSION",
-            // the library always frees the output
-        ) catch return std.ascii.allocLowerString(allocator, "UNKNOWN");
+        ) catch {
+            const current_desktop = std.process.getEnvVarOwned(
+                allocator,
+                "XDG_CURRENT_DESKTOP",
+                // the library always frees the output
+            ) catch return std.ascii.allocLowerString(allocator, "UNKNOWN");
+
+            defer allocator.free(current_desktop);
+            return std.ascii.allocLowerString(allocator, current_desktop);
+        };
 
         defer allocator.free(desktop_session);
         return std.ascii.allocLowerString(allocator, desktop_session);
