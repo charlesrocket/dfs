@@ -1,6 +1,7 @@
 //! LIBDFS
 //!
-//! Dfs is a template engine with reverse translation.
+//! This is a template engine with reverse translation capability
+//! (using the Myers difference algorithm).
 
 // {> x <}
 pub const TAG_START = "{>";
@@ -22,16 +23,6 @@ const Tag = struct {
 const Token = union(enum) {
     text: []const u8,
     tag: TagInfo,
-};
-
-const Body = struct {
-    slice: []const u8,
-    after: usize,
-};
-
-const Chunk = struct {
-    slice: []const u8,
-    end: usize,
 };
 
 const Branch = struct {
@@ -97,9 +88,7 @@ const ParsedCondition = struct {
     }
 
     fn compare(self: ParsedCondition, actual: []const u8) !bool {
-        if (self.lhs.len == 0) {
-            return TemplateError.InvalidCondition;
-        }
+        if (self.lhs.len == 0) return TemplateError.InvalidCondition;
 
         const matches = std.mem.eql(u8, actual, self.rhs);
 
@@ -115,10 +104,9 @@ fn parseCondition(cond: []const u8) !ParsedCondition {
     if (std.mem.indexOf(u8, cond, "==")) |pos| {
         const lhs = std.mem.trim(u8, cond[0..pos], " \t");
         const rhs = std.mem.trim(u8, cond[pos + 2 ..], " \t");
-
         if (lhs.len == 0 or rhs.len == 0) return TemplateError.InvalidCondition;
 
-        return ParsedCondition{
+        return .{
             .lhs = lhs,
             .op = "==",
             .rhs = rhs,
@@ -129,10 +117,9 @@ fn parseCondition(cond: []const u8) !ParsedCondition {
     if (std.mem.indexOf(u8, cond, "!=")) |pos| {
         const lhs = std.mem.trim(u8, cond[0..pos], " \t");
         const rhs = std.mem.trim(u8, cond[pos + 2 ..], " \t");
-
         if (lhs.len == 0 or rhs.len == 0) return TemplateError.InvalidCondition;
 
-        return ParsedCondition{
+        return .{
             .lhs = lhs,
             .op = "!=",
             .rhs = rhs,
@@ -147,7 +134,6 @@ fn isValidCondition(condition: []const u8) bool {
 
     // check if LHS is valid system variable
     if (SYSTEM.fromString(parsed.lhs) == null) return false;
-
     // check if operator is valid
     if (!parsed.isValidOp()) return false;
 
@@ -162,57 +148,34 @@ fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) !bool {
 
     const var_type = SYSTEM.fromString(parsed.lhs) orelse return false;
     const actual_value = var_type.getValue(allocator) catch return false;
-
     const should_free = var_type.shouldFree();
+
     defer if (should_free) allocator.free(actual_value);
 
     return try parsed.compare(actual_value);
 }
-
-/// Contains the error type with a message and the coordinates.
-pub const ValidationInfo = struct {
-    err: TemplateError,
-    line: usize,
-    column: usize,
-    message: []const u8,
-};
-
-pub const ValidationResult = union(enum) {
-    ok: void,
-    err: ValidationInfo,
-
-    pub fn isError(self: ValidationResult) bool {
-        return switch (self) {
-            .ok => false,
-            .err => true,
-        };
-    }
-};
 
 fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
     var tokens = std.array_list.Managed(Token).init(allocator);
     errdefer tokens.deinit();
 
     var i: usize = 0;
-
     while (i < template.len) {
         const start_tag = std.mem.indexOfPos(u8, template, i, TAG_START);
-
         if (start_tag == null) {
-            if (i < template.len) {
-                try tokens.append(.{ .text = template[i..] });
-            }
+            if (i < template.len) try tokens.append(.{ .text = template[i..] });
             break;
         }
 
         const tag_start = start_tag.?;
 
         // push preceding text if any
-        if (tag_start > i) {
-            try tokens.append(.{ .text = template[i..tag_start] });
-        }
+        if (tag_start > i) try tokens.append(
+            .{ .text = template[i..tag_start] },
+        );
 
         const tag = try parseTag(template, tag_start);
+
         try tokens.append(.{ .tag = .{
             .content = tag.trim,
             .raw = tag.raw,
@@ -249,15 +212,13 @@ fn interpret(allocator: std.mem.Allocator, tokens: []Token) ![]u8 {
             },
         }
     }
-
-    return out.toOwnedSlice();
+    return try out.toOwnedSlice();
 }
 
 fn parseTag(template: []const u8, i: usize) !Tag {
     // i should point to the { of TAG_START
-    if (!std.mem.startsWith(u8, template[i..], TAG_START)) {
+    if (!std.mem.startsWith(u8, template[i..], TAG_START))
         return TemplateError.InvalidTag;
-    }
 
     const start = i + TAG_START.len;
     const rel_end = std.mem.indexOf(u8, template[start..], TAG_END) orelse
@@ -265,143 +226,11 @@ fn parseTag(template: []const u8, i: usize) !Tag {
 
     const raw = template[start .. start + rel_end];
 
-    return Tag{
+    return .{
         .raw = raw,
         .trim = trimTag(raw),
         .after = start + rel_end + TAG_END.len,
     };
-}
-
-fn parseBody(template: []const u8, start: usize) !Body {
-    const tpl_len = template.len;
-    var i = start;
-    var depth: usize = 0;
-
-    while (i < tpl_len) {
-        if (std.mem.startsWith(u8, template[i..], TAG_START)) {
-            const t = try parseTag(template, i);
-
-            if (std.mem.startsWith(u8, t.trim, "if")) {
-                depth += 1;
-            } else if (std.mem.eql(u8, t.trim, "endif")) {
-                if (depth == 0) break;
-                depth -= 1;
-            } else if ((std.mem.startsWith(u8, t.trim, "elif") or
-                std.mem.eql(u8, t.trim, "else")) and depth == 0)
-            {
-                break;
-            }
-
-            i = t.after;
-        } else i += 1;
-    }
-
-    return Body{ .slice = template[start..i], .after = i };
-}
-
-fn findAnchorLiteralFromTokens(
-    tokens: []Token,
-    start_idx: usize,
-    template: []const u8,
-) ![]const u8 {
-    var depth: usize = 0;
-    var i = start_idx;
-
-    // skip past the body token to start searching from next tag
-    if (i < tokens.len and tokens[i] == .text) {
-        i += 1;
-    }
-
-    // find the matching 'end' tag
-    while (i < tokens.len) {
-        switch (tokens[i]) {
-            .tag => |tag_info| {
-                if (std.mem.startsWith(u8, tag_info.content, "if")) {
-                    depth += 1;
-                } else if (std.mem.eql(u8, tag_info.content, "endif")) {
-                    if (depth == 0) {
-                        // found the matching end, look for next text token
-                        if (i + 1 < tokens.len and tokens[i + 1] == .text) {
-                            return tokens[i + 1].text;
-                        }
-
-                        // no text after the end tag—this is fine
-                        return template[template.len..template.len];
-                    }
-                    depth -= 1;
-                }
-            },
-            else => {},
-        }
-        i += 1;
-    }
-
-    // reached end without finding the matching 'endif' tag
-    return TemplateError.MissingEndTag;
-}
-
-fn extractChangeChunk(
-    rendered: []const u8,
-    rnd_i: usize,
-    anchor_lit: []const u8,
-) Chunk {
-    var change_end = rendered.len;
-
-    if (anchor_lit.len > 0) {
-        if (std.mem.indexOf(u8, rendered[rnd_i..], anchor_lit)) |pos| {
-            change_end = rnd_i + pos;
-        }
-    }
-
-    return Chunk{ .slice = rendered[rnd_i..change_end], .end = change_end };
-}
-
-fn copyWithWhitespace(
-    out: *std.array_list.Managed(u8),
-    body: []const u8,
-    change: []const u8,
-) !void {
-    var lead: usize = 0;
-
-    while (lead < body.len and (body[lead] == '\n' or
-        body[lead] == '\r')) lead += 1;
-
-    var trail: usize = 0;
-
-    while (trail < body.len - lead and (body[body.len - 1 - trail] == '\n' or
-        body[body.len - 1 - trail] == '\r')) trail += 1;
-
-    if (lead > 0) try out.appendSlice(body[0..lead]);
-    try out.appendSlice(change);
-    if (trail > 0) try out.appendSlice(body[body.len - trail ..]);
-}
-
-fn normalizeTrailing(
-    allocator: std.mem.Allocator,
-    result: []u8,
-    template: []const u8,
-) ![]u8 {
-    const tmpl_trimmed = trimTrailingNewlines(template);
-    const res_trimmed = trimTrailingNewlines(result);
-    const tmpl_trail = template.len - tmpl_trimmed.len;
-    const res_trail = result.len - res_trimmed.len;
-
-    if (res_trail == tmpl_trail) return result;
-
-    const core_len = result.len - res_trail;
-    const new_len = core_len + tmpl_trail;
-    const new_slice = try allocator.alloc(u8, new_len);
-
-    @memcpy(new_slice[0..core_len], result[0..core_len]);
-
-    if (tmpl_trail > 0) @memcpy(
-        new_slice[core_len..],
-        template[template.len - tmpl_trail ..],
-    );
-
-    allocator.free(result);
-
-    return new_slice;
 }
 
 fn evalBranch(
@@ -409,21 +238,18 @@ fn evalBranch(
     tag_content: []const u8,
     branch_taken: bool,
 ) !Branch {
-    if (std.mem.eql(u8, tag_content, "endif")) {
+    if (std.mem.eql(u8, tag_content, "endif"))
         return .{ .active = false, .condition = null };
-    }
 
-    if (std.mem.eql(u8, tag_content, "else")) {
+    if (std.mem.eql(u8, tag_content, "else"))
         return .{ .active = !branch_taken, .condition = null };
-    }
 
-    const condition = cnd: {
-        if (std.mem.startsWith(u8, tag_content, "if "))
-            break :cnd tag_content[3..];
-        if (std.mem.startsWith(u8, tag_content, "elif "))
-            break :cnd tag_content[5..];
+    const condition = if (std.mem.startsWith(u8, tag_content, "if "))
+        tag_content[3..]
+    else if (std.mem.startsWith(u8, tag_content, "elif "))
+        tag_content[5..]
+    else
         return TemplateError.InvalidTag;
-    };
 
     const active = try evalCondition(allocator, condition) and !branch_taken;
     return .{ .active = active, .condition = condition };
@@ -447,9 +273,7 @@ fn evalIfGroup(
             else => return TemplateError.InvalidToken,
         };
 
-        if (std.mem.eql(u8, tag_info.content, "endif")) {
-            return i + 1;
-        }
+        if (std.mem.eql(u8, tag_info.content, "endif")) return i + 1;
 
         const branch = try evalBranch(
             allocator,
@@ -473,9 +297,8 @@ fn evalIfGroup(
 
         i += if (has_body) 2 else 1;
 
-        if (i < tokens.len and tokens[i] != .tag) {
+        if (i < tokens.len and tokens[i] != .tag)
             return TemplateError.InvalidTag;
-        }
     }
 
     return TemplateError.MissingEndTag;
@@ -503,280 +326,294 @@ pub fn reverseTemplate(
     const tokens = try tokenize(allocator, template);
     defer allocator.free(tokens);
 
-    return try reverseFromTokens(allocator, render, template, tokens);
-}
-
-fn reverseFromTokens(
-    allocator: std.mem.Allocator,
-    render: []const u8,
-    template: []const u8,
-    tokens: []Token,
-) ![]u8 {
-    // first, check if template has any conditionals
-    const has_conditionals = hasAnyConditionals(tokens);
-
-    if (!has_conditionals) {
-        // no structure to preserve, just return render as the new template.
-        // this is the correct behavior: if user edits a pure literal template
-        // the new template is the edited version
+    if (!hasAnyConditionals(tokens)) {
         const result = try allocator.dupe(u8, render);
         return try normalizeTrailing(allocator, result, template);
     }
 
-    // template has a structure, preserving it
+    // get the original render from the template
+    const original_render = try applyTemplate(allocator, template);
+    defer allocator.free(original_render);
+
+    // diff the original render against the edited render
+    var myers = MyersDiff.init(allocator, original_render, render);
+    const edits = try myers.diff();
+    defer allocator.free(edits);
+
+    // build replacement maps
+    var replacements = try allocator.alloc(u8, original_render.len);
+    defer allocator.free(replacements);
+    var replacement_valid = try allocator.alloc(bool, original_render.len);
+    defer allocator.free(replacement_valid);
+    @memset(replacement_valid, false);
+
+    var insertions = std.AutoHashMap(usize, []const u8).init(allocator);
+    defer insertions.deinit();
+
+    // build deletion tracking and process all edits
+    var had_deletion = try allocator.alloc(bool, original_render.len);
+    defer allocator.free(had_deletion);
+    @memset(had_deletion, false);
+
+    var old_pos_tracker: usize = 0;
+
+    for (edits) |edit| {
+        switch (edit) {
+            .equal => |e| {
+                if (e.old_index != old_pos_tracker) {
+                    old_pos_tracker = e.old_index;
+                }
+
+                for (0..e.count) |i| {
+                    const old_pos = e.old_index + i;
+                    const new_pos = e.new_index + i;
+                    replacements[old_pos] = render[new_pos];
+                    replacement_valid[old_pos] = true;
+                }
+
+                old_pos_tracker = e.old_index + e.count;
+            },
+            .delete => |d| {
+                if (d.old_index != old_pos_tracker) {
+                    old_pos_tracker = d.old_index;
+                }
+
+                for (0..d.count) |i| {
+                    const pos = d.old_index + i;
+                    replacement_valid[pos] = false;
+                    if (pos < had_deletion.len) {
+                        had_deletion[pos] = true;
+                    }
+                }
+
+                // mark the position after deletion too
+                // (where insertion goes)
+                const after_pos = d.old_index + d.count;
+
+                if (after_pos < had_deletion.len) {
+                    had_deletion[after_pos] = true;
+                }
+
+                old_pos_tracker = after_pos;
+            },
+            .insert => |ins| {
+                const insert_text =
+                    render[ins.new_index .. ins.new_index + ins.count];
+
+                try insertions.put(old_pos_tracker, insert_text);
+            },
+        }
+    }
+
+    var ctx = ReverseContext{
+        .allocator = allocator,
+        .replacements = replacements,
+        .replacement_valid = replacement_valid,
+        .insertions = &insertions,
+        .had_deletion = had_deletion,
+        .old_pos = 0,
+    };
+
     var out = std.array_list.Managed(u8).init(allocator);
     defer out.deinit();
 
-    var rnd_i: usize = 0;
-    var tok_i: usize = 0;
+    try reverseTokens(tokens, &ctx, &out);
 
-    while (tok_i < tokens.len) {
-        switch (tokens[tok_i]) {
-            .text => |lit| {
-                // check if we're out of render content
-                if (rnd_i >= render.len) {
-                    // render is exhausted—skip remaining literals
-                    tok_i += 1;
-                    continue;
-                }
+    const result = try out.toOwnedSlice();
+    return try normalizeTrailing(allocator, result, template);
+}
 
-                // try to intelligently consume from render
-                try consumeLiteral(
-                    &out,
-                    render,
-                    &rnd_i,
-                    lit,
-                    tokens,
-                    tok_i,
-                    allocator,
-                );
+const ReverseContext = struct {
+    allocator: std.mem.Allocator,
+    replacements: []u8,
+    replacement_valid: []bool,
+    had_deletion: []bool,
+    insertions: *std.AutoHashMap(usize, []const u8),
+    old_pos: usize,
+};
 
-                tok_i += 1;
+fn reverseTokens(
+    tokens: []Token,
+    ctx: *ReverseContext,
+    out: *std.array_list.Managed(u8),
+) !void {
+    var i: usize = 0;
+    while (i < tokens.len) {
+        switch (tokens[i]) {
+            .text => |text| {
+                try applyReplacements(text, ctx, out);
+                i += 1;
             },
             .tag => |tag_info| {
                 if (std.mem.startsWith(u8, tag_info.content, "if")) {
-                    tok_i = try reverseIfGroup(
-                        allocator,
-                        &out,
-                        render,
-                        &rnd_i,
-                        template,
-                        tokens,
-                        tok_i,
-                    );
+                    i = try reverseIfBlock(tokens, i, ctx, out);
                 } else {
                     return TemplateError.InvalidTag;
                 }
             },
         }
     }
+}
 
-    // append any remaining rendered content
-    if (rnd_i < render.len) {
-        try out.appendSlice(render[rnd_i..]);
+fn applyReplacements(
+    text: []const u8,
+    ctx: *ReverseContext,
+    out: *std.array_list.Managed(u8),
+) !void {
+    const start_pos = ctx.old_pos;
+    const end_pos = start_pos + text.len;
+
+    // determine the actual end of the rendered content for this block
+    const render_end = @min(end_pos, ctx.replacement_valid.len);
+
+    // if the template text starts with a newline, always output it
+    // (newlines after tags are structural and should always be preserved)
+    var i: usize = 0;
+    if (text.len > 0 and text[0] == '\n') {
+        // check for an insertion at position 0 (always allowed)
+        if (start_pos < render_end) {
+            if (ctx.insertions.get(start_pos)) |insert_text| {
+                try out.appendSlice(insert_text);
+            }
+        }
+
+        try out.append('\n');
+        i = 1;
     }
 
-    const result = try out.toOwnedSlice();
-    return try normalizeTrailing(allocator, result, template);
+    // for each remaining byte position
+    while (i < text.len) : (i += 1) {
+        const old_pos = start_pos + i;
+
+        // check if we're beyond the rendered content for this block
+        if (old_pos >= render_end) {
+            // output the remaining template raw
+            try out.appendSlice(text[i..]);
+            break;
+        }
+
+        // check for an insertion at this position
+        const is_valid = ctx.replacement_valid[old_pos];
+        const prev_pos = if (old_pos > start_pos) old_pos - 1 else old_pos;
+        const prev_valid = if (prev_pos < ctx.replacement_valid.len and
+            ctx.replacement_valid[prev_pos])
+            (ctx.replacements[prev_pos] != '\n')
+        else
+            false;
+
+        // check if we got past a newline in the template
+        const after_template_newline = (i > 0 and text[i - 1] == '\n');
+
+        // apply an insertion if valid conditions
+        // are met, but not after a newline
+        if (!after_template_newline and
+            (is_valid or prev_valid or
+                (old_pos < ctx.had_deletion.len and ctx.had_deletion[old_pos])))
+        {
+            if (ctx.insertions.get(old_pos)) |insert_text| {
+                try out.appendSlice(insert_text);
+                _ = ctx.insertions.remove(old_pos);
+            }
+        }
+
+        // output the character if is a valid one (not deleted)
+        if (is_valid) {
+            try out.append(ctx.replacements[old_pos]);
+        } else if (text[i] == '\n') {
+            // TODO
+            try out.append('\n');
+        }
+    }
+
+    ctx.old_pos = end_pos;
+}
+
+fn reverseIfBlock(
+    tokens: []Token,
+    start: usize,
+    ctx: *ReverseContext,
+    out: *std.array_list.Managed(u8),
+) !usize {
+    var i = start;
+    var branch_taken = false;
+
+    while (i < tokens.len) {
+        const tag_info = switch (tokens[i]) {
+            .tag => |t| t,
+            else => return TemplateError.InvalidToken,
+        };
+
+        try out.appendSlice(TAG_START);
+        try out.appendSlice(tag_info.raw);
+        try out.appendSlice(TAG_END);
+
+        if (std.mem.eql(u8, tag_info.content, "endif")) {
+            return i + 1;
+        }
+
+        i += 1;
+
+        var body: []const u8 = &[_]u8{};
+        var has_body = false;
+
+        if (i < tokens.len and tokens[i] == .text) {
+            body = tokens[i].text;
+            has_body = true;
+        }
+
+        const branch = try evalBranch(
+            ctx.allocator,
+            tag_info.content,
+            branch_taken,
+        );
+
+        if (branch.active) {
+            branch_taken = true;
+            // this branch was rendered—apply replacements
+            try applyReplacements(body, ctx, out);
+        } else {
+            // this branch was not rendered—keep the original
+            // and do not advance old_pos
+            try out.appendSlice(body);
+        }
+
+        if (has_body) i += 1;
+    }
+
+    return TemplateError.MissingEndTag;
 }
 
 fn hasAnyConditionals(tokens: []Token) bool {
     for (tokens) |token| {
         if (token == .tag) return true;
     }
-
     return false;
 }
 
-// consume literal content from render
-fn consumeLiteral(
-    out: *std.array_list.Managed(u8),
-    render: []const u8,
-    rnd_i: *usize,
-    lit: []const u8,
-    tokens: []Token,
-    tok_i: usize,
+fn normalizeTrailing(
     allocator: std.mem.Allocator,
-) !void {
-    const len = lit.len;
-    const available = render.len - rnd_i.*;
-
-    // strategy: Look ahead to see if next token is a conditional
-    const next_is_conditional = (tok_i + 1 < tokens.len and
-        tokens[tok_i + 1] == .tag);
-
-    if (next_is_conditional) {
-        // next is a conditional—try to find where it starts in render
-        // by rendering it and searching for that output
-
-        // get what the next conditional would output
-        if (findConditionalOutputInRender(
-            render,
-            rnd_i.*,
-            tokens,
-            tok_i + 1,
-            allocator,
-        )) |anchor_pos| {
-            // found where the conditional content starts
-            // everything before it is the literal content
-            try out.appendSlice(render[rnd_i.*..anchor_pos]);
-            rnd_i.* = anchor_pos;
-            return;
-        } else |_| {
-            // could not find an anchor
-            // fall through to simple approach
-        }
-    }
-
-    // simple approach: consume based on the expected length
-    if (len <= available) {
-        try out.appendSlice(render[rnd_i.* .. rnd_i.* + len]);
-        rnd_i.* += len;
-    } else {
-        // not enough content—consume what is left
-        try out.appendSlice(render[rnd_i.*..]);
-        rnd_i.* = render.len;
-    }
-}
-
-// try to find where a conditional's output appears in the render
-fn findConditionalOutputInRender(
-    render: []const u8,
-    start_pos: usize,
-    tokens: []Token,
-    cond_idx: usize,
-    allocator: std.mem.Allocator,
-) !usize {
-    // try to find where a conditional's output appears in the render
-
-    if (cond_idx >= tokens.len or tokens[cond_idx] != .tag) {
-        return error.NoConditional;
-    }
-
-    // we need to evaluate just this conditional group to get its output
-    // then search for that output in the render starting from 'start_pos'
-
-    // extract the conditional group tokens
-    const group_end = try findConditionalGroupEnd(tokens, cond_idx);
-    const group_tokens = tokens[cond_idx .. group_end + 1];
-
-    // interpret just this group
-    const expected_output = interpret(allocator, group_tokens) catch {
-        return error.InterpretFailed;
-    };
-
-    defer allocator.free(expected_output);
-
-    // search for this output in render
-    if (expected_output.len == 0) {
-        return error.EmptyOutput;
-    }
-
-    // search in the remaining render content
-    if (std.mem.indexOf(u8, render[start_pos..], expected_output)) |offset| {
-        return start_pos + offset;
-    }
-
-    return error.AnchorNotFound;
-}
-
-fn findConditionalGroupEnd(tokens: []Token, start: usize) !usize {
-    if (tokens[start] != .tag) return TemplateError.InvalidTag;
-
-    var depth: usize = 1;
-    var i = start + 1;
-
-    while (i < tokens.len) : (i += 1) {
-        if (tokens[i] == .tag) {
-            const content = tokens[i].tag.content;
-            if (std.mem.startsWith(u8, content, "if")) {
-                depth += 1;
-            } else if (std.mem.eql(u8, content, "endif")) {
-                depth -= 1;
-                if (depth == 0) return i;
-            }
-        }
-    }
-
-    return TemplateError.MissingEndTag;
-}
-
-fn reverseIfGroup(
-    allocator: std.mem.Allocator,
-    out: *std.array_list.Managed(u8),
-    render: []const u8,
-    rnd_i: *usize,
+    result: []u8,
     template: []const u8,
-    tokens: []Token,
-    start: usize,
-) !usize {
-    var tok_i = start;
-    var branch_taken = false;
-    var active_branch_processed = false;
+) ![]u8 {
+    const tmpl_trimmed = trimTrailingNewlines(template);
+    const res_trimmed = trimTrailingNewlines(result);
+    const tmpl_trail = template.len - tmpl_trimmed.len;
+    const res_trail = result.len - res_trimmed.len;
 
-    while (tok_i < tokens.len) : (tok_i += 0) {
-        const tag_info = switch (tokens[tok_i]) {
-            .tag => |t| t,
-            else => return TemplateError.InvalidToken,
-        };
+    if (res_trail == tmpl_trail) return result;
 
-        // output the tag
-        try out.appendSlice(TAG_START);
-        try out.appendSlice(tag_info.raw);
-        try out.appendSlice(TAG_END);
+    const core_len = result.len - res_trail;
+    const new_len = core_len + tmpl_trail;
+    const new_slice = try allocator.alloc(u8, new_len);
 
-        tok_i += 1;
+    @memcpy(new_slice[0..core_len], result[0..core_len]);
+    if (tmpl_trail > 0) @memcpy(
+        new_slice[core_len..],
+        template[template.len - tmpl_trail ..],
+    );
 
-        // check if this is the end tag
-        if (std.mem.eql(u8, tag_info.content, "endif")) {
-            return tok_i;
-        }
-
-        // get body (next token if it's text)
-        var body: []const u8 = &[_]u8{};
-        var has_body = false;
-
-        if (tok_i < tokens.len and tokens[tok_i] == .text) {
-            body = tokens[tok_i].text;
-            has_body = true;
-        }
-
-        const branch = try evalBranch(
-            allocator,
-            tag_info.content,
-            branch_taken,
-        );
-
-        if (branch.active and !active_branch_processed) {
-            branch_taken = true;
-            active_branch_processed = true;
-
-            // find the anchor literal (look ahead in tokens)
-            const anchor_lit = try findAnchorLiteralFromTokens(
-                tokens,
-                tok_i,
-                template,
-            );
-
-            const change_chunk = extractChangeChunk(
-                render,
-                rnd_i.*,
-                anchor_lit,
-            );
-
-            try copyWithWhitespace(out, body, change_chunk.slice);
-            rnd_i.* = change_chunk.end;
-        } else {
-            // inactive branch: copy the template body as-is
-            try out.appendSlice(body);
-        }
-
-        if (has_body) {
-            tok_i += 1;
-        }
-    }
-
-    return TemplateError.MissingEndTag;
+    allocator.free(result);
+    return new_slice;
 }
 
 fn getOS() []const u8 {
@@ -805,9 +642,8 @@ fn getDesktop(allocator: std.mem.Allocator) ![]const u8 {
             const current_desktop = std.process.getEnvVarOwned(
                 allocator,
                 "XDG_CURRENT_DESKTOP",
-                // the library always frees the output
-            ) catch return std.ascii.allocLowerString(allocator, "UNKNOWN");
-
+            ) catch
+                return std.ascii.allocLowerString(allocator, "UNKNOWN");
             defer allocator.free(current_desktop);
             return std.ascii.allocLowerString(allocator, current_desktop);
         };
@@ -826,14 +662,45 @@ fn trimTag(tag: []const u8) []const u8 {
 
 fn trimTrailingNewlines(s: []const u8) []const u8 {
     var end = s.len;
-
     while (end > 0) : (end -= 1) {
         const c = s[end - 1];
         if (c != '\n' and c != '\r') break;
     }
-
     return s[0..end];
 }
+
+fn splitLines(allocator: std.mem.Allocator, text: []const u8) ![][]const u8 {
+    var lines = std.array_list.Managed([]const u8).init(allocator);
+    defer lines.deinit();
+
+    var it = std.mem.splitScalar(u8, text, '\n');
+
+    while (it.next()) |line| {
+        try lines.append(line);
+    }
+
+    return try lines.toOwnedSlice();
+}
+
+/// Contains the error type with a message and the coordinates.
+pub const ValidationInfo = struct {
+    err: TemplateError,
+    line: usize,
+    column: usize,
+    message: []const u8,
+};
+
+pub const ValidationResult = union(enum) {
+    ok: void,
+    err: ValidationInfo,
+
+    pub fn isError(self: ValidationResult) bool {
+        return switch (self) {
+            .ok => false,
+            .err => true,
+        };
+    }
+};
 
 /// Validates the provided template.
 pub fn validate(template: []const u8) ValidationResult {
@@ -964,7 +831,7 @@ pub fn validate(template: []const u8) ValidationResult {
                             .err = TemplateError.MismatchedEnd,
                             .line = tag_line,
                             .column = tag_column,
-                            .message = "Mismatched 'endif' tag without matching 'if'",
+                            .message = "Mismatched 'endif' tag without a matching 'if'",
                         },
                     };
                 }
@@ -1014,6 +881,266 @@ pub fn validate(template: []const u8) ValidationResult {
 
     return ValidationResult{ .ok = {} };
 }
+
+// Myers' diff algorithm
+const MyersDiff = struct {
+    allocator: std.mem.Allocator,
+    old: []const u8,
+    new: []const u8,
+
+    fn init(
+        allocator: std.mem.Allocator,
+        old: []const u8,
+        new: []const u8,
+    ) MyersDiff {
+        return .{
+            .allocator = allocator,
+            .old = old,
+            .new = new,
+        };
+    }
+
+    fn diff(self: *MyersDiff) ![]Edit {
+        const n = self.old.len;
+        const m = self.new.len;
+        const max_d = n + m;
+
+        var v = try self.allocator.alloc(isize, 2 * max_d + 1);
+        defer self.allocator.free(v);
+        @memset(v, 0);
+
+        var trace = std.array_list.Managed([]isize).init(self.allocator);
+        defer {
+            for (trace.items) |item| self.allocator.free(item);
+            trace.deinit();
+        }
+
+        const offset = @as(isize, @intCast(max_d));
+        v[@intCast(offset + 1)] = 0;
+
+        for (0..max_d + 1) |d| {
+            const d_signed = @as(isize, @intCast(d));
+            var k: isize = -d_signed;
+            while (k <= d_signed) : (k += 2) {
+                const k_idx = @as(usize, @intCast(k + offset));
+
+                var x: isize = 0;
+                if (k == -d_signed or
+                    (k != d_signed and v[k_idx - 1] < v[k_idx + 1]))
+                {
+                    x = v[k_idx + 1];
+                } else {
+                    x = v[k_idx - 1] + 1;
+                }
+
+                var y = x - k;
+                while (x < @as(isize, @intCast(n)) and
+                    y < @as(isize, @intCast(m)) and
+                    self.old[@intCast(x)] == self.new[@intCast(y)])
+                {
+                    x += 1;
+                    y += 1;
+                }
+
+                v[k_idx] = x;
+
+                if (x >= @as(isize, @intCast(n)) and
+                    y >= @as(isize, @intCast(m)))
+                {
+                    // save the final trace before returning
+                    const v_copy = try self.allocator.alloc(isize, v.len);
+                    @memcpy(v_copy, v);
+                    try trace.append(v_copy);
+                    return try self.backtrack(&trace, d);
+                }
+            }
+
+            const v_copy = try self.allocator.alloc(isize, v.len);
+            @memcpy(v_copy, v);
+            try trace.append(v_copy);
+        }
+
+        // return an empty slice if there is no solution
+        return try self.allocator.alloc(Edit, 0);
+    }
+
+    fn backtrack(
+        self: *MyersDiff,
+        trace: *std.array_list.Managed([]isize),
+        d: usize,
+    ) ![]Edit {
+        var edits = std.array_list.Managed(Edit).init(self.allocator);
+        defer edits.deinit();
+
+        var x: isize = @intCast(self.old.len);
+        var y: isize = @intCast(self.new.len);
+        const offset = (trace.items[0].len - 1) / 2;
+
+        var depth = @as(isize, @intCast(d));
+        while (depth > 0) : (depth -= 1) {
+            const v = trace.items[@intCast(depth)];
+            const k = x - y;
+            const k_idx = @as(
+                usize,
+                @intCast(k + @as(isize, @intCast(offset))),
+            );
+
+            // determine which diagonal the previous path came from
+            const prev_k = if (k == -depth or
+                (k != depth and v[k_idx - 1] < v[k_idx + 1]))
+                k + 1
+            else
+                k - 1;
+
+            const prev_k_idx = @as(
+                usize,
+                @intCast(prev_k + @as(isize, @intCast(offset))),
+            );
+
+            const prev_x = v[prev_k_idx];
+            const prev_y = prev_x - prev_k;
+
+            // follow backwards
+            while (x > prev_x and y > prev_y) {
+                x -= 1;
+                y -= 1;
+
+                try edits.append(.{ .equal = .{
+                    .old_index = @intCast(x),
+                    .new_index = @intCast(y),
+                    .count = 1,
+                } });
+            }
+
+            // now at end of (D-1)-path, record the insert or delete
+            if (x == prev_x) {
+                // came from above (insert)
+                y -= 1;
+
+                try edits.append(
+                    .{ .insert = .{ .new_index = @intCast(y), .count = 1 } },
+                );
+            } else {
+                // came from left (delete)
+                x -= 1;
+
+                try edits.append(
+                    .{ .delete = .{ .old_index = @intCast(x), .count = 1 } },
+                );
+            }
+
+            x = prev_x;
+            y = prev_y;
+        }
+
+        // at depth 0, handle any remaining diagonal from (0,0) to (x,y)
+        while (x > 0 and y > 0) {
+            x -= 1;
+            y -= 1;
+
+            try edits.append(.{ .equal = .{
+                .old_index = @intCast(x),
+                .new_index = @intCast(y),
+                .count = 1,
+            } });
+        }
+
+        // reverse the edits since we built them backwards
+        const edits_slice = try edits.toOwnedSlice();
+        std.mem.reverse(Edit, edits_slice);
+
+        return try self.compactEdits(edits_slice);
+    }
+
+    fn compactEdits(self: *MyersDiff, edits: []Edit) ![]Edit {
+        // free edits at the end, even if we return early or error
+        errdefer self.allocator.free(edits);
+        defer self.allocator.free(edits);
+
+        if (edits.len == 0) return try self.allocator.alloc(Edit, 0);
+
+        var result = std.array_list.Managed(Edit).init(self.allocator);
+        errdefer result.deinit();
+
+        var i: usize = 0;
+        while (i < edits.len) {
+            const edit = edits[i];
+            switch (edit) {
+                .equal => |e| {
+                    var count = e.count;
+                    const first_idx = e.old_index;
+                    const first_new_idx = e.new_index;
+                    var j = i + 1;
+                    while (j < edits.len) : (j += 1) {
+                        if (edits[j] != .equal) break;
+                        const next = edits[j].equal;
+
+                        if (next.old_index != first_idx + count or
+                            next.new_index != first_new_idx + count) break;
+                        count += next.count;
+                    }
+                    try result.append(.{ .equal = .{
+                        .old_index = first_idx,
+                        .new_index = first_new_idx,
+                        .count = count,
+                    } });
+                    i = j;
+                },
+                .insert => |ins| {
+                    var count: usize = ins.count;
+                    const first_idx = ins.new_index;
+                    var j = i + 1;
+                    while (j < edits.len) : (j += 1) {
+                        if (edits[j] != .insert) break;
+
+                        const next = edits[j].insert;
+
+                        if (next.new_index != first_idx + count) break;
+
+                        count += next.count;
+                    }
+
+                    try result.append(.{ .insert = .{
+                        .new_index = first_idx,
+                        .count = count,
+                    } });
+
+                    i = j;
+                },
+                .delete => |del| {
+                    var count: usize = del.count;
+                    const first_idx = del.old_index;
+                    var j = i + 1;
+
+                    while (j < edits.len) : (j += 1) {
+                        if (edits[j] != .delete) break;
+
+                        const next = edits[j].delete;
+
+                        if (next.old_index != first_idx + count) break;
+
+                        count += next.count;
+                    }
+
+                    try result.append(.{ .delete = .{
+                        .old_index = first_idx,
+                        .count = count,
+                    } });
+
+                    i = j;
+                },
+            }
+        }
+
+        return try result.toOwnedSlice();
+    }
+};
+
+const Edit = union(enum) {
+    equal: struct { old_index: usize, new_index: usize, count: usize },
+    insert: struct { new_index: usize, count: usize },
+    delete: struct { old_index: usize, count: usize },
+};
 
 test parseCondition {
     {
@@ -1389,192 +1516,6 @@ test parseTag {
     try testing.expectError(TemplateError.InvalidTag, tag_invalid);
 }
 
-test parseBody {
-    {
-        const template =
-            \\content content content
-            \\{> endif <}
-        ;
-
-        const body = try parseBody(template, 0);
-
-        try testing.expectEqualStrings("content content content\n", body.slice);
-        try testing.expectEqual(@as(usize, 24), body.after);
-    }
-
-    {
-        const template_nested =
-            \\outer content
-            \\{> if SYSTEM.os == linux <}
-            \\inner content
-            \\{> endif <}
-            \\more outer
-            \\{> endif <}
-        ;
-
-        const body_nested = try parseBody(template_nested, 0);
-
-        const expected =
-            \\outer content
-            \\{> if SYSTEM.os == linux <}
-            \\inner content
-            \\{> endif <}
-            \\more outer
-            \\
-        ;
-
-        try testing.expectEqualStrings(expected, body_nested.slice);
-    }
-
-    {
-        const template_if =
-            \\content for if
-            \\{> elif SYSTEM.arch == arm64 <}
-            \\content for elif
-        ;
-
-        const body_if = try parseBody(template_if, 0);
-        try testing.expectEqualStrings("content for if\n", body_if.slice);
-    }
-
-    {
-        const template_else =
-            \\content for if
-            \\{> else <}
-            \\content for else
-        ;
-        const body_else = try parseBody(template_else, 0);
-        try testing.expectEqualStrings("content for if\n", body_else.slice);
-    }
-}
-
-test findAnchorLiteralFromTokens {
-    const allocator = testing.allocator;
-    {
-        const template =
-            \\{> if SYSTEM.os == foo <}
-            \\content
-            \\{> endif <}
-            \\anchor text here
-            \\{> if SYSTEM.arch == bar <}
-        ;
-
-        const tokens = try tokenize(allocator, template);
-        defer allocator.free(tokens);
-
-        const anchor = try findAnchorLiteralFromTokens(tokens, 1, template);
-        try testing.expectEqualStrings("\nanchor text here\n", anchor);
-    }
-
-    {
-        const template_nested =
-            \\{> if outer == true <}
-            \\{> if inner == true <}
-            \\inner content
-            \\{> endif <}
-            \\{> endif <}
-            \\final anchor
-        ;
-
-        const tokens_nested = try tokenize(allocator, template_nested);
-        defer allocator.free(tokens_nested);
-
-        const anchor_nested = try findAnchorLiteralFromTokens(tokens_nested, 1, template_nested);
-        try testing.expectEqualStrings("\nfinal anchor", anchor_nested);
-    }
-
-    {
-        const template_noanchor =
-            \\{> if SYSTEM.os == zoot <}
-            \\content
-            \\{> endif <}
-        ;
-
-        const tokens_noanchor = try tokenize(allocator, template_noanchor);
-        defer allocator.free(tokens_noanchor);
-
-        const anchor_without = try findAnchorLiteralFromTokens(tokens_noanchor, 1, template_noanchor);
-        try testing.expectEqualStrings("", anchor_without);
-    }
-
-    {
-        const template_missing_tag =
-            \\{> if SYSTEM.os == foo <}
-            \\content without endif tag
-        ;
-
-        const tokens = try tokenize(allocator, template_missing_tag);
-        defer allocator.free(tokens);
-
-        const result = findAnchorLiteralFromTokens(tokens, 1, template_missing_tag);
-        try testing.expectError(TemplateError.MissingEndTag, result);
-    }
-}
-
-test extractChangeChunk {
-    {
-        const rendered = "prefix changed content suffix unchanged";
-        const anchor_lit = " suffix unchanged";
-        const chunk = extractChangeChunk(rendered, 7, anchor_lit);
-
-        try testing.expectEqualStrings("changed content", chunk.slice);
-        try testing.expectEqual(@as(usize, 22), chunk.end);
-    }
-
-    {
-        const rendered_no_anch = "all content changed";
-        const anchor_lit_no_anch = "";
-        const chunk_no_anch = extractChangeChunk(rendered_no_anch, 4, anchor_lit_no_anch);
-
-        try testing.expectEqualStrings("content changed", chunk_no_anch.slice);
-        try testing.expectEqual(@as(usize, 19), chunk_no_anch.end);
-    }
-
-    {
-        const rendered_anchor_not_found = "content without the anchor";
-        const anchor_lit_not_found = "missing anchor";
-        const chunk_anchor_not_found = extractChangeChunk(rendered_anchor_not_found, 8, anchor_lit_not_found);
-
-        try testing.expectEqualStrings("without the anchor", chunk_anchor_not_found.slice);
-        try testing.expectEqual(@as(usize, 26), chunk_anchor_not_found.end);
-    }
-}
-
-test copyWithWhitespace {
-    {
-        var out = std.array_list.Managed(u8).init(testing.allocator);
-        defer out.deinit();
-
-        const body = "\n\r  original content  \n\r";
-        const change = "new content";
-
-        try copyWithWhitespace(&out, body, change);
-        try testing.expectEqualStrings("\n\rnew content\n\r", out.items);
-    }
-
-    {
-        var out_none = std.array_list.Managed(u8).init(testing.allocator);
-        defer out_none.deinit();
-
-        const body_none = "original";
-        const change_none = "new";
-
-        try copyWithWhitespace(&out_none, body_none, change_none);
-        try testing.expectEqualStrings("new", out_none.items);
-    }
-
-    {
-        var out_leading = std.array_list.Managed(u8).init(testing.allocator);
-        defer out_leading.deinit();
-
-        const body_leading = "\n\roriginal";
-        const change_leading = "new";
-
-        try copyWithWhitespace(&out_leading, body_leading, change_leading);
-        try testing.expectEqualStrings("\n\rnew", out_leading.items);
-    }
-}
-
 test normalizeTrailing {
     const result_add = try testing.allocator.dupe(u8, "content");
     const template_add = "template\n\r";
@@ -1668,36 +1609,6 @@ test evalCondition {
         const result = evalCondition(testing.allocator, condition);
         try testing.expectError(TemplateError.InvalidCondition, result);
     }
-}
-
-test reverseIfGroup {
-    const allocator = testing.allocator;
-
-    const template =
-        \\{> if SYSTEM.os == doom <}
-        \\content
-    ;
-
-    const tokens = try tokenize(allocator, template);
-    defer allocator.free(tokens);
-
-    var out = std.array_list.Managed(u8).init(allocator);
-    defer out.deinit();
-
-    const rendered = "content";
-    var rnd_i: usize = 0;
-
-    const result = reverseIfGroup(
-        allocator,
-        &out,
-        rendered,
-        &rnd_i,
-        template,
-        tokens,
-        0,
-    );
-
-    try testing.expectError(TemplateError.MissingEndTag, result);
 }
 
 test evalIfGroup {
@@ -2069,13 +1980,13 @@ test "mixed" {
     const template = std.fmt.allocPrint(
         testing.allocator,
         \\FOO
-        \\{{> if SYSTEM.os == foo <}}
+        \\#{{> if SYSTEM.os == foo <}}
         \\val="Foo"
-        \\{{> elif SYSTEM.os == {s} <}}
+        \\# {{> elif SYSTEM.os == {s} <}}
         \\val="Bar"
-        \\{{> else <}}
+        \\;;{{> else <}}
         \\val="Else"
-        \\{{> endif <}}
+        \\//{{> endif <}}
         \\
     ,
         .{os},
@@ -2085,7 +1996,11 @@ test "mixed" {
 
     const rendered_user_edit =
         \\BAR
+        \\#
         \\val="Zoot"
+        \\# 
+        \\;;
+        \\//
         \\
     ;
 
@@ -2095,13 +2010,13 @@ test "mixed" {
     const expected_template = std.fmt.allocPrint(
         testing.allocator,
         \\BAR
-        \\{{> if SYSTEM.os == foo <}}
+        \\#{{> if SYSTEM.os == foo <}}
         \\val="Foo"
-        \\{{> elif SYSTEM.os == {s} <}}
+        \\# {{> elif SYSTEM.os == {s} <}}
         \\val="Zoot"
-        \\{{> else <}}
+        \\;;{{> else <}}
         \\val="Else"
-        \\{{> endif <}}
+        \\//{{> endif <}}
         \\
     ,
         .{os},
