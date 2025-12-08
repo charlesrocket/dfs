@@ -892,6 +892,11 @@ const MyersDiff = struct {
         const m = self.new.len;
         const max_d = n + m;
 
+        // handle empty strings
+        if (n == 0 and m == 0) {
+            return try self.allocator.alloc(Edit, 0);
+        }
+
         var v = try self.allocator.alloc(isize, 2 * max_d + 1);
         defer self.allocator.free(v);
         @memset(v, 0);
