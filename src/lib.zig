@@ -2212,6 +2212,350 @@ test "blocks-mixed" {
     try std.testing.expectEqualStrings(render, expected);
 }
 
+test "myers" {
+    const allocator = testing.allocator;
+
+    // empty strings
+    {
+        var differ = MyersDiff.init(allocator, "", "");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 0), edits.len);
+    }
+
+    // empty old string
+    {
+        var differ = MyersDiff.init(allocator, "", "abc");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 1), edits.len);
+        try testing.expect(edits[0] == .insert);
+        try testing.expectEqual(@as(usize, 0), edits[0].insert.new_index);
+        try testing.expectEqual(@as(usize, 3), edits[0].insert.count);
+    }
+
+    // empty new string
+    {
+        var differ = MyersDiff.init(allocator, "abc", "");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 1), edits.len);
+        try testing.expect(edits[0] == .delete);
+        try testing.expectEqual(@as(usize, 0), edits[0].delete.old_index);
+        try testing.expectEqual(@as(usize, 3), edits[0].delete.count);
+    }
+
+    // identical strings
+    {
+        var differ = MyersDiff.init(allocator, "abc", "abc");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 1), edits.len);
+        try testing.expect(edits[0] == .equal);
+        try testing.expectEqual(@as(usize, 0), edits[0].equal.old_index);
+        try testing.expectEqual(@as(usize, 0), edits[0].equal.new_index);
+        try testing.expectEqual(@as(usize, 3), edits[0].equal.count);
+    }
+
+    // insertion at the middle
+    {
+        var differ = MyersDiff.init(allocator, "ac", "abc");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 3), edits.len);
+
+        // 'a' equal
+        try testing.expect(edits[0] == .equal);
+        try testing.expectEqual(@as(usize, 0), edits[0].equal.old_index);
+        try testing.expectEqual(@as(usize, 0), edits[0].equal.new_index);
+        try testing.expectEqual(@as(usize, 1), edits[0].equal.count);
+
+        // 'b' insert
+        try testing.expect(edits[1] == .insert);
+        try testing.expectEqual(@as(usize, 1), edits[1].insert.new_index);
+        try testing.expectEqual(@as(usize, 1), edits[1].insert.count);
+
+        // 'c' equal
+        try testing.expect(edits[2] == .equal);
+        try testing.expectEqual(@as(usize, 1), edits[2].equal.old_index);
+        try testing.expectEqual(@as(usize, 2), edits[2].equal.new_index);
+        try testing.expectEqual(@as(usize, 1), edits[2].equal.count);
+    }
+
+    // deletion from the middle
+    {
+        var differ = MyersDiff.init(allocator, "abc", "ac");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 3), edits.len);
+
+        // 'a' equal
+        try testing.expect(edits[0] == .equal);
+        try testing.expectEqual(@as(usize, 0), edits[0].equal.old_index);
+        try testing.expectEqual(@as(usize, 0), edits[0].equal.new_index);
+        try testing.expectEqual(@as(usize, 1), edits[0].equal.count);
+
+        // 'b' delete
+        try testing.expect(edits[1] == .delete);
+        try testing.expectEqual(@as(usize, 1), edits[1].delete.old_index);
+        try testing.expectEqual(@as(usize, 1), edits[1].delete.count);
+
+        // 'c' equal
+        try testing.expect(edits[2] == .equal);
+        try testing.expectEqual(@as(usize, 2), edits[2].equal.old_index);
+        try testing.expectEqual(@as(usize, 1), edits[2].equal.new_index);
+        try testing.expectEqual(@as(usize, 1), edits[2].equal.count);
+    }
+
+    // insertion at the beginning
+    {
+        var differ = MyersDiff.init(allocator, "bc", "abc");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 2), edits.len);
+
+        // insert 'a'
+        try testing.expect(edits[0] == .insert);
+        try testing.expectEqual(@as(usize, 0), edits[0].insert.new_index);
+        try testing.expectEqual(@as(usize, 1), edits[0].insert.count);
+
+        // 'bc' equal
+        try testing.expect(edits[1] == .equal);
+        try testing.expectEqual(@as(usize, 0), edits[1].equal.old_index);
+        try testing.expectEqual(@as(usize, 1), edits[1].equal.new_index);
+        try testing.expectEqual(@as(usize, 2), edits[1].equal.count);
+    }
+
+    // deletion at the beginning
+    {
+        var differ = MyersDiff.init(allocator, "abc", "bc");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 2), edits.len);
+
+        // Delete 'a'
+        try testing.expect(edits[0] == .delete);
+        try testing.expectEqual(@as(usize, 0), edits[0].delete.old_index);
+        try testing.expectEqual(@as(usize, 1), edits[0].delete.count);
+
+        // 'bc' equal
+        try testing.expect(edits[1] == .equal);
+        try testing.expectEqual(@as(usize, 1), edits[1].equal.old_index);
+        try testing.expectEqual(@as(usize, 0), edits[1].equal.new_index);
+        try testing.expectEqual(@as(usize, 2), edits[1].equal.count);
+    }
+
+    // insertion at the end
+    {
+        var differ = MyersDiff.init(allocator, "ab", "abc");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 2), edits.len);
+
+        // 'ab' equal
+        try testing.expect(edits[0] == .equal);
+        try testing.expectEqual(@as(usize, 0), edits[0].equal.old_index);
+        try testing.expectEqual(@as(usize, 0), edits[0].equal.new_index);
+        try testing.expectEqual(@as(usize, 2), edits[0].equal.count);
+
+        // insert 'c'
+        try testing.expect(edits[1] == .insert);
+        try testing.expectEqual(@as(usize, 2), edits[1].insert.new_index);
+        try testing.expectEqual(@as(usize, 1), edits[1].insert.count);
+    }
+
+    // deletion at the end
+    {
+        var differ = MyersDiff.init(allocator, "abc", "ab");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 2), edits.len);
+
+        // 'ab' equal
+        try testing.expect(edits[0] == .equal);
+        try testing.expectEqual(@as(usize, 0), edits[0].equal.old_index);
+        try testing.expectEqual(@as(usize, 0), edits[0].equal.new_index);
+        try testing.expectEqual(@as(usize, 2), edits[0].equal.count);
+
+        // delete 'c'
+        try testing.expect(edits[1] == .delete);
+        try testing.expectEqual(@as(usize, 2), edits[1].delete.old_index);
+        try testing.expectEqual(@as(usize, 1), edits[1].delete.count);
+    }
+
+    // multiple insertions and deletions
+    {
+        var differ = MyersDiff.init(allocator, "abcdef", "aXbYcZdef");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        // should compact consecutive operations
+        // 'a' equal, 'X' insert, 'b' equal, 'Y' insert,
+        // 'c' equal, 'Z' insert, 'def' equal
+        var equal_count: usize = 0;
+        var insert_count: usize = 0;
+
+        for (edits) |edit| {
+            switch (edit) {
+                .equal => equal_count += 1,
+                .insert => insert_count += 1,
+                .delete => {},
+            }
+        }
+
+        try testing.expect(equal_count >= 4);
+        try testing.expect(insert_count >= 3);
+    }
+
+    // identical characters
+    {
+        var differ = MyersDiff.init(allocator, "x", "x");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 1), edits.len);
+        try testing.expect(edits[0] == .equal);
+        try testing.expectEqual(@as(usize, 1), edits[0].equal.count);
+    }
+
+    // non-indentical characters
+    {
+        var differ = MyersDiff.init(allocator, "a", "b");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 2), edits.len);
+        try testing.expect(edits[0] == .delete);
+        try testing.expect(edits[1] == .insert);
+    }
+
+    // different strings
+    {
+        var differ = MyersDiff.init(allocator, "abc", "xyz");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 2), edits.len);
+
+        // Delete 'abc'
+        try testing.expect(edits[0] == .delete);
+        try testing.expectEqual(@as(usize, 0), edits[0].delete.old_index);
+        try testing.expectEqual(@as(usize, 3), edits[0].delete.count);
+
+        // Insert 'xyz'
+        try testing.expect(edits[1] == .insert);
+        try testing.expectEqual(@as(usize, 0), edits[1].insert.new_index);
+        try testing.expectEqual(@as(usize, 3), edits[1].insert.count);
+    }
+
+    // no common characters
+    {
+        var differ = MyersDiff.init(allocator, "aaa", "bbb");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        try testing.expectEqual(@as(usize, 2), edits.len);
+        try testing.expect(edits[0] == .delete);
+        try testing.expectEqual(@as(usize, 3), edits[0].delete.count);
+        try testing.expect(edits[1] == .insert);
+        try testing.expectEqual(@as(usize, 3), edits[1].insert.count);
+    }
+
+    // common characters
+    {
+        var differ = MyersDiff.init(allocator, "aaaa", "aaa");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        // should have an equal section and a delete
+        var has_equal = false;
+        var has_delete = false;
+
+        for (edits) |edit| {
+            switch (edit) {
+                .equal => has_equal = true,
+                .delete => has_delete = true,
+                .insert => {},
+            }
+        }
+
+        try testing.expect(has_equal);
+        try testing.expect(has_delete);
+    }
+
+    // strings with mixed operations
+    {
+        const old = "ABCABBA";
+        const new = "CBABAC";
+
+        var differ = MyersDiff.init(allocator, "ABCABBA", "CBABAC");
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        var result = std.array_list.Managed(u8).init(allocator);
+        defer result.deinit();
+
+        for (edits) |edit| {
+            switch (edit) {
+                .equal => |e| {
+                    for (0..e.count) |i| {
+                        try result.append(old[e.old_index + i]);
+                    }
+                },
+                .insert => |ins| {
+                    for (0..ins.count) |i| {
+                        try result.append(new[ins.new_index + i]);
+                    }
+                },
+                .delete => {},
+            }
+        }
+
+        try testing.expectEqualStrings(new, result.items);
+    }
+
+    // reconstruction correctness
+    {
+        const old = "The quick brown fox";
+        const new = "The slow brown dog";
+
+        var differ = MyersDiff.init(allocator, old, new);
+        const edits = try differ.diff();
+        defer allocator.free(edits);
+
+        var result = std.array_list.Managed(u8).init(allocator);
+        defer result.deinit();
+
+        for (edits) |edit| {
+            switch (edit) {
+                .equal => |e| {
+                    for (0..e.count) |i| {
+                        try result.append(old[e.old_index + i]);
+                    }
+                },
+                .insert => |ins| {
+                    for (0..ins.count) |i| {
+                        try result.append(new[ins.new_index + i]);
+                    }
+                },
+                .delete => {},
+            }
+        }
+
+        try testing.expectEqualStrings(new, result.items);
+    }
+}
+
 const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
