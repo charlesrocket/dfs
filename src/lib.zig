@@ -669,19 +669,6 @@ fn trimTrailingNewlines(s: []const u8) []const u8 {
     return s[0..end];
 }
 
-fn splitLines(allocator: std.mem.Allocator, text: []const u8) ![][]const u8 {
-    var lines = std.array_list.Managed([]const u8).init(allocator);
-    defer lines.deinit();
-
-    var it = std.mem.splitScalar(u8, text, '\n');
-
-    while (it.next()) |line| {
-        try lines.append(line);
-    }
-
-    return try lines.toOwnedSlice();
-}
-
 /// Contains the error type with a message and the coordinates.
 pub const ValidationInfo = struct {
     err: TemplateError,
