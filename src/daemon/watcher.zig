@@ -469,6 +469,7 @@ fn watchPoll(
     while (active.*) {
         if (elapsed_ms >= self.poll_interval_ms) {
             elapsed_ms = 0;
+            try self.recheckMissingFiles();
 
             const has_changes = try self.checkForChanges();
 
