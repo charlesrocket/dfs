@@ -444,6 +444,19 @@ fn recheckMissingFiles(self: *Watcher) !void {
             }
         }
     }
+
+    if (self.mode == .polling) {
+        for (self.files.items) |*item| {
+            // skip files that already have mtime
+            if (item.mtime != 0) continue;
+
+            // try to stat the file
+            const stat = std.fs.cwd().statFile(item.path) catch continue;
+
+            // file now exists, update its mtime
+            item.mtime = stat.mtime;
+        }
+    }
 }
 
 fn startPoll(
