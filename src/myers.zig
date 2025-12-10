@@ -263,6 +263,18 @@ fn compactEdits(self: *MyersDiff, edits: []Edit) ![]Edit {
     return try result.toOwnedSlice();
 }
 
+test diff {
+    const allocator = testing.allocator;
+    const old = "test";
+    const new = "example";
+
+    var differ = MyersDiff.init(allocator, old, new);
+    const edits = try differ.diff();
+    defer allocator.free(edits);
+
+    try testing.expectEqual(4, edits.len);
+}
+
 test "empty strings" {
     const allocator = testing.allocator;
     var differ = MyersDiff.init(allocator, "", "");
