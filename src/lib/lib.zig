@@ -1,7 +1,7 @@
 //! LIBDFS
 //!
 //! This is a template engine with reverse translation capability.
-//! Render changes are mapped via the Myers difference algorithm.
+//! Translations are mapped via the Myers difference algorithm.
 
 // {> x <}
 pub const TAG_START = "{>";
@@ -1948,5 +1948,5 @@ test "blocks-mixed" {
 
 const std = @import("std");
 const builtin = @import("builtin");
-const Myers = @import("myers.zig");
+pub const Myers = @import("myers.zig");
 const testing = std.testing;

@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const build_options = b.addOptions();
 
     const lib_mod = b.addModule("libdfs", .{
-        .root_source_file = b.path("src/lib.zig"),
+        .root_source_file = b.path("src/lib/lib.zig"),
         .target = target,
         .optimize = optimize,
     });

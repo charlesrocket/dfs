@@ -1,4 +1,4 @@
-//! Myers' diff algorithm.
+//! Myers diff algorithm.
 
 const String = union(enum) {
     bytes: []const u8,
