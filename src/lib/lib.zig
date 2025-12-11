@@ -1699,6 +1699,83 @@ test "back-no_template" {
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
+test "complex" {
+    const os = @tagName(builtin.target.os.tag);
+    const arch = @tagName(builtin.cpu.arch);
+    var allocator = std.testing.allocator;
+
+    const template = std.fmt.allocPrint(
+        testing.allocator,
+        \\FOO
+        \\# {{> if SYSTEM.os == foo <}}
+        \\val="Foo"
+        \\# {{> elif SYSTEM.os == {s} <}}
+        \\val="Bar"
+        \\# {{> else <}}
+        \\val="Else"
+        \\# {{> endif <}}
+        \\ Test
+        \\# {{> if SYSTEM.arch == {s} <}}
+        \\test_val=23
+        \\# {{> elif SYSTEM.arch == foo <}}
+        \\test_val=0
+        \\# {{> else <}}
+        \\test_val=13
+        \\# {{> endif <}}
+        \\
+    ,
+        .{ os, arch },
+    ) catch unreachable;
+
+    defer testing.allocator.free(template);
+
+    const rendered_user_edit =
+        \\BAR
+        \\# 
+        \\val="Zoot"
+        \\# 
+        \\# 
+        \\# 
+        \\ Test
+        \\# 
+        \\test_val=66
+        \\# 
+        \\# 
+        \\# 
+        \\
+    ;
+
+    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    defer allocator.free(reversed);
+
+    const expected_template = std.fmt.allocPrint(
+        testing.allocator,
+        \\BAR
+        \\# {{> if SYSTEM.os == foo <}}
+        \\val="Foo"
+        \\# {{> elif SYSTEM.os == {s} <}}
+        \\val="Zoot"
+        \\# {{> else <}}
+        \\val="Else"
+        \\# {{> endif <}}
+        \\ Test
+        \\# {{> if SYSTEM.arch == {s} <}}
+        \\test_val=66
+        \\# {{> elif SYSTEM.arch == foo <}}
+        \\test_val=0
+        \\# {{> else <}}
+        \\test_val=13
+        \\# {{> endif <}}
+        \\
+    ,
+        .{ os, arch },
+    ) catch unreachable;
+
+    defer testing.allocator.free(expected_template);
+
+    try std.testing.expectEqualStrings(expected_template, reversed);
+}
+
 test "mixed" {
     const os = @tagName(builtin.target.os.tag);
     var allocator = std.testing.allocator;
