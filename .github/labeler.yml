@@ -34,7 +34,11 @@ core:
 
 engine:
 - changed-files:
-  - any-glob-to-any-file: 'src/lib.zig'
+  - any-glob-to-any-file: 'src/lib/**/*'
+
+myers:
+- changed-files:
+  - any-glob-to-any-file: 'src/lib/myers.zig'
 
 test:
 - changed-files:
