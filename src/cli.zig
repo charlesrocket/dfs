@@ -103,7 +103,7 @@ pub const setup_cmd: CommandT = .{
     \\    TEMPLATE SYNTAX:
     \\
     \\
-++ Syntax.getSummary(CommandT.indent_fmt),
+++ Syntax.getSyntax(CommandT.indent_fmt),
 .examples = &.{
     "dfs init -h",
 },

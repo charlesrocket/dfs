@@ -186,7 +186,7 @@ fn generateExamplesSection() []const u8 {
     }
 }
 
-const summary_text = summ: {
+const syntax_text = summ: {
     const tag_delimiters = "Tag delimiters:\n" ++
         "  " ++ TAG_START ++ " ... " ++ TAG_END ++ "    Template tag markers\n";
 
@@ -251,21 +251,21 @@ fn indentText(
     }
 }
 
-pub fn getSummary(comptime indent: []const u8) []const u8 {
-    return comptime indentText(summary_text, indent);
+pub fn getSyntax(comptime indent: []const u8) []const u8 {
+    return comptime indentText(syntax_text, indent);
 }
 
-test getSummary {
-    const summary = getSummary("");
-    try std.testing.expect(summary.len > 0);
+test getSyntax {
+    const syntax = getSyntax("");
+    try std.testing.expect(syntax.len > 0);
 }
 
-test "summary with indent" {
-    const summary = getSummary("    ");
+test "syntax with indent" {
+    const syntax = getSyntax("    ");
 
-    try std.testing.expect(summary.len > 0);
+    try std.testing.expect(syntax.len > 0);
 
-    var iter = std.mem.splitScalar(u8, summary, '\n');
+    var iter = std.mem.splitScalar(u8, syntax, '\n');
     var line_count: usize = 0;
 
     while (iter.next()) |line| {
@@ -279,12 +279,12 @@ test "summary with indent" {
     try std.testing.expect(line_count > 1);
 }
 
-test "summary with tab indent" {
-    const summary = getSummary("\t");
+test "syntax with tab indent" {
+    const syntax = getSyntax("\t");
 
-    try std.testing.expect(summary.len > 0);
+    try std.testing.expect(syntax.len > 0);
 
-    var iter = std.mem.splitScalar(u8, summary, '\n');
+    var iter = std.mem.splitScalar(u8, syntax, '\n');
 
     while (iter.next()) |line| {
         if (line.len > 0) {
