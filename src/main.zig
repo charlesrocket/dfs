@@ -321,11 +321,7 @@ pub fn main() !void {
         _ = try core.stdout.write("\n");
     } else {
         if (sync_cmd) {
-            try core.stdout.print("\n{s}{s}SUMMARY{s}\n", .{
-                Cli.bold,
-                Cli.reverse,
-                Cli.reset,
-            });
+            _ = try core.stdout.write("\n");
 
             try core.stdout.print("TOTAL: {s}{d}{s}\n", .{
                 Cli.underline,
