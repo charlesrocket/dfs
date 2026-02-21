@@ -316,6 +316,72 @@ pub fn applyTemplate(
     return try interpret(allocator, tokens);
 }
 
+fn generateSegments(
+    allocator: std.mem.Allocator,
+    template: []const u8,
+) !std.array_list.Managed([]const u8) {
+    var segments = std.array_list.Managed([]const u8).init(allocator);
+    errdefer segments.deinit();
+
+    var start: usize = 0;
+    var i: usize = 0;
+    var depth: usize = 0; // track nested if blocks
+
+    while (i < template.len) {
+        // look for the start of a tag
+        if (std.mem.startsWith(u8, template[i..], TAG_START)) {
+            // parse the tag to get its content
+            const tag = parseTag(template, i) catch {
+                // if we cannot parse the tag, just treat it as text
+                i += 1;
+
+                continue;
+            };
+
+            const tag_content = trimTag(tag.raw);
+
+            // update depth based on tag type
+            if (std.mem.startsWith(u8, tag_content, "if")) {
+                depth += 1;
+                // ff this is the start of a top-level if block
+                if (depth == 1) {
+                    // end the current literal segment if we have one
+                    if (start < i) {
+                        try segments.append(template[start..i]);
+                    }
+
+                    start = i; // start a new segment at the if tag
+                }
+            } else if (std.mem.eql(u8, tag_content, "endif")) {
+                if (depth > 0) {
+                    depth -= 1;
+                    // if we have closed a top-level if block
+                    if (depth == 0) {
+                        // End the current segment at the end of the endif tag
+                        try segments.append(template[start..tag.after]);
+                        start = tag.after; // Start next segment after endif
+                    }
+                }
+            } else if (depth == 0) {
+                // we are at the top level and found a non-if tag
+                // (should not happen in a valid template), so
+                // skip it and continue
+            }
+
+            i = tag.after;
+        } else {
+            i += 1;
+        }
+    }
+
+    // add any remaining text as a final segment
+    if (start < template.len) {
+        try segments.append(template[start..]);
+    }
+
+    return segments;
+}
+
 /// Translates the rendered file back to the template and returns the result.
 /// The caller owns the returned memory.
 pub fn reverseTemplate(
@@ -323,263 +389,298 @@ pub fn reverseTemplate(
     render: []const u8,
     template: []const u8,
 ) ![]const u8 {
-    const tokens = try tokenize(allocator, template);
-    defer allocator.free(tokens);
+    var segments = try generateSegments(allocator, template);
+    defer segments.deinit();
 
-    if (!hasAnyConditionals(tokens)) {
-        const result = try allocator.dupe(u8, render);
-        return try normalizeTrailing(allocator, result, template);
-    }
-
-    // get the original render from the template
     const original_render = try applyTemplate(allocator, template);
     defer allocator.free(original_render);
 
-    // diff the original render against the edited render
-    const edits = try Myers.diff(allocator, original_render, render);
-    defer allocator.free(edits);
+    var render_map = std.array_list.Managed(struct {
+        segment: []const u8,
+        rendered: []const u8,
+    }).init(allocator);
+    defer {
+        for (render_map.items) |item| {
+            allocator.free(item.rendered);
+        }
+        render_map.deinit();
+    }
 
-    // build replacement maps
-    var replacements = try allocator.alloc(u8, original_render.len);
-    defer allocator.free(replacements);
-    var replacement_valid = try allocator.alloc(bool, original_render.len);
-    defer allocator.free(replacement_valid);
-    @memset(replacement_valid, false);
+    for (segments.items) |segment| {
+        const rendered = try applyTemplate(allocator, segment);
+        try render_map.append(.{
+            .segment = segment,
+            .rendered = rendered,
+        });
+    }
 
-    var insertions = std.AutoHashMap(usize, []const u8).init(allocator);
+    const diff = try Myers.diff(allocator, original_render, render);
+    defer allocator.free(diff);
+
+    // build position mappings (do not map deleted positions)
+    var pos_map = std.AutoHashMap(usize, usize).init(allocator);
+    defer pos_map.deinit();
+
+    var insertions = std.array_list.Managed(struct {
+        orig_pos: usize,
+        new_index: usize,
+        count: usize,
+    }).init(allocator);
     defer insertions.deinit();
 
-    // build deletion tracking and process all edits
-    var had_deletion = try allocator.alloc(bool, original_render.len);
-    defer allocator.free(had_deletion);
-    @memset(had_deletion, false);
+    var old_pos: usize = 0;
+    var new_pos: usize = 0;
 
-    var old_pos_tracker: usize = 0;
-
-    for (edits) |edit| {
-        switch (edit) {
-            .equal => |e| {
-                if (e.old_index != old_pos_tracker) {
-                    old_pos_tracker = e.old_index;
+    for (diff) |op| {
+        switch (op) {
+            .equal => |eq| {
+                var i: usize = 0;
+                while (i < eq.count) : (i += 1) {
+                    try pos_map.put(old_pos + i, new_pos + i);
                 }
-
-                for (0..e.count) |i| {
-                    const old_pos = e.old_index + i;
-                    const new_pos = e.new_index + i;
-                    replacements[old_pos] = render[new_pos];
-                    replacement_valid[old_pos] = true;
-                }
-
-                old_pos_tracker = e.old_index + e.count;
+                old_pos += eq.count;
+                new_pos += eq.count;
             },
-            .delete => |d| {
-                if (d.old_index != old_pos_tracker) {
-                    old_pos_tracker = d.old_index;
-                }
-
-                for (0..d.count) |i| {
-                    const pos = d.old_index + i;
-                    replacement_valid[pos] = false;
-                    if (pos < had_deletion.len) {
-                        had_deletion[pos] = true;
-                    }
-                }
-
-                // mark the position after deletion too
-                // (where insertion goes)
-                const after_pos = d.old_index + d.count;
-
-                if (after_pos < had_deletion.len) {
-                    had_deletion[after_pos] = true;
-                }
-
-                old_pos_tracker = after_pos;
+            .delete => |del| {
+                // deleted positions don't exist in the new render
+                old_pos += del.count;
             },
             .insert => |ins| {
-                const insert_text =
-                    render[ins.new_index .. ins.new_index + ins.count];
-
-                try insertions.put(old_pos_tracker, insert_text);
+                // track insertions separately
+                try insertions.append(.{
+                    .orig_pos = old_pos,
+                    .new_index = ins.new_index,
+                    .count = ins.count,
+                });
+                new_pos += ins.count;
             },
         }
     }
 
-    var ctx = ReverseContext{
-        .allocator = allocator,
-        .replacements = replacements,
-        .replacement_valid = replacement_valid,
-        .insertions = &insertions,
-        .had_deletion = had_deletion,
-        .old_pos = 0,
-    };
+    var result = std.array_list.Managed(u8).init(allocator);
+    defer result.deinit();
 
-    var out = std.array_list.Managed(u8).init(allocator);
-    defer out.deinit();
+    // track which original positions had deletions
+    var deleted_positions = std.AutoHashMap(usize, void).init(allocator);
+    defer deleted_positions.deinit();
 
-    try reverseTokens(tokens, &ctx, &out);
-
-    const result = try out.toOwnedSlice();
-    return try normalizeTrailing(allocator, result, template);
-}
-
-const ReverseContext = struct {
-    allocator: std.mem.Allocator,
-    replacements: []u8,
-    replacement_valid: []bool,
-    had_deletion: []bool,
-    insertions: *std.AutoHashMap(usize, []const u8),
-    old_pos: usize,
-};
-
-fn reverseTokens(
-    tokens: []Token,
-    ctx: *ReverseContext,
-    out: *std.array_list.Managed(u8),
-) !void {
-    var i: usize = 0;
-    while (i < tokens.len) {
-        switch (tokens[i]) {
-            .text => |text| {
-                try applyReplacements(text, ctx, out);
-                i += 1;
-            },
-            .tag => |tag_info| {
-                if (std.mem.startsWith(u8, tag_info.content, "if")) {
-                    i = try reverseIfBlock(tokens, i, ctx, out);
-                } else {
-                    return TemplateError.InvalidTag;
+    var check_old_pos: usize = 0;
+    for (diff) |op| {
+        switch (op) {
+            .equal => |eq| check_old_pos += eq.count,
+            .delete => |del| {
+                var k: usize = 0;
+                while (k < del.count) : (k += 1) {
+                    try deleted_positions.put(check_old_pos + k, {});
                 }
+                check_old_pos += del.count;
             },
+            .insert => {},
         }
     }
-}
 
-fn applyReplacements(
-    text: []const u8,
-    ctx: *ReverseContext,
-    out: *std.array_list.Managed(u8),
-) !void {
-    const start_pos = ctx.old_pos;
-    const end_pos = start_pos + text.len;
+    var original_pos: usize = 0;
 
-    // determine the actual end of the rendered content for this block
-    const render_end = @min(end_pos, ctx.replacement_valid.len);
+    for (render_map.items) |map| {
+        const seg_orig_start = original_pos;
+        const seg_orig_end = original_pos + map.rendered.len;
 
-    // if the template text starts with a newline, always output it
-    // (newlines after tags are structural and should always be preserved)
-    var i: usize = 0;
-    if (text.len > 0 and text[0] == '\n') {
-        // check for an insertion at position 0 (always allowed)
-        if (start_pos < render_end) {
-            if (ctx.insertions.get(start_pos)) |insert_text| {
-                try out.appendSlice(insert_text);
+        // collect edited positions that map from this segment
+        var reverse_map = std.AutoHashMap(usize, void).init(allocator);
+        defer reverse_map.deinit();
+
+        var i: usize = seg_orig_start;
+        while (i < seg_orig_end) : (i += 1) {
+            if (pos_map.get(i)) |mapped_pos| {
+                try reverse_map.put(mapped_pos, {});
             }
         }
 
-        try out.append('\n');
-        i = 1;
-    }
+        // add insertions that replace deleted content in this segment
+        for (insertions.items) |ins| {
 
-    // for each remaining byte position
-    while (i < text.len) : (i += 1) {
-        const old_pos = start_pos + i;
+            // simplified: orig_pos > seg_orig_start AND orig_pos <= seg_orig_end
+            // covers both interior and the seg_end boundary (prev-char rule) and
+            // orig_pos == seg_orig_start is handled below by has_prior_deletion only
+            var has_prior_deletion = false;
+            if (deleted_positions.contains(ins.orig_pos)) has_prior_deletion = true;
+            if (ins.orig_pos > 0 and deleted_positions.contains(ins.orig_pos - 1)) has_prior_deletion = true;
 
-        // check if we're beyond the rendered content for this block
-        if (old_pos >= render_end) {
-            // output the remaining template raw
-            try out.appendSlice(text[i..]);
-            break;
-        }
+            // an insertion at orig_pos belongs to this segment if:
+            // * strictly inside: seg_start < orig_pos < seg_end
+            // * at seg_end boundary (prev-char rule): orig_pos == seg_end
+            // * at seg_start boundary: orig_pos == seg_start AND has adjacent deletion
+            // (disambiguates: the deletion is within this segment, so the replacement belongs here)
+            const strictly_inside = ins.orig_pos > seg_orig_start and ins.orig_pos < seg_orig_end;
+            const at_end_boundary = ins.orig_pos == seg_orig_end;
+            // at start boundary: only claim if the triggering deletion is within this segment
+            const deletion_in_seg = deleted_positions.contains(ins.orig_pos) or
+                (ins.orig_pos > 0 and deleted_positions.contains(ins.orig_pos - 1) and
+                    ins.orig_pos - 1 >= seg_orig_start);
 
-        // check for an insertion at this position
-        const is_valid = ctx.replacement_valid[old_pos];
-        const prev_pos = if (old_pos > start_pos) old_pos - 1 else old_pos;
-        const prev_valid = if (prev_pos < ctx.replacement_valid.len and
-            ctx.replacement_valid[prev_pos])
-            (ctx.replacements[prev_pos] != '\n')
-        else
-            false;
+            const at_start_boundary = ins.orig_pos == seg_orig_start and deletion_in_seg;
+            if (!strictly_inside and !at_end_boundary and !at_start_boundary) continue;
 
-        // check if we got past a newline in the template
-        const after_template_newline = (i > 0 and text[i - 1] == '\n');
+            // for insertions without adjacent deletion (pure additions), only include
+            // if they are "inline" -- both neighboring chars in original_render are
+            // non-whitespace. This captures value extensions like "test0"->"test0-back"
+            // but excludes between-line additions like inserting "# \n" before ";;"
+            if (!has_prior_deletion and strictly_inside) {
+                const prev_is_ws = ins.orig_pos == 0 or blk: {
+                    const c = original_render[ins.orig_pos - 1];
+                    break :blk c == ' ' or c == '\t' or c == '\n' or c == '\r';
+                };
+                const next_is_ws = ins.orig_pos >= original_render.len or blk: {
+                    const c = original_render[ins.orig_pos];
+                    break :blk c == ' ' or c == '\t' or c == '\n' or c == '\r';
+                };
+                if (prev_is_ws or next_is_ws) {
+                    continue;
+                }
+            }
 
-        // apply an insertion if valid conditions
-        // are met, but not after a newline
-        if (!after_template_newline and
-            (is_valid or prev_valid or
-                (old_pos < ctx.had_deletion.len and ctx.had_deletion[old_pos])))
-        {
-            if (ctx.insertions.get(old_pos)) |insert_text| {
-                try out.appendSlice(insert_text);
-                _ = ctx.insertions.remove(old_pos);
+            var j: usize = 0;
+            while (j < ins.count) : (j += 1) {
+                try reverse_map.put(ins.new_index + j, {});
             }
         }
 
-        // output the character if is a valid one (not deleted)
-        if (is_valid) {
-            try out.append(ctx.replacements[old_pos]);
-        } else if (text[i] == '\n') {
-            // TODO
-            try out.append('\n');
-        }
-    }
+        // extract the content from reverse_map (only positions that are mapped)
+        const edited_content = if (reverse_map.count() > 0) blk: {
+            var min_pos: usize = std.math.maxInt(usize);
+            var max_pos: usize = 0;
+            var iter = reverse_map.keyIterator();
+            while (iter.next()) |pos| {
+                min_pos = @min(min_pos, pos.*);
+                max_pos = @max(max_pos, pos.*);
+            }
 
-    ctx.old_pos = end_pos;
-}
+            // extract only characters that are in reverse_map
+            var chars = std.array_list.Managed(u8).init(allocator);
+            defer chars.deinit();
+            var pos: usize = min_pos;
+            while (pos <= max_pos) : (pos += 1) {
+                if (reverse_map.contains(pos)) {
+                    try chars.append(render[pos]);
+                }
+            }
 
-fn reverseIfBlock(
-    tokens: []Token,
-    start: usize,
-    ctx: *ReverseContext,
-    out: *std.array_list.Managed(u8),
-) !usize {
-    var i = start;
-    var branch_taken = false;
+            break :blk try chars.toOwnedSlice();
+        } else "";
 
-    while (i < tokens.len) {
-        const tag_info = switch (tokens[i]) {
-            .tag => |t| t,
-            else => return TemplateError.InvalidToken,
-        };
+        defer allocator.free(edited_content);
 
-        try out.appendSlice(TAG_START);
-        try out.appendSlice(tag_info.raw);
-        try out.appendSlice(TAG_END);
+        // update template
+        const is_whitespace_only = for (map.rendered) |c| {
+            if (c != '\n' and c != '\r' and c != ' ' and c != '\t') break false;
+        } else true;
 
-        if (std.mem.eql(u8, tag_info.content, "endif")) {
-            return i + 1;
-        }
-
-        i += 1;
-
-        var body: []const u8 = &[_]u8{};
-        var has_body = false;
-
-        if (i < tokens.len and tokens[i] == .text) {
-            body = tokens[i].text;
-            has_body = true;
-        }
-
-        const branch = try evalBranch(
-            ctx.allocator,
-            tag_info.content,
-            branch_taken,
-        );
-
-        if (branch.active) {
-            branch_taken = true;
-            // this branch was rendered—apply replacements
-            try applyReplacements(body, ctx, out);
+        if (std.mem.eql(u8, map.rendered, edited_content)) {
+            try result.appendSlice(map.segment);
+        } else if (std.mem.indexOf(u8, map.segment, TAG_START) == null and is_whitespace_only) {
+            // whitespace-only plain-text separators between conditional
+            // blocks are structural template text
+            try result.appendSlice(map.segment);
+        } else if (std.mem.indexOf(u8, map.segment, TAG_START) == null) {
+            try result.appendSlice(edited_content);
         } else {
-            // this branch was not rendered—keep the original
-            // and do not advance old_pos
-            try out.appendSlice(body);
+            const updated = try reverseTranslateConditional(
+                allocator,
+                map.segment,
+                map.rendered,
+                edited_content,
+            );
+            defer allocator.free(updated);
+            try result.appendSlice(updated);
         }
 
-        if (has_body) i += 1;
+        original_pos = seg_orig_end;
     }
 
-    return TemplateError.MissingEndTag;
+    return result.toOwnedSlice();
+}
+
+fn reverseTranslateConditional(
+    allocator: std.mem.Allocator,
+    segment: []const u8,
+    original_rendered: []const u8,
+    new_rendered: []const u8,
+) ![]const u8 {
+    const tokens = try tokenize(allocator, segment);
+    defer allocator.free(tokens);
+
+    // find the active branch by matching rendered content
+    var active_content_start: ?usize = null;
+    var active_content_end: ?usize = null;
+
+    var i: usize = 0;
+    while (i < tokens.len) {
+        if (tokens[i] == .tag) {
+            const tag = tokens[i].tag;
+            if (std.mem.startsWith(u8, tag.content, "if") or
+                std.mem.startsWith(u8, tag.content, "elif") or
+                std.mem.eql(u8, tag.content, "else"))
+            {
+                const content_start = tag.end;
+
+                var content_end = segment.len;
+                var j = i + 1;
+                while (j < tokens.len) {
+                    if (tokens[j] == .tag) {
+                        content_end = tokens[j].tag.start;
+                        break;
+                    }
+                    j += 1;
+                }
+
+                const branch_template = segment[content_start..content_end];
+                const branch_rendered = try applyTemplate(allocator, branch_template);
+                defer allocator.free(branch_rendered);
+
+                if (std.mem.eql(u8, branch_rendered, original_rendered)) {
+                    active_content_start = content_start;
+                    active_content_end = content_end;
+                    break;
+                }
+            }
+        }
+        i += 1;
+    }
+
+    if (active_content_start) |start| {
+        const end = active_content_end.?;
+        const original_body = segment[start..end];
+        var result = std.array_list.Managed(u8).init(allocator);
+        defer result.deinit();
+
+        try result.appendSlice(segment[0..start]);
+
+        // re-inject leading newline(s) if the original body had them but
+        // new_rendered doesn't (they were stripped by the diff mapping)
+        var lead: usize = 0;
+        while (lead < original_body.len and original_body[lead] == '\n') : (lead += 1) {}
+        if (lead > 0 and (new_rendered.len == 0 or new_rendered[0] != '\n')) {
+            try result.appendSlice(original_body[0..lead]);
+        }
+
+        try result.appendSlice(new_rendered);
+
+        // re-inject trailing newline(s) similarly
+        var trail: usize = original_body.len;
+        while (trail > 0 and original_body[trail - 1] == '\n') : (trail -= 1) {}
+        const trailing_nl = original_body[trail..];
+        if (trailing_nl.len > 0 and
+            (new_rendered.len == 0 or new_rendered[new_rendered.len - 1] != '\n'))
+        {
+            try result.appendSlice(trailing_nl);
+        }
+
+        try result.appendSlice(segment[end..]);
+
+        return result.toOwnedSlice();
+    }
+
+    return try allocator.dupe(u8, segment);
 }
 
 fn hasAnyConditionals(tokens: []Token) bool {
@@ -587,32 +688,6 @@ fn hasAnyConditionals(tokens: []Token) bool {
         if (token == .tag) return true;
     }
     return false;
-}
-
-fn normalizeTrailing(
-    allocator: std.mem.Allocator,
-    result: []u8,
-    template: []const u8,
-) ![]u8 {
-    const tmpl_trimmed = trimTrailingNewlines(template);
-    const res_trimmed = trimTrailingNewlines(result);
-    const tmpl_trail = template.len - tmpl_trimmed.len;
-    const res_trail = result.len - res_trimmed.len;
-
-    if (res_trail == tmpl_trail) return result;
-
-    const core_len = result.len - res_trail;
-    const new_len = core_len + tmpl_trail;
-    const new_slice = try allocator.alloc(u8, new_len);
-
-    @memcpy(new_slice[0..core_len], result[0..core_len]);
-    if (tmpl_trail > 0) @memcpy(
-        new_slice[core_len..],
-        template[template.len - tmpl_trail ..],
-    );
-
-    allocator.free(result);
-    return new_slice;
 }
 
 fn getOS() []const u8 {
@@ -659,13 +734,8 @@ fn trimTag(tag: []const u8) []const u8 {
     return std.mem.trim(u8, tag, " \t\r\n");
 }
 
-fn trimTrailingNewlines(s: []const u8) []const u8 {
-    var end = s.len;
-    while (end > 0) : (end -= 1) {
-        const c = s[end - 1];
-        if (c != '\n' and c != '\r') break;
-    }
-    return s[0..end];
+fn isWhitespace(c: u8) bool {
+    return c == ' ' or c == '\t' or c == '\n' or c == '\r';
 }
 
 /// Contains the error type with a message and the coordinates.
@@ -1242,44 +1312,11 @@ test parseTag {
     try testing.expectError(TemplateError.InvalidTag, tag_invalid);
 }
 
-test normalizeTrailing {
-    const result_add = try testing.allocator.dupe(u8, "content");
-    const template_add = "template\n\r";
-    const normalized_add = try normalizeTrailing(testing.allocator, result_add, template_add);
-    defer testing.allocator.free(normalized_add);
-
-    try testing.expectEqualStrings("content\n\r", normalized_add);
-
-    const result_remove = try testing.allocator.dupe(u8, "content\n\r\n");
-    const template_remove = "template";
-    const normalized_remove = try normalizeTrailing(testing.allocator, result_remove, template_remove);
-    defer testing.allocator.free(normalized_remove);
-
-    try testing.expectEqualStrings("content", normalized_remove);
-
-    const result_none = try testing.allocator.dupe(u8, "content\n");
-    const template_none = "template\n";
-    const normalized_none = try normalizeTrailing(testing.allocator, result_none, template_none);
-    defer testing.allocator.free(normalized_none);
-
-    // same slice
-    try testing.expect(normalized_none.ptr == result_none.ptr);
-    try testing.expectEqualStrings("content\n", normalized_none);
-}
-
 test trimTag {
     try testing.expectEqualStrings("test", trimTag("  test  "));
     try testing.expectEqualStrings("if SYSTEM.os == netbsd", trimTag("\n\r if SYSTEM.os == netbsd \t\n"));
     try testing.expectEqualStrings("", trimTag("   \t\r\n   "));
     try testing.expectEqualStrings("endif", trimTag("endif"));
-}
-
-test trimTrailingNewlines {
-    try testing.expectEqualStrings("zoot", trimTrailingNewlines("zoot\n\r\n"));
-    try testing.expectEqualStrings("hello\nworld", trimTrailingNewlines("hello\nworld\r\n"));
-    try testing.expectEqualStrings("", trimTrailingNewlines("\n\r\n"));
-    try testing.expectEqualStrings("test", trimTrailingNewlines("test"));
-    try testing.expectEqualStrings("\nhello", trimTrailingNewlines("\nhello\n"));
 }
 
 test evalCondition {
@@ -1722,6 +1759,7 @@ test "complex" {
         \\# {{> else <}}
         \\test_val=13
         \\# {{> endif <}}
+        \\# test_val2="{{> if SYSTEM.os == zoot <}}zero{{> else <}}testA{{> endif <}}"
         \\
     ,
         .{ os, arch },
@@ -1742,6 +1780,7 @@ test "complex" {
         \\# 
         \\# 
         \\# 
+        \\# test_val2="testB"
         \\
     ;
 
@@ -1766,6 +1805,7 @@ test "complex" {
         \\# {{> else <}}
         \\test_val=13
         \\# {{> endif <}}
+        \\# test_val2="{{> if SYSTEM.os == zoot <}}zero{{> else <}}testB{{> endif <}}"
         \\
     ,
         .{ os, arch },
