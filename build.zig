@@ -116,6 +116,16 @@ pub fn build(b: *std.Build) void {
     const run_integration_tests = b.addRunArtifact(integration_tests);
     integration_tests.root_module.addOptions("build_options", test_options);
 
+    const filter_option = b.option(
+        []const []const u8,
+        "test-filter",
+        "Run specific tests",
+    ) orelse &.{};
+
+    lib_unit_tests.filters = filter_option;
+    exe_unit_tests.filters = filter_option;
+    integration_tests.filters = filter_option;
+
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
