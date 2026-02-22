@@ -2,6 +2,50 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-02-22
+
+### Bug Fixes
+
+- Preserve literal newlines
+- Check `XDG_CURRENT_DESKTOP`
+- Improve handling of complex translations
+- Handle empty diff
+- Recheck files on `polling` mode
+- Add file recheck for `polling`
+- Handle complex replacements
+- Edit status report message
+
+### Documentation
+
+- Fix template syntax
+
+### Features
+
+- [**breaking**] Use `endif`
+- Add template syntax summary
+- Add epoll support
+- Support UTF-8 string diff
+
+### Operations
+
+- Bump actions/checkout from 5 to 6
+- Add `myers` label
+
+### Refactor
+
+- Remove `splitLines()`
+- Move myers implementation
+- Move library files
+- `getSummary()` -> `getSyntax()`
+
+### Testing
+
+- Add watcher cases
+- Add `myers` case
+- Add `diff` case
+- Add `complex` case
+- Add case filter
+
 ## [0.6.1] - 2025-11-18
 
 ### Bug Fixes
