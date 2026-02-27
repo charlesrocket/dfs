@@ -678,14 +678,16 @@ fn reverseTranslateConditional(
                 }
             }
         }
+
         i += 1;
     }
 
     if (active_content_start) |start| {
         const end = active_content_end.?;
         const original_body = segment[start..end];
+
         var result = std.array_list.Managed(u8).init(allocator);
-        defer result.deinit();
+        errdefer result.deinit();
 
         try result.appendSlice(segment[0..start]);
 
@@ -693,6 +695,7 @@ fn reverseTranslateConditional(
         // new_rendered doesn't (they were stripped by the diff mapping)
         var lead: usize = 0;
         while (lead < original_body.len and original_body[lead] == '\n') : (lead += 1) {}
+
         if (lead > 0 and (new_rendered.len == 0 or new_rendered[0] != '\n')) {
             try result.appendSlice(original_body[0..lead]);
         }
@@ -702,7 +705,9 @@ fn reverseTranslateConditional(
         // re-inject trailing newline(s) similarly
         var trail: usize = original_body.len;
         while (trail > 0 and original_body[trail - 1] == '\n') : (trail -= 1) {}
+
         const trailing_nl = original_body[trail..];
+
         if (trailing_nl.len > 0 and
             (new_rendered.len == 0 or new_rendered[new_rendered.len - 1] != '\n'))
         {
