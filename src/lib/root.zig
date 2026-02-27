@@ -1970,9 +1970,9 @@ test "mixed-else" {
 
     const template =
         \\FOO
-        \\{> if SYSTEM.os == openbsd <}
+        \\{> if SYSTEM.os == foo1 <}
         \\val="Foo"
-        \\{> elif SYSTEM.os == netbsd <}
+        \\{> elif SYSTEM.os == foo2 <}
         \\val="Bar"
         \\{> else <}
         \\val="Else"
@@ -1991,9 +1991,9 @@ test "mixed-else" {
 
     const expected_template =
         \\BAR
-        \\{> if SYSTEM.os == openbsd <}
+        \\{> if SYSTEM.os == foo1 <}
         \\val="Foo"
-        \\{> elif SYSTEM.os == netbsd <}
+        \\{> elif SYSTEM.os == foo2 <}
         \\val="Bar"
         \\{> else <}
         \\val="Zoot"
