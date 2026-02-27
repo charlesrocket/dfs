@@ -2120,6 +2120,69 @@ test "blocks-mixed" {
     try std.testing.expectEqualStrings(render, expected);
 }
 
+test "unicode" {
+    var allocator = std.testing.allocator;
+
+    const template =
+        \\🫠
+        \\
+    ;
+
+    const rendered_user_edit =
+        \\😈
+        \\
+    ;
+
+    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    defer allocator.free(reversed);
+
+    const expected_template =
+        \\😈
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected_template, reversed);
+}
+
+test "unicode-template" {
+    var allocator = std.testing.allocator;
+
+    const template =
+        \\😀
+        \\{> if SYSTEM.os == foo1 <}
+        \\val="😁"
+        \\{> elif SYSTEM.os == foo2 <}
+        \\val="😜"
+        \\{> else <}
+        \\val="😑"
+        \\{> endif <}
+        \\
+    ;
+
+    const rendered_user_edit =
+        \\😃
+        \\val="😊"
+        \\
+    ;
+
+    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    defer allocator.free(reversed);
+
+    const expected_template =
+        \\😃
+        \\{> if SYSTEM.os == foo1 <}
+        \\val="😁"
+        \\{> elif SYSTEM.os == foo2 <}
+        \\val="😜"
+        \\{> else <}
+        \\val="😊"
+        \\{> endif <}
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected_template, reversed);
+}
+
 const std = @import("std");
 const builtin = @import("builtin");
 pub const Myers = @import("myers.zig");
