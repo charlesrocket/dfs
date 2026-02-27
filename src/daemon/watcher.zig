@@ -187,6 +187,7 @@ fn addPath(self: *Watcher, path: []const u8) !void {
                 error.FileNotFound => {
                     // file does not exist yet, add with no watch descriptor
                     try self.files.append(
+                        allocator,
                         .{
                             .path = path_copy,
                             .mtime = 0,
@@ -203,6 +204,7 @@ fn addPath(self: *Watcher, path: []const u8) !void {
             const stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
                 error.FileNotFound => {
                     try self.files.append(
+                        allocator,
                         .{
                             .path = path_copy,
                             .mtime = 0,
@@ -217,6 +219,7 @@ fn addPath(self: *Watcher, path: []const u8) !void {
             };
 
             try self.files.append(
+                allocator,
                 .{
                     .path = path_copy,
                     .mtime = stat.mtime,
