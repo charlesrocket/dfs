@@ -4,23 +4,36 @@ pub fn build(b: *std.Build) void {
     const build_options = b.addOptions();
 
     const lib_mod = b.addModule("libdfs", .{
-        .root_source_file = b.path("src/lib/lib.zig"),
+        .root_source_file = b.path("src/lib/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+    const lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "DFS library",
+        .root_module = lib_mod,
+    });
+
+    const cova_dep = b.dependency("cova", .{
         .target = target,
         .optimize = optimize,
     });
+
+    const cova_mod = cova_dep.module("cova");
 
     const exe = b.addExecutable(.{
         .name = "dfs",
-        .root_module = exe_mod,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "lib", .module = lib_mod },
+                .{ .name = "cova", .module = cova_mod },
+            },
+        }),
     });
-
-    exe_mod.addImport("libdfs", lib_mod);
 
     const dbus = b.option(bool, "dbus", "D-Bus support") orelse true;
 
@@ -35,19 +48,6 @@ pub fn build(b: *std.Build) void {
     }
 
     build_options.addOption(bool, "dbus", dbus);
-
-    const lib = b.addLibrary(.{
-        .linkage = .static,
-        .name = "dfs_lib",
-        .root_module = lib_mod,
-    });
-
-    const cova_dep = b.dependency("cova", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const cova_mod = cova_dep.module("cova");
 
     if (target.query.cpu_arch == null) {
         const cova_gen = @import("cova").addCovaDocGenStep(b, cova_dep, exe, .{
@@ -67,11 +67,9 @@ pub fn build(b: *std.Build) void {
         meta_doc_gen.dependOn(&cova_gen.step);
     }
 
-    exe.root_module.addImport("cova", cova_mod);
     exe.root_module.addOptions("build_options", build_options);
     build_options.addOption([]const u8, "version", version(b));
 
-    b.installArtifact(lib);
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -96,7 +94,7 @@ pub fn build(b: *std.Build) void {
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const exe_unit_tests = b.addTest(.{
-        .root_module = exe_mod,
+        .root_module = exe.root_module,
         .use_llvm = true, //temp
     });
 

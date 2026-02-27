@@ -294,7 +294,7 @@ test "syntax with tab indent" {
 }
 
 const std = @import("std");
-const lib = @import("libdfs");
+const lib = @import("lib");
 const TAG_START = lib.TAG_START;
 const TAG_END = lib.TAG_END;
 const SYSTEM = lib.SYSTEM;

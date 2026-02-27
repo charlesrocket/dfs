@@ -735,7 +735,7 @@ test processFile {
 
 const Dotfile = @This();
 const std = @import("std");
-const lib = @import("libdfs");
+const lib = @import("lib");
 const Core = @import("core.zig");
 const Cli = @import("cli.zig");
 const Config = @import("config.zig");
