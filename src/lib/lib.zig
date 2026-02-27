@@ -156,14 +156,14 @@ fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) !bool {
 }
 
 fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
-    var tokens = std.array_list.Managed(Token).init(allocator);
-    errdefer tokens.deinit();
+    var tokens = std.ArrayList(Token).empty;
+    errdefer tokens.deinit(allocator);
 
     var i: usize = 0;
     while (i < template.len) {
         const start_tag = std.mem.indexOfPos(u8, template, i, TAG_START);
         if (start_tag == null) {
-            if (i < template.len) try tokens.append(.{ .text = template[i..] });
+            if (i < template.len) try tokens.append(allocator, .{ .text = template[i..] });
             break;
         }
 
@@ -171,12 +171,13 @@ fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
 
         // push preceding text if any
         if (tag_start > i) try tokens.append(
+            allocator,
             .{ .text = template[i..tag_start] },
         );
 
         const tag = try parseTag(template, tag_start);
 
-        try tokens.append(.{ .tag = .{
+        try tokens.append(allocator, .{ .tag = .{
             .content = tag.trim,
             .raw = tag.raw,
             .start = tag_start,
@@ -186,14 +187,14 @@ fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
         i = tag.after;
     }
 
-    return try tokens.toOwnedSlice();
+    return try tokens.toOwnedSlice(allocator);
 }
 
 fn interpret(allocator: std.mem.Allocator, tokens: []Token) ![]u8 {
-    var out = std.array_list.Managed(u8).init(allocator);
-    defer out.deinit();
+    var out = std.ArrayList(u8).empty;
+    defer out.deinit(allocator);
 
-    var w = out.writer();
+    var w = out.writer(allocator);
     var i: usize = 0;
 
     while (i < tokens.len) {
@@ -212,7 +213,8 @@ fn interpret(allocator: std.mem.Allocator, tokens: []Token) ![]u8 {
             },
         }
     }
-    return try out.toOwnedSlice();
+
+    return try out.toOwnedSlice(allocator);
 }
 
 fn parseTag(template: []const u8, i: usize) !Tag {
@@ -319,9 +321,9 @@ pub fn applyTemplate(
 fn generateSegments(
     allocator: std.mem.Allocator,
     template: []const u8,
-) !std.array_list.Managed([]const u8) {
-    var segments = std.array_list.Managed([]const u8).init(allocator);
-    errdefer segments.deinit();
+) !std.ArrayList([]const u8) {
+    var segments = std.ArrayList([]const u8).empty;
+    errdefer segments.deinit(allocator);
 
     var start: usize = 0;
     var i: usize = 0;
@@ -347,7 +349,7 @@ fn generateSegments(
                 if (depth == 1) {
                     // end the current literal segment if we have one
                     if (start < i) {
-                        try segments.append(template[start..i]);
+                        try segments.append(allocator, template[start..i]);
                     }
 
                     start = i; // start a new segment at the if tag
@@ -358,7 +360,7 @@ fn generateSegments(
                     // if we have closed a top-level if block
                     if (depth == 0) {
                         // End the current segment at the end of the endif tag
-                        try segments.append(template[start..tag.after]);
+                        try segments.append(allocator, template[start..tag.after]);
                         start = tag.after; // Start next segment after endif
                     }
                 }
@@ -376,7 +378,7 @@ fn generateSegments(
 
     // add any remaining text as a final segment
     if (start < template.len) {
-        try segments.append(template[start..]);
+        try segments.append(allocator, template[start..]);
     }
 
     return segments;
@@ -390,28 +392,28 @@ pub fn reverseTemplate(
     template: []const u8,
 ) ![]const u8 {
     var segments = try generateSegments(allocator, template);
-    defer segments.deinit();
+    defer segments.deinit(allocator);
 
     const original_render = try applyTemplate(allocator, template);
     defer allocator.free(original_render);
 
-    var render_map = std.array_list.Managed(struct {
+    var render_map = std.ArrayList(struct {
         segment: []const u8,
         rendered: []const u8,
-    }).init(allocator);
+    }).empty;
 
     defer {
         for (render_map.items) |item| {
             allocator.free(item.rendered);
         }
 
-        render_map.deinit();
+        render_map.deinit(allocator);
     }
 
     for (segments.items) |segment| {
         const rendered = try applyTemplate(allocator, segment);
 
-        try render_map.append(.{
+        try render_map.append(allocator, .{
             .segment = segment,
             .rendered = rendered,
         });
@@ -424,13 +426,13 @@ pub fn reverseTemplate(
     var pos_map = std.AutoHashMap(usize, usize).init(allocator);
     defer pos_map.deinit();
 
-    var insertions = std.array_list.Managed(struct {
+    var insertions = std.ArrayList(struct {
         orig_pos: usize,
         new_index: usize,
         count: usize,
-    }).init(allocator);
+    }).empty;
 
-    defer insertions.deinit();
+    defer insertions.deinit(allocator);
 
     const old_cp_to_byte = try buildCpToByteMap(allocator, original_render);
     defer allocator.free(old_cp_to_byte);
@@ -471,7 +473,7 @@ pub fn reverseTemplate(
                 const new_byte_start = new_cp_to_byte[ins.new_index];
                 const new_byte_end = new_cp_to_byte[ins.new_index + ins.count];
 
-                try insertions.append(.{
+                try insertions.append(allocator, .{
                     .orig_pos = orig_byte,
                     .new_index = new_byte_start,
                     .count = new_byte_end - new_byte_start,
@@ -482,8 +484,8 @@ pub fn reverseTemplate(
         }
     }
 
-    var result = std.array_list.Managed(u8).init(allocator);
-    defer result.deinit();
+    var result = std.ArrayList(u8).empty;
+    defer result.deinit(allocator);
 
     // track which original positions had deletions
     var deleted_positions = std.AutoHashMap(usize, void).init(allocator);
@@ -589,16 +591,16 @@ pub fn reverseTemplate(
             }
 
             // extract only characters that are in reverse_map
-            var chars = std.array_list.Managed(u8).init(allocator);
-            defer chars.deinit();
+            var chars = std.ArrayList(u8).empty;
+            defer chars.deinit(allocator);
             var pos: usize = min_pos;
             while (pos <= max_pos) : (pos += 1) {
                 if (reverse_map.contains(pos)) {
-                    try chars.append(render[pos]);
+                    try chars.append(allocator, render[pos]);
                 }
             }
 
-            break :blk try chars.toOwnedSlice();
+            break :blk try chars.toOwnedSlice(allocator);
         } else "";
 
         defer allocator.free(edited_content);
@@ -609,13 +611,13 @@ pub fn reverseTemplate(
         } else true;
 
         if (std.mem.eql(u8, map.rendered, edited_content)) {
-            try result.appendSlice(map.segment);
+            try result.appendSlice(allocator, map.segment);
         } else if (std.mem.indexOf(u8, map.segment, TAG_START) == null and is_whitespace_only) {
             // whitespace-only plain-text separators between conditional
             // blocks are structural template text
-            try result.appendSlice(map.segment);
+            try result.appendSlice(allocator, map.segment);
         } else if (std.mem.indexOf(u8, map.segment, TAG_START) == null) {
-            try result.appendSlice(edited_content);
+            try result.appendSlice(allocator, edited_content);
         } else {
             const updated = try reverseTranslateConditional(
                 allocator,
@@ -625,13 +627,13 @@ pub fn reverseTemplate(
             );
 
             defer allocator.free(updated);
-            try result.appendSlice(updated);
+            try result.appendSlice(allocator, updated);
         }
 
         original_pos = seg_orig_end;
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 fn reverseTranslateConditional(
@@ -686,10 +688,10 @@ fn reverseTranslateConditional(
         const end = active_content_end.?;
         const original_body = segment[start..end];
 
-        var result = std.array_list.Managed(u8).init(allocator);
-        errdefer result.deinit();
+        var result = std.ArrayList(u8).empty;
+        errdefer result.deinit(allocator);
 
-        try result.appendSlice(segment[0..start]);
+        try result.appendSlice(allocator, segment[0..start]);
 
         // re-inject leading newline(s) if the original body had them but
         // new_rendered doesn't (they were stripped by the diff mapping)
@@ -697,10 +699,10 @@ fn reverseTranslateConditional(
         while (lead < original_body.len and original_body[lead] == '\n') : (lead += 1) {}
 
         if (lead > 0 and (new_rendered.len == 0 or new_rendered[0] != '\n')) {
-            try result.appendSlice(original_body[0..lead]);
+            try result.appendSlice(allocator, original_body[0..lead]);
         }
 
-        try result.appendSlice(new_rendered);
+        try result.appendSlice(allocator, new_rendered);
 
         // re-inject trailing newline(s) similarly
         var trail: usize = original_body.len;
@@ -711,31 +713,31 @@ fn reverseTranslateConditional(
         if (trailing_nl.len > 0 and
             (new_rendered.len == 0 or new_rendered[new_rendered.len - 1] != '\n'))
         {
-            try result.appendSlice(trailing_nl);
+            try result.appendSlice(allocator, trailing_nl);
         }
 
-        try result.appendSlice(segment[end..]);
+        try result.appendSlice(allocator, segment[end..]);
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 
     return try allocator.dupe(u8, segment);
 }
 
 fn buildCpToByteMap(allocator: std.mem.Allocator, str: []const u8) ![]usize {
-    var map = std.array_list.Managed(usize).init(allocator);
-    errdefer map.deinit();
+    var map = std.ArrayList(usize).empty;
+    errdefer map.deinit(allocator);
 
     var i: usize = 0;
 
     while (i < str.len) {
-        try map.append(i);
+        try map.append(allocator, i);
         const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch 1;
         i += cp_len;
     }
 
-    try map.append(str.len);
-    return map.toOwnedSlice();
+    try map.append(allocator, str.len);
+    return map.toOwnedSlice(allocator);
 }
 
 fn hasAnyConditionals(tokens: []Token) bool {
@@ -1434,10 +1436,10 @@ test evalIfGroup {
 
     {
         const tokens_oob = &[_]Token{};
-        var out = std.array_list.Managed(u8).init(allocator);
-        defer out.deinit();
+        var out = std.ArrayList(u8).empty;
+        defer out.deinit(allocator);
 
-        const result = evalIfGroup(allocator, tokens_oob, 0, out.writer());
+        const result = evalIfGroup(allocator, tokens_oob, 0, out.writer(allocator));
         try testing.expectError(TemplateError.IndexOutOfBounds, result);
     }
 
@@ -1447,10 +1449,10 @@ test evalIfGroup {
             .{ .tag = .{ .content = "endif", .raw = " endif ", .start = 0, .end = 10 } },
         };
 
-        var out = std.array_list.Managed(u8).init(testing.allocator);
-        defer out.deinit();
+        var out = std.ArrayList(u8).empty;
+        defer out.deinit(allocator);
 
-        const result = evalIfGroup(allocator, &tokens_unexpected, 0, out.writer());
+        const result = evalIfGroup(allocator, &tokens_unexpected, 0, out.writer(allocator));
         try testing.expectError(TemplateError.InvalidToken, result);
     }
 
@@ -1461,10 +1463,10 @@ test evalIfGroup {
             .{ .text = "unexpected text" },
         };
 
-        var out_invalid_tag = std.array_list.Managed(u8).init(testing.allocator);
-        defer out_invalid_tag.deinit();
+        var out_invalid_tag = std.ArrayList(u8).empty;
+        defer out_invalid_tag.deinit(allocator);
 
-        const result_invalid_tag = evalIfGroup(allocator, &tokens_invalid_tag, 0, out_invalid_tag.writer());
+        const result_invalid_tag = evalIfGroup(allocator, &tokens_invalid_tag, 0, out_invalid_tag.writer(allocator));
         try testing.expectError(TemplateError.InvalidTag, result_invalid_tag);
     }
 
@@ -1474,10 +1476,10 @@ test evalIfGroup {
             .{ .tag = .{ .content = "endif", .raw = " endif ", .start = 20, .end = 30 } },
         };
 
-        var out_invalid_template = std.array_list.Managed(u8).init(testing.allocator);
-        defer out_invalid_template.deinit();
+        var out_invalid_template = std.ArrayList(u8).empty;
+        defer out_invalid_template.deinit(allocator);
 
-        const result_invalid_template = evalIfGroup(allocator, &tokens_invalid_template, 0, out_invalid_template.writer());
+        const result_invalid_template = evalIfGroup(allocator, &tokens_invalid_template, 0, out_invalid_template.writer(allocator));
         try testing.expectError(TemplateError.InvalidTag, result_invalid_template);
     }
 
@@ -1487,10 +1489,10 @@ test evalIfGroup {
             .{ .text = "body" },
         };
 
-        var out = std.array_list.Managed(u8).init(allocator);
-        defer out.deinit();
+        var out = std.ArrayList(u8).empty;
+        defer out.deinit(allocator);
 
-        const result = evalIfGroup(allocator, &tokens_missing_end, 0, out.writer());
+        const result = evalIfGroup(allocator, &tokens_missing_end, 0, out.writer(allocator));
         try testing.expectError(TemplateError.MissingEndTag, result);
     }
 
@@ -1499,10 +1501,10 @@ test evalIfGroup {
             .{ .tag = .{ .content = "endif", .raw = " endif ", .start = 0, .end = 5 } },
         };
 
-        var out = std.array_list.Managed(u8).init(allocator);
-        defer out.deinit();
+        var out = std.ArrayList(u8).empty;
+        defer out.deinit(allocator);
 
-        const result = try evalIfGroup(allocator, &tokens_end_only, 0, out.writer());
+        const result = try evalIfGroup(allocator, &tokens_end_only, 0, out.writer(allocator));
         try testing.expect(result == 1);
     }
 }

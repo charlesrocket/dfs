@@ -43,16 +43,16 @@ fn needsCodepoints(str: []const u8) bool {
 }
 
 fn utf8ToCodepoints(allocator: std.mem.Allocator, utf8: []const u8) ![]u21 {
-    var codepoints = std.array_list.Managed(u21).init(allocator);
-    defer codepoints.deinit();
+    var codepoints = std.ArrayList(u21).empty;
+    defer codepoints.deinit(allocator);
 
     var iter = std.unicode.Utf8Iterator{ .bytes = utf8, .i = 0 };
 
     while (iter.nextCodepoint()) |codepoint| {
-        try codepoints.append(codepoint);
+        try codepoints.append(allocator, codepoint);
     }
 
-    return try codepoints.toOwnedSlice();
+    return try codepoints.toOwnedSlice(allocator);
 }
 
 pub fn diff(
@@ -89,10 +89,10 @@ pub fn diff(
     defer allocator.free(v);
     @memset(v, 0);
 
-    var trace = std.array_list.Managed([]isize).init(allocator);
+    var trace = std.ArrayList([]isize).empty;
     defer {
         for (trace.items) |item| allocator.free(item);
-        trace.deinit();
+        trace.deinit(allocator);
     }
 
     const offset = @as(isize, @intCast(max_d));
@@ -132,7 +132,7 @@ pub fn diff(
                 // save the final trace before returning
                 const v_copy = try allocator.alloc(isize, v.len);
                 @memcpy(v_copy, v);
-                try trace.append(v_copy);
+                try trace.append(allocator, v_copy);
 
                 return try backtrack(
                     allocator,
@@ -146,7 +146,7 @@ pub fn diff(
 
         const v_copy = try allocator.alloc(isize, v.len);
         @memcpy(v_copy, v);
-        try trace.append(v_copy);
+        try trace.append(allocator, v_copy);
     }
 
     // return an empty slice if there is no solution
@@ -157,11 +157,11 @@ fn backtrack(
     allocator: std.mem.Allocator,
     old: String,
     new: String,
-    trace: *std.array_list.Managed([]isize),
+    trace: *std.ArrayList([]isize),
     d: usize,
 ) ![]Edit {
-    var edits = std.array_list.Managed(Edit).init(allocator);
-    defer edits.deinit();
+    var edits = std.ArrayList(Edit).empty;
+    defer edits.deinit(allocator);
 
     var x: isize = @intCast(old.len());
     var y: isize = @intCast(new.len());
@@ -193,7 +193,7 @@ fn backtrack(
             x -= 1;
             y -= 1;
 
-            try edits.append(.{ .equal = .{
+            try edits.append(allocator, .{ .equal = .{
                 .old_index = @intCast(x),
                 .new_index = @intCast(y),
                 .count = 1,
@@ -206,6 +206,7 @@ fn backtrack(
             y -= 1;
 
             try edits.append(
+                allocator,
                 .{ .insert = .{ .new_index = @intCast(y), .count = 1 } },
             );
         } else {
@@ -213,6 +214,7 @@ fn backtrack(
             x -= 1;
 
             try edits.append(
+                allocator,
                 .{ .delete = .{ .old_index = @intCast(x), .count = 1 } },
             );
         }
@@ -226,7 +228,7 @@ fn backtrack(
         x -= 1;
         y -= 1;
 
-        try edits.append(.{ .equal = .{
+        try edits.append(allocator, .{ .equal = .{
             .old_index = @intCast(x),
             .new_index = @intCast(y),
             .count = 1,
@@ -234,7 +236,7 @@ fn backtrack(
     }
 
     // reverse the edits since we built them backwards
-    const edits_slice = try edits.toOwnedSlice();
+    const edits_slice = try edits.toOwnedSlice(allocator);
     std.mem.reverse(Edit, edits_slice);
 
     return try compactEdits(allocator, edits_slice);
@@ -247,8 +249,8 @@ fn compactEdits(allocator: std.mem.Allocator, edits: []Edit) ![]Edit {
 
     if (edits.len == 0) return try allocator.alloc(Edit, 0);
 
-    var result = std.array_list.Managed(Edit).init(allocator);
-    errdefer result.deinit();
+    var result = std.ArrayList(Edit).empty;
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
 
@@ -270,7 +272,7 @@ fn compactEdits(allocator: std.mem.Allocator, edits: []Edit) ![]Edit {
                     count += next.count;
                 }
 
-                try result.append(.{ .equal = .{
+                try result.append(allocator, .{ .equal = .{
                     .old_index = first_idx,
                     .new_index = first_new_idx,
                     .count = count,
@@ -292,7 +294,7 @@ fn compactEdits(allocator: std.mem.Allocator, edits: []Edit) ![]Edit {
                     count += next.count;
                 }
 
-                try result.append(.{ .insert = .{
+                try result.append(allocator, .{ .insert = .{
                     .new_index = first_idx,
                     .count = count,
                 } });
@@ -314,7 +316,7 @@ fn compactEdits(allocator: std.mem.Allocator, edits: []Edit) ![]Edit {
                     count += next.count;
                 }
 
-                try result.append(.{ .delete = .{
+                try result.append(allocator, .{ .delete = .{
                     .old_index = first_idx,
                     .count = count,
                 } });
@@ -324,7 +326,7 @@ fn compactEdits(allocator: std.mem.Allocator, edits: []Edit) ![]Edit {
         }
     }
 
-    return try result.toOwnedSlice();
+    return try result.toOwnedSlice(allocator);
 }
 
 test diff {
@@ -610,19 +612,19 @@ test "strings with mixed operations" {
     const edits = try Myers.diff(allocator, "ABCABBA", "CBABAC");
     defer allocator.free(edits);
 
-    var result = std.array_list.Managed(u8).init(allocator);
-    defer result.deinit();
+    var result = std.ArrayList(u8).empty;
+    defer result.deinit(allocator);
 
     for (edits) |edit| {
         switch (edit) {
             .equal => |e| {
                 for (0..e.count) |i| {
-                    try result.append(old[e.old_index + i]);
+                    try result.append(allocator, old[e.old_index + i]);
                 }
             },
             .insert => |ins| {
                 for (0..ins.count) |i| {
-                    try result.append(new[ins.new_index + i]);
+                    try result.append(allocator, new[ins.new_index + i]);
                 }
             },
             .delete => {},
@@ -641,19 +643,19 @@ test "reconstruction correctness" {
     const edits = try Myers.diff(allocator, old, new);
     defer allocator.free(edits);
 
-    var result = std.array_list.Managed(u8).init(allocator);
-    defer result.deinit();
+    var result = std.ArrayList(u8).empty;
+    defer result.deinit(allocator);
 
     for (edits) |edit| {
         switch (edit) {
             .equal => |e| {
                 for (0..e.count) |i| {
-                    try result.append(old[e.old_index + i]);
+                    try result.append(allocator, old[e.old_index + i]);
                 }
             },
             .insert => |ins| {
                 for (0..ins.count) |i| {
-                    try result.append(new[ins.new_index + i]);
+                    try result.append(allocator, new[ins.new_index + i]);
                 }
             },
             .delete => {},
