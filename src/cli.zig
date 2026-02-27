@@ -244,13 +244,13 @@ pub fn getUserInput(
     allocator: std.mem.Allocator,
     stdout: *std.io.Writer,
     input: UserInput,
-) !std.array_list.Managed(u8) {
+) !std.ArrayList(u8) {
     var stdin_buffer: [2048]u8 = undefined;
     var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
     const stdin = &stdin_reader.interface;
 
     var buf: [2048]u8 = undefined;
-    var list = std.array_list.Managed(u8).init(allocator);
+    var list = std.ArrayList(u8).empty;
 
     try stdout.print("Enter {s}: ", .{
         switch (input) {
@@ -265,7 +265,7 @@ pub fn getUserInput(
     var writer = std.io.Writer.fixed(&buf);
     const len = try stdin.streamDelimiter(&writer, '\n');
 
-    try list.appendSlice(buf[0..len]);
+    try list.appendSlice(allocator, buf[0..len]);
     return list;
 }
 

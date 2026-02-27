@@ -166,15 +166,15 @@ pub fn main() !void {
             allocator.free(core.target);
     }
 
-    var ignore_list = std.array_list.Managed([]const u8).init(allocator);
-    defer ignore_list.deinit();
+    var ignore_list = std.ArrayList([]const u8).empty;
+    defer ignore_list.deinit(allocator);
 
     for (Core.IGNORE_LIST) |item| {
-        try ignore_list.append(item);
+        try ignore_list.append(allocator, item);
     }
 
     for (config.ignore_list) |item| {
-        try ignore_list.append(item);
+        try ignore_list.append(allocator, item);
     }
 
     if (!core.json) {

@@ -513,15 +513,15 @@ pub fn processFile(
 
         defer allocator.free(meta_content_t);
 
-        var meta_content = std.array_list.Managed(u8).init(allocator);
-        defer meta_content.deinit();
+        var meta_content = std.ArrayList(u8).empty;
+        defer meta_content.deinit(allocator);
 
         for (meta_content_t) |c| {
-            try meta_content.append(c);
+            try meta_content.append(allocator, c);
         }
 
         // null-terminated
-        try meta_content.append(0);
+        try meta_content.append(allocator, 0);
 
         const input = meta_content.items[0 .. meta_content.items.len - 1 :0];
         const meta = std.zon.parse.fromSlice(

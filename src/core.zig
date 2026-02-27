@@ -25,7 +25,7 @@ target: []const u8 = undefined,
 config_path: []const u8 = undefined,
 ignore_items: [][]const u8 = undefined,
 progress: ?std.Progress.Node = null,
-files: std.array_list.Aligned(Dotfile, null) = .empty,
+files: std.ArrayList(Dotfile) = .empty,
 counter: Util.Counter = undefined,
 logs: bool = false,
 dry: bool = false,
@@ -48,7 +48,7 @@ pub fn new(
         .config_path = undefined,
         .ignore_items = undefined,
         .progress = null,
-        .files = std.array_list.Aligned(Dotfile, null).empty,
+        .files = std.ArrayList(Dotfile).empty,
         .counter = Util.Counter.new(false),
         .logs = false,
         .dry = false,
@@ -70,28 +70,28 @@ pub fn init(
 
     try self.stdout.flush();
 
-    const repo_usr = try Cli.getUserInput(
+    var repo_usr = try Cli.getUserInput(
         allocator,
         self.stdout,
         Cli.UserInput.Url,
     );
 
-    const src_usr = try Cli.getUserInput(
+    var src_usr = try Cli.getUserInput(
         allocator,
         self.stdout,
         Cli.UserInput.Source,
     );
 
-    const dest_usr = try Cli.getUserInput(
+    var dest_usr = try Cli.getUserInput(
         allocator,
         self.stdout,
         Cli.UserInput.Destination,
     );
 
     defer {
-        repo_usr.deinit();
-        src_usr.deinit();
-        dest_usr.deinit();
+        repo_usr.deinit(allocator);
+        src_usr.deinit(allocator);
+        dest_usr.deinit(allocator);
     }
 
     const repo = repo_usr.items;

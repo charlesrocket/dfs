@@ -130,14 +130,14 @@ fn read(
 
     defer allocator.free(config_content_t);
 
-    var config_content = std.array_list.Managed(u8).init(allocator);
-    defer config_content.deinit();
+    var config_content = std.ArrayList(u8).empty;
+    defer config_content.deinit(allocator);
 
     for (config_content_t) |c| {
-        try config_content.append(c);
+        try config_content.append(allocator, c);
     }
 
-    try config_content.append(0);
+    try config_content.append(allocator, 0);
 
     const config_data =
         config_content.items[0 .. config_content.items.len - 1 :0];

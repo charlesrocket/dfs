@@ -10,7 +10,7 @@ const File = struct {
 
 allocator: std.mem.Allocator,
 mutex: std.Thread.Mutex,
-files: std.array_list.Managed(File),
+files: std.ArrayList(File),
 mode: Config.WatcherMode,
 poll_interval_ms: u64,
 debounce_delay_ms: u64,
@@ -48,7 +48,7 @@ pub fn init(allocator: std.mem.Allocator, mode: Config.WatcherMode) !Watcher {
     return .{
         .allocator = allocator,
         .mutex = std.Thread.Mutex{},
-        .files = std.array_list.Managed(File).init(allocator),
+        .files = std.ArrayList(File).empty,
         .mode = mode,
         .poll_interval_ms = 5000,
         .debounce_delay_ms = 7000,
@@ -87,7 +87,7 @@ pub fn deinit(self: *Watcher) void {
         std.posix.close(fd);
     }
 
-    self.files.deinit();
+    self.files.deinit(self.allocator);
 }
 
 pub fn addPaths(self: *Watcher, files: []const Dotfile) !void {
@@ -135,6 +135,7 @@ fn addPath(self: *Watcher, path: []const u8) !void {
                     error.FileNotFound => {
                         // file does not exist yet, add with no values
                         try self.files.append(
+                            self.allocator,
                             .{ .path = path_copy, .mtime = 0, .fd = null },
                         );
 
@@ -168,7 +169,7 @@ fn addPath(self: *Watcher, path: []const u8) !void {
             const mtime_ns = @as(i128, stat.mtime().sec) *
                 std.time.ns_per_s + stat.mtime().nsec;
 
-            try self.files.append(.{
+            try self.files.append(self.allocator, .{
                 .path = path_copy,
                 .mtime = mtime_ns,
                 .fd = fd,
@@ -229,7 +230,7 @@ fn addPath(self: *Watcher, path: []const u8) !void {
         // heavier on resources, but platform-agnostic
         const stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
             error.FileNotFound => {
-                try self.files.append(.{
+                try self.files.append(self.allocator, .{
                     .path = path_copy,
                     .mtime = 0,
                     .fd = null,
@@ -240,7 +241,7 @@ fn addPath(self: *Watcher, path: []const u8) !void {
             else => return err,
         };
 
-        try self.files.append(.{
+        try self.files.append(self.allocator, .{
             .path = path_copy,
             .mtime = stat.mtime,
             .fd = null,

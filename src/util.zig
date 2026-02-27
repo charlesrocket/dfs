@@ -70,14 +70,14 @@ pub fn createDirRecursively(
     path: []const u8,
 ) !void {
     var parts = try std.fs.path.componentIterator(path);
-    var buffer = std.array_list.Managed(u8).init(allocator);
-    defer buffer.deinit();
+    var buffer = std.ArrayList(u8).empty;
+    defer buffer.deinit(allocator);
 
     const sep = std.fs.path.sep;
     const absolute = std.fs.path.isAbsolute(path);
 
     if (absolute) {
-        try buffer.append(sep);
+        try buffer.append(allocator, sep);
     }
 
     while (parts.next()) |component| {
@@ -88,10 +88,10 @@ pub fn createDirRecursively(
             (buffer.items.len == 1 and
                 buffer.items[0] != sep))
         {
-            try buffer.append(sep);
+            try buffer.append(allocator, sep);
         }
 
-        try buffer.appendSlice(part);
+        try buffer.appendSlice(allocator, part);
         const dir_path = buffer.items;
 
         if (absolute) {
