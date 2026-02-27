@@ -399,15 +399,18 @@ pub fn reverseTemplate(
         segment: []const u8,
         rendered: []const u8,
     }).init(allocator);
+
     defer {
         for (render_map.items) |item| {
             allocator.free(item.rendered);
         }
+
         render_map.deinit();
     }
 
     for (segments.items) |segment| {
         const rendered = try applyTemplate(allocator, segment);
+
         try render_map.append(.{
             .segment = segment,
             .rendered = rendered,
@@ -426,7 +429,14 @@ pub fn reverseTemplate(
         new_index: usize,
         count: usize,
     }).init(allocator);
+
     defer insertions.deinit();
+
+    const old_cp_to_byte = try buildCpToByteMap(allocator, original_render);
+    defer allocator.free(old_cp_to_byte);
+
+    const new_cp_to_byte = try buildCpToByteMap(allocator, render);
+    defer allocator.free(new_cp_to_byte);
 
     var old_pos: usize = 0;
     var new_pos: usize = 0;
@@ -436,8 +446,15 @@ pub fn reverseTemplate(
             .equal => |eq| {
                 var i: usize = 0;
                 while (i < eq.count) : (i += 1) {
-                    try pos_map.put(old_pos + i, new_pos + i);
+                    const old_byte_start = old_cp_to_byte[old_pos + i];
+                    const old_byte_end = old_cp_to_byte[old_pos + i + 1];
+                    const new_byte_start = new_cp_to_byte[new_pos + i];
+
+                    for (0..(old_byte_end - old_byte_start)) |b| {
+                        try pos_map.put(old_byte_start + b, new_byte_start + b);
+                    }
                 }
+
                 old_pos += eq.count;
                 new_pos += eq.count;
             },
@@ -446,12 +463,20 @@ pub fn reverseTemplate(
                 old_pos += del.count;
             },
             .insert => |ins| {
-                // track insertions separately
+                const orig_byte = if (old_pos < old_cp_to_byte.len - 1)
+                    old_cp_to_byte[old_pos]
+                else
+                    original_render.len;
+
+                const new_byte_start = new_cp_to_byte[ins.new_index];
+                const new_byte_end = new_cp_to_byte[ins.new_index + ins.count];
+
                 try insertions.append(.{
-                    .orig_pos = old_pos,
-                    .new_index = ins.new_index,
-                    .count = ins.count,
+                    .orig_pos = orig_byte,
+                    .new_index = new_byte_start,
+                    .count = new_byte_end - new_byte_start,
                 });
+
                 new_pos += ins.count;
             },
         }
@@ -471,8 +496,14 @@ pub fn reverseTemplate(
             .delete => |del| {
                 var k: usize = 0;
                 while (k < del.count) : (k += 1) {
-                    try deleted_positions.put(check_old_pos + k, {});
+                    const byte_start = old_cp_to_byte[check_old_pos + k];
+                    const byte_end = old_cp_to_byte[check_old_pos + k + 1];
+
+                    for (byte_start..byte_end) |b| {
+                        try deleted_positions.put(b, {});
+                    }
                 }
+
                 check_old_pos += del.count;
             },
             .insert => {},
@@ -530,10 +561,12 @@ pub fn reverseTemplate(
                     const c = original_render[ins.orig_pos - 1];
                     break :blk c == ' ' or c == '\t' or c == '\n' or c == '\r';
                 };
+
                 const next_is_ws = ins.orig_pos >= original_render.len or blk: {
                     const c = original_render[ins.orig_pos];
                     break :blk c == ' ' or c == '\t' or c == '\n' or c == '\r';
                 };
+
                 if (prev_is_ws or next_is_ws) {
                     continue;
                 }
@@ -590,6 +623,7 @@ pub fn reverseTemplate(
                 map.rendered,
                 edited_content,
             );
+
             defer allocator.free(updated);
             try result.appendSlice(updated);
         }
@@ -681,6 +715,22 @@ fn reverseTranslateConditional(
     }
 
     return try allocator.dupe(u8, segment);
+}
+
+fn buildCpToByteMap(allocator: std.mem.Allocator, str: []const u8) ![]usize {
+    var map = std.array_list.Managed(usize).init(allocator);
+    errdefer map.deinit();
+
+    var i: usize = 0;
+
+    while (i < str.len) {
+        try map.append(i);
+        const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch 1;
+        i += cp_len;
+    }
+
+    try map.append(str.len);
+    return map.toOwnedSlice();
 }
 
 fn hasAnyConditionals(tokens: []Token) bool {
