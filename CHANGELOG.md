@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.1] - 2026-02-27
+
+### Bug Fixes
+
+- Improve unicode handling
+- Do not free empty slice
+- Add epoll allocator
+- Correct allocator identifier
+
+### Refactor
+
+- Drop `array_list`
+- Move root file
+- `array_list.Managed` -> `ArrayList`
+
 ## [0.7.0] - 2026-02-22
 
 ### Bug Fixes
