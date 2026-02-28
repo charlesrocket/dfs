@@ -313,47 +313,38 @@ fn generateSegments(
 
     var start: usize = 0;
     var i: usize = 0;
-    var depth: usize = 0; // track nested if blocks
+    var depth: usize = 0;
 
     while (i < template.len) {
-        // look for the start of a tag
         if (std.mem.startsWith(u8, template[i..], TAG_START)) {
-            // parse the tag to get its content
             const tag = parseTag(template, i) catch {
-                // if we cannot parse the tag, just treat it as text
                 i += 1;
-
                 continue;
             };
 
             const tag_content = trimTag(tag.raw);
 
-            // update depth based on tag type
-            if (std.mem.startsWith(u8, tag_content, "if")) {
+            if (std.mem.startsWith(u8, tag_content, "if ")) {
                 depth += 1;
-                // ff this is the start of a top-level if block
+
                 if (depth == 1) {
-                    // end the current literal segment if we have one
                     if (start < i) {
                         try segments.append(allocator, template[start..i]);
                     }
 
-                    start = i; // start a new segment at the if tag
+                    start = i;
                 }
             } else if (std.mem.eql(u8, tag_content, "endif")) {
-                if (depth > 0) {
+                if (depth == 0) {
+                    return TemplateError.MismatchedEnd;
+                } else {
                     depth -= 1;
-                    // if we have closed a top-level if block
+
                     if (depth == 0) {
-                        // End the current segment at the end of the endif tag
                         try segments.append(allocator, template[start..tag.after]);
-                        start = tag.after; // Start next segment after endif
+                        start = tag.after;
                     }
                 }
-            } else if (depth == 0) {
-                // we are at the top level and found a non-if tag
-                // (should not happen in a valid template), so
-                // skip it and continue
             }
 
             i = tag.after;
@@ -362,7 +353,6 @@ fn generateSegments(
         }
     }
 
-    // add any remaining text as a final segment
     if (start < template.len) {
         try segments.append(allocator, template[start..]);
     }
@@ -1349,6 +1339,73 @@ test trimTag {
     try testing.expectEqualStrings("if SYSTEM.os == netbsd", trimTag("\n\r if SYSTEM.os == netbsd \t\n"));
     try testing.expectEqualStrings("", trimTag("   \t\r\n   "));
     try testing.expectEqualStrings("endif", trimTag("endif"));
+}
+
+test generateSegments {
+    const allocator = std.testing.allocator;
+
+    {
+        const invalid =
+            \\test text
+            \\{> endif <}
+            \\test text
+        ;
+
+        const segments_invalid = generateSegments(allocator, invalid);
+        try std.testing.expectError(TemplateError.MismatchedEnd, segments_invalid);
+    }
+
+    {
+        const invalid =
+            \\{> if SYSTEM.os == linux <}
+            \\linux-content
+            \\{> endif <}
+            \\{> endif <}
+        ;
+
+        const segments_invalid = generateSegments(allocator, invalid);
+        try std.testing.expectError(TemplateError.MismatchedEnd, segments_invalid);
+    }
+
+    {
+        const valid =
+            \\{> if SYSTEM.os == freebsd <}
+            \\fbsd-content
+            \\{> endif <}
+            \\foo
+            \\
+            \\{> if SYSTEM.os == openbsd <}
+            \\obsd-content
+            \\{> endif <}
+        ;
+
+        const s1 =
+            \\{> if SYSTEM.os == freebsd <}
+            \\fbsd-content
+            \\{> endif <}
+        ;
+
+        const s2 =
+            \\
+            \\foo
+            \\
+            \\
+        ;
+
+        const s3 =
+            \\{> if SYSTEM.os == openbsd <}
+            \\obsd-content
+            \\{> endif <}
+        ;
+
+        var segments_valid = try generateSegments(allocator, valid);
+        defer segments_valid.deinit(allocator);
+
+        try std.testing.expect(segments_valid.items.len == 3);
+        try std.testing.expectEqualStrings(s1, segments_valid.items[0]);
+        try std.testing.expectEqualStrings(s2, segments_valid.items[1]);
+        try std.testing.expectEqualStrings(s3, segments_valid.items[2]);
+    }
 }
 
 test evalCondition {
