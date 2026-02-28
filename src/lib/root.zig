@@ -83,10 +83,6 @@ const ParsedCondition = struct {
     op: []const u8,
     rhs: []const u8,
 
-    fn isValidOp(self: ParsedCondition) bool {
-        return std.mem.eql(u8, self.op, "==") or std.mem.eql(u8, self.op, "!=");
-    }
-
     fn compare(self: ParsedCondition, actual: []const u8) !bool {
         if (self.lhs.len == 0) return TemplateError.InvalidCondition;
 
@@ -134,8 +130,6 @@ fn isValidCondition(condition: []const u8) bool {
 
     // check if LHS is valid system variable
     if (SYSTEM.fromString(parsed.lhs) == null) return false;
-    // check if operator is valid
-    if (!parsed.isValidOp()) return false;
 
     // check if RHS is not empty
     return parsed.rhs.len > 0;
@@ -143,8 +137,6 @@ fn isValidCondition(condition: []const u8) bool {
 
 fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) !bool {
     const parsed = try parseCondition(cond);
-
-    if (!parsed.isValidOp()) return false;
 
     const var_type = SYSTEM.fromString(parsed.lhs) orelse return false;
     const actual_value = var_type.getValue(allocator) catch return false;
