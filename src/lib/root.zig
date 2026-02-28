@@ -1974,7 +1974,7 @@ test "mixed" {
     try std.testing.expectEqualStrings(expected_template, reversed);
 }
 
-test "mixed-inlie" {
+test "mixed-inline" {
     const os = @tagName(builtin.target.os.tag);
     var allocator = std.testing.allocator;
 
