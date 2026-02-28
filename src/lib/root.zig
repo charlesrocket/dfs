@@ -25,11 +25,6 @@ const Token = union(enum) {
     tag: TagInfo,
 };
 
-const Branch = struct {
-    active: bool,
-    condition: ?[]const u8,
-};
-
 pub const TemplateError = error{
     IndexOutOfBounds,
     InvalidTag,
@@ -227,16 +222,16 @@ fn parseTag(template: []const u8, i: usize) !Tag {
     };
 }
 
-fn evalBranch(
+fn isActiveBranch(
     allocator: std.mem.Allocator,
     tag_content: []const u8,
     branch_taken: bool,
-) !Branch {
+) !bool {
     if (std.mem.eql(u8, tag_content, "endif"))
-        return .{ .active = false, .condition = null };
+        return false;
 
     if (std.mem.eql(u8, tag_content, "else"))
-        return .{ .active = !branch_taken, .condition = null };
+        return !branch_taken;
 
     const condition = if (std.mem.startsWith(u8, tag_content, "if "))
         tag_content[3..]
@@ -245,8 +240,7 @@ fn evalBranch(
     else
         return TemplateError.InvalidTag;
 
-    const active = try evalCondition(allocator, condition) and !branch_taken;
-    return .{ .active = active, .condition = condition };
+    return try evalCondition(allocator, condition) and !branch_taken;
 }
 
 fn evalIfGroup(
@@ -269,7 +263,7 @@ fn evalIfGroup(
 
         if (std.mem.eql(u8, tag_info.content, "endif")) return i + 1;
 
-        const branch = try evalBranch(
+        const active = try isActiveBranch(
             allocator,
             tag_info.content,
             branch_taken,
@@ -283,7 +277,7 @@ fn evalIfGroup(
             has_body = true;
         }
 
-        if (branch.active) {
+        if (active) {
             branch_taken = true;
             // preserve body
             try w.print("{s}", .{body});
