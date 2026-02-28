@@ -322,7 +322,7 @@ fn generateSegments(
                 continue;
             };
 
-            const tag_content = trimTag(tag.raw);
+            const tag_content = tag.trim;
 
             if (std.mem.startsWith(u8, tag_content, "if ")) {
                 depth += 1;
