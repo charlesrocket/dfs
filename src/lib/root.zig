@@ -740,13 +740,6 @@ fn buildCpToByteMap(allocator: std.mem.Allocator, str: []const u8) ![]usize {
     return map.toOwnedSlice(allocator);
 }
 
-fn hasAnyConditionals(tokens: []Token) bool {
-    for (tokens) |token| {
-        if (token == .tag) return true;
-    }
-    return false;
-}
-
 fn getOS() []const u8 {
     return @tagName(builtin.target.os.tag);
 }
