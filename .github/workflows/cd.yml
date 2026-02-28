@@ -76,7 +76,7 @@ jobs:
           dfs-linux-aarch64.tar.gz
 
       - name: Attest
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: 'dfs-linux-aarch64.tar.gz'
 
@@ -128,7 +128,7 @@ jobs:
           dfs-linux-x86_64.tar.gz
 
       - name: Attest
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: 'dfs-linux-x86_64.tar.gz'
 
@@ -180,7 +180,7 @@ jobs:
           dfs-macos.tar.gz
 
       - name: Attest
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: 'dfs-macos.tar.gz'
 
