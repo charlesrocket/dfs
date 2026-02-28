@@ -254,8 +254,7 @@ fn evalIfGroup(
     var i = start;
     var branch_taken = false;
 
-    while (i < tokens.len) : (i += 0) {
-        // tag check
+    while (i < tokens.len) {
         const tag_info = switch (tokens[i]) {
             .tag => |t| t,
             else => return TemplateError.InvalidToken,
@@ -263,11 +262,7 @@ fn evalIfGroup(
 
         if (std.mem.eql(u8, tag_info.content, "endif")) return i + 1;
 
-        const active = try isActiveBranch(
-            allocator,
-            tag_info.content,
-            branch_taken,
-        );
+        const active = try isActiveBranch(allocator, tag_info.content, branch_taken);
 
         var body: []const u8 = &[_]u8{};
         var has_body = false;
@@ -285,8 +280,13 @@ fn evalIfGroup(
 
         i += if (has_body) 2 else 1;
 
-        if (i < tokens.len and tokens[i] != .tag)
-            return TemplateError.InvalidTag;
+        // after advancing, the next token (if any) must be a tag
+        if (i < tokens.len) {
+            switch (tokens[i]) {
+                .tag => {}, // expected, continue
+                .text => return TemplateError.InvalidTag, // malformed
+            }
+        }
     }
 
     return TemplateError.MissingEndTag;
