@@ -832,6 +832,17 @@ pub fn validate(template: []const u8) ValidationResult {
 
             // validate tag content
             if (std.mem.startsWith(u8, tag.trim, "if")) {
+                if (if_depth > 0) {
+                    return ValidationResult{
+                        .err = .{
+                            .err = TemplateError.InvalidTag,
+                            .line = tag_line,
+                            .column = tag_column,
+                            .message = "Nested 'if' blocks are not allowed",
+                        },
+                    };
+                }
+
                 if (tag.trim.len < 4 or tag.trim[2] != ' ') {
                     return ValidationResult{
                         .err = .{
@@ -1175,7 +1186,7 @@ test validate {
     }
 
     {
-        const template_valid_nested =
+        const template_invalid_nested =
             \\{> if SYSTEM.os == freebsd <}
             \\{> if SYSTEM.arch == x86_64 <}
             \\freebsd_x64
@@ -1185,8 +1196,10 @@ test validate {
             \\{> endif <}
         ;
 
-        const result_valid_nested = validate(template_valid_nested);
-        try testing.expect(!result_valid_nested.isError());
+        const result_nested = validate(template_invalid_nested);
+        try testing.expect(result_nested.isError());
+        try testing.expectEqual(TemplateError.InvalidTag, result_nested.err.err);
+        try testing.expectEqualStrings("Nested 'if' blocks are not allowed", result_nested.err.message);
     }
 
     {
