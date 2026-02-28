@@ -506,34 +506,30 @@ pub fn reverseTemplate(
 
         // add insertions that replace deleted content in this segment
         for (insertions.items) |ins| {
-
-            // simplified: orig_pos > seg_orig_start AND orig_pos <= seg_orig_end
-            // covers both interior and the seg_end boundary (prev-char rule) and
-            // orig_pos == seg_orig_start is handled below by has_prior_deletion only
-            var has_prior_deletion = false;
-            if (deleted_positions.contains(ins.orig_pos)) has_prior_deletion = true;
-            if (ins.orig_pos > 0 and deleted_positions.contains(ins.orig_pos - 1)) has_prior_deletion = true;
-
-            // an insertion at orig_pos belongs to this segment if:
-            // * strictly inside: seg_start < orig_pos < seg_end
-            // * at seg_end boundary (prev-char rule): orig_pos == seg_end
-            // * at seg_start boundary: orig_pos == seg_start AND has adjacent deletion
-            // (disambiguates: the deletion is within this segment, so the replacement belongs here)
             const strictly_inside = ins.orig_pos > seg_orig_start and ins.orig_pos < seg_orig_end;
             const at_end_boundary = ins.orig_pos == seg_orig_end;
-            // at start boundary: only claim if the triggering deletion is within this segment
-            const deletion_in_seg = deleted_positions.contains(ins.orig_pos) or
-                (ins.orig_pos > 0 and deleted_positions.contains(ins.orig_pos - 1) and
-                    ins.orig_pos - 1 >= seg_orig_start);
 
+            // whether a deletion is adjacent to this insertion point
+            const has_adjacent_deletion =
+                deleted_positions.contains(ins.orig_pos) or
+                (ins.orig_pos > 0 and deleted_positions.contains(ins.orig_pos - 1));
+
+            // adjacent deletion is within this segment's bounds
+            const deletion_in_seg =
+                has_adjacent_deletion and
+                (ins.orig_pos >= seg_orig_start and
+                    (ins.orig_pos == 0 or ins.orig_pos - 1 >= seg_orig_start));
+
+            // at start boundary: only claim if the triggering deletion is within this segment
+            // (disambiguates: the deletion is within this segment, so the replacement belongs here)
             const at_start_boundary = ins.orig_pos == seg_orig_start and deletion_in_seg;
             if (!strictly_inside and !at_end_boundary and !at_start_boundary) continue;
 
             // for insertions without adjacent deletion (pure additions), only include
-            // if they are "inline" -- both neighboring chars in original_render are
-            // non-whitespace. This captures value extensions like "test0"->"test0-back"
-            // but excludes between-line additions like inserting "# \n" before ";;"
-            if (!has_prior_deletion and strictly_inside) {
+            // if they are inlined (both neighboring chars in original_render are non-whitespace)
+            // (this captures value extensions like `test0` -> `test0-back`
+            // but excludes between-line additions)
+            if (!has_adjacent_deletion and strictly_inside) {
                 const prev_is_ws = ins.orig_pos == 0 or blk: {
                     const c = original_render[ins.orig_pos - 1];
                     break :blk c == ' ' or c == '\t' or c == '\n' or c == '\r';
