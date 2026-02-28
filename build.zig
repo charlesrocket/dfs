@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
 
     const lib = b.addLibrary(.{
         .linkage = .static,
-        .name = "DFS library",
+        .name = "libdfs",
         .root_module = lib_mod,
     });
 
