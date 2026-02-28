@@ -233,14 +233,13 @@ fn isActiveBranch(
     if (std.mem.eql(u8, tag_content, "else"))
         return !branch_taken;
 
-    const condition = if (std.mem.startsWith(u8, tag_content, "if "))
-        tag_content[3..]
-    else if (std.mem.startsWith(u8, tag_content, "elif "))
-        tag_content[5..]
-    else
-        return TemplateError.InvalidTag;
+    if (std.mem.startsWith(u8, tag_content, "if "))
+        return try evalCondition(allocator, tag_content[3..]);
 
-    return try evalCondition(allocator, condition) and !branch_taken;
+    if (std.mem.startsWith(u8, tag_content, "elif "))
+        return !branch_taken and try evalCondition(allocator, tag_content[5..]);
+
+    return TemplateError.InvalidTag;
 }
 
 fn evalIfGroup(
