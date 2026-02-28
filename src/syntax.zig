@@ -125,26 +125,6 @@ fn generateConditionalStatementsSection() []const u8 {
     }
 }
 
-fn generateNestingSection() []const u8 {
-    comptime {
-        const header = "Nesting:\n" ++
-            "  Conditionals can be nested to any depth\n\n" ++
-            "  Example:\n";
-
-        const line1 = "    " ++ TAG_START ++ " if SYSTEM.os == openbsd " ++
-            TAG_END ++ "\n";
-
-        const line2 = "      " ++ TAG_START ++ " if SYSTEM.arch == x86_64 " ++
-            TAG_END ++ "\n";
-
-        const line3 = "        content for openbsd on x86_64\n";
-        const line4 = "      " ++ TAG_START ++ " end " ++ TAG_END ++ "\n";
-        const line5 = "    " ++ TAG_START ++ " end " ++ TAG_END ++ "\n";
-
-        return header ++ line1 ++ line2 ++ line3 ++ line4 ++ line5;
-    }
-}
-
 fn generateExamplesSection() []const u8 {
     comptime {
         const fields = @typeInfo(SYSTEM).@"enum".fields;
@@ -198,7 +178,6 @@ const syntax_text = summ: {
         "  variable OPERATOR value\n\n";
 
     const condition_examples = generateConditionExamples();
-    const nesting = generateNestingSection();
     const examples = generateExamplesSection();
 
     break :summ tag_delimiters ++ "\n" ++
@@ -207,7 +186,6 @@ const syntax_text = summ: {
         operators ++ "\n" ++
         condition_format ++
         condition_examples ++ "\n" ++
-        nesting ++ "\n" ++
         examples ++ "\n";
 };
 
