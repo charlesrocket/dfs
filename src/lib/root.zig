@@ -784,10 +784,6 @@ fn trimTag(tag: []const u8) []const u8 {
     return std.mem.trim(u8, tag, " \t\r\n");
 }
 
-fn isWhitespace(c: u8) bool {
-    return c == ' ' or c == '\t' or c == '\n' or c == '\r';
-}
-
 /// Contains the error type with a message and the coordinates.
 pub const ValidationInfo = struct {
     err: TemplateError,
