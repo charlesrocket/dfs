@@ -598,7 +598,6 @@ pub fn reverseTemplate(
             const updated = try reverseTranslateConditional(
                 allocator,
                 map.segment,
-                map.rendered,
                 edited_content,
             );
 
@@ -615,49 +614,53 @@ pub fn reverseTemplate(
 fn reverseTranslateConditional(
     allocator: std.mem.Allocator,
     segment: []const u8,
-    original_rendered: []const u8,
     new_rendered: []const u8,
 ) ![]const u8 {
     const tokens = try tokenize(allocator, segment);
     defer allocator.free(tokens);
 
-    // find the active branch by matching rendered content
     var active_content_start: ?usize = null;
     var active_content_end: ?usize = null;
 
     var i: usize = 0;
+    var branch_taken = false;
+
     while (i < tokens.len) {
-        if (tokens[i] == .tag) {
-            const tag = tokens[i].tag;
-            if (std.mem.startsWith(u8, tag.content, "if") or
-                std.mem.startsWith(u8, tag.content, "elif") or
-                std.mem.eql(u8, tag.content, "else"))
-            {
-                const content_start = tag.end;
-
-                var content_end = segment.len;
-                var j = i + 1;
-                while (j < tokens.len) {
-                    if (tokens[j] == .tag) {
-                        content_end = tokens[j].tag.start;
-                        break;
-                    }
-                    j += 1;
-                }
-
-                const branch_template = segment[content_start..content_end];
-                const branch_rendered = try applyTemplate(allocator, branch_template);
-                defer allocator.free(branch_rendered);
-
-                if (std.mem.eql(u8, branch_rendered, original_rendered)) {
-                    active_content_start = content_start;
-                    active_content_end = content_end;
-                    break;
-                }
-            }
+        if (tokens[i] != .tag) {
+            i += 1;
+            continue;
         }
 
-        i += 1;
+        const tag = tokens[i].tag;
+
+        if (std.mem.eql(u8, tag.content, "endif")) break;
+
+        // evaluate the branch header
+        const active = try isActiveBranch(allocator, tag.content, branch_taken);
+
+        // locate the body: from this tag's end to the next tag's start
+        const content_start = tag.end;
+        var content_end = segment.len;
+        var j = i + 1;
+
+        while (j < tokens.len) {
+            if (tokens[j] == .tag) {
+                content_end = tokens[j].tag.start;
+                break;
+            }
+
+            j += 1;
+        }
+
+        if (active) {
+            branch_taken = true;
+            active_content_start = content_start;
+            active_content_end = content_end;
+            break;
+        }
+
+        // inactive: skip to the next tag
+        i = j;
     }
 
     if (active_content_start) |start| {
@@ -669,8 +672,7 @@ fn reverseTranslateConditional(
 
         try result.appendSlice(allocator, segment[0..start]);
 
-        // re-inject leading newline(s) if the original body had them but
-        // new_rendered doesn't (they were stripped by the diff mapping)
+        // re-inject leading newline(s) if the body had them but `new_rendered` does not
         var lead: usize = 0;
         while (lead < original_body.len and original_body[lead] == '\n') : (lead += 1) {}
 
@@ -680,7 +682,7 @@ fn reverseTranslateConditional(
 
         try result.appendSlice(allocator, new_rendered);
 
-        // re-inject trailing newline(s) similarly
+        // re-inject trailing newline(s)
         var trail: usize = original_body.len;
         while (trail > 0 and original_body[trail - 1] == '\n') : (trail -= 1) {}
 
