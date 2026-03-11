@@ -701,6 +701,15 @@ fn buildCpToByteMap(allocator: std.mem.Allocator, str: []const u8) ![]usize {
     var map = std.ArrayList(usize).empty;
     errdefer map.deinit(allocator);
 
+    const is_ascii = for (str) |c| {
+        if (!std.ascii.isAscii(c)) break false;
+    } else true;
+
+    if (is_ascii) {
+        for (0..str.len + 1) |i| try map.append(allocator, i);
+        return map.toOwnedSlice(allocator);
+    }
+
     var i: usize = 0;
 
     while (i < str.len) {
