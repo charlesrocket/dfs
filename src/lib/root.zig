@@ -25,6 +25,12 @@ const Token = union(enum) {
     tag: TagInfo,
 };
 
+const ActiveBranch = struct {
+    body_start: usize,
+    body_end: usize,
+    next_token: usize,
+};
+
 pub const TemplateError = error{
     IndexOutOfBounds,
     InvalidTag,
@@ -242,6 +248,64 @@ fn isActiveBranch(
     return TemplateError.InvalidTag;
 }
 
+fn findActiveBranchBody(
+    allocator: std.mem.Allocator,
+    tokens: []Token,
+    start: usize,
+) !?ActiveBranch {
+    if (start >= tokens.len) return TemplateError.IndexOutOfBounds;
+
+    var i = start;
+    var branch_taken = false;
+    var result: ?ActiveBranch = null;
+
+    while (i < tokens.len) {
+        const tag = switch (tokens[i]) {
+            .tag => |t| t,
+            else => return TemplateError.InvalidToken,
+        };
+
+        if (std.mem.eql(u8, tag.content, "endif")) {
+            // fill in next_token now that we know where endif is
+            if (result) |*r| r.next_token = i + 1;
+            return result;
+        }
+
+        const active = try isActiveBranch(allocator, tag.content, branch_taken);
+        const body_start = tag.end;
+
+        var body_end = body_start;
+        var j = i + 1;
+        var text_count: usize = 0;
+
+        while (j < tokens.len) : (j += 1) {
+            switch (tokens[j]) {
+                .tag => {
+                    body_end = tokens[j].tag.start;
+                    break;
+                },
+                .text => {
+                    text_count += 1;
+                    // two or more consecutive text tokens means
+                    // a tag is missing between them
+                    if (text_count > 1) return TemplateError.InvalidTag;
+                },
+            }
+        }
+
+        if (active and result == null) {
+            branch_taken = true;
+            // next_token is filled once we find `endif`
+            result = .{ .body_start = body_start, .body_end = body_end, .next_token = 0 };
+        }
+
+        // advance to the next tag, skipping any interleaved text token
+        i = j;
+    }
+
+    return TemplateError.MissingEndTag;
+}
+
 fn evalIfGroup(
     allocator: std.mem.Allocator,
     tokens: []Token,
@@ -249,58 +313,108 @@ fn evalIfGroup(
     w: anytype,
 ) !usize {
     if (start >= tokens.len) return TemplateError.IndexOutOfBounds;
+    if (tokens[start] != .tag) return TemplateError.InvalidToken;
 
-    var i = start;
-    var branch_taken = false;
+    const branch = try findActiveBranchBody(allocator, tokens, start);
 
-    while (i < tokens.len) {
-        const tag_info = switch (tokens[i]) {
-            .tag => |t| t,
-            else => return TemplateError.InvalidToken,
-        };
+    if (branch) |b| {
+        var body: []const u8 = "";
+        var i = start;
 
-        if (std.mem.eql(u8, tag_info.content, "endif")) return i + 1;
+        while (i < tokens.len) : (i += 1) {
+            if (tokens[i] == .tag and tokens[i].tag.end == b.body_start) {
+                if (i + 1 < tokens.len and tokens[i + 1] == .text)
+                    body = tokens[i + 1].text;
 
-        const active = try isActiveBranch(allocator, tag_info.content, branch_taken);
-
-        var body: []const u8 = &[_]u8{};
-        var has_body = false;
-
-        if (i + 1 < tokens.len and tokens[i + 1] == .text) {
-            body = tokens[i + 1].text;
-            has_body = true;
-        }
-
-        if (active) {
-            branch_taken = true;
-            // preserve body
-            try w.print("{s}", .{body});
-        }
-
-        i += if (has_body) 2 else 1;
-
-        // after advancing, the next token (if any) must be a tag
-        if (i < tokens.len) {
-            switch (tokens[i]) {
-                .tag => {}, // expected, continue
-                .text => return TemplateError.InvalidTag, // malformed
+                break;
             }
         }
+
+        try w.print("{s}", .{body});
+        return b.next_token;
+    }
+
+    var i = start;
+
+    while (i < tokens.len) : (i += 1) {
+        if (tokens[i] == .tag and std.mem.eql(u8, tokens[i].tag.content, "endif"))
+            return i + 1;
     }
 
     return TemplateError.MissingEndTag;
 }
 
-/// Applies the provided template and returns the result.
-/// The caller owns the returned memory.
-pub fn applyTemplate(
+fn reverseTranslateConditional(
     allocator: std.mem.Allocator,
-    template: []const u8,
+    segment: []const u8,
+    new_rendered: []const u8,
 ) ![]const u8 {
-    const tokens = try tokenize(allocator, template);
+    const tokens = try tokenize(allocator, segment);
     defer allocator.free(tokens);
 
-    return try interpret(allocator, tokens);
+    const branch = try findActiveBranchBody(allocator, tokens, 0) orelse {
+        // no branch was active; return segment unchanged.
+        return try allocator.dupe(u8, segment);
+    };
+
+    const original_body = segment[branch.body_start..branch.body_end];
+
+    var result = std.ArrayList(u8).empty;
+    errdefer result.deinit(allocator);
+
+    try result.appendSlice(allocator, segment[0..branch.body_start]);
+
+    // re-inject leading newline(s) if the body had them but `new_rendered` does not
+    var lead: usize = 0;
+    while (lead < original_body.len and original_body[lead] == '\n') : (lead += 1) {}
+
+    if (lead > 0 and (new_rendered.len == 0 or new_rendered[0] != '\n')) {
+        try result.appendSlice(allocator, original_body[0..lead]);
+    }
+
+    try result.appendSlice(allocator, new_rendered);
+
+    // re-inject trailing newline(s)
+    var trail: usize = original_body.len;
+    while (trail > 0 and original_body[trail - 1] == '\n') : (trail -= 1) {}
+
+    const trailing_nl = original_body[trail..];
+
+    if (trailing_nl.len > 0 and
+        (new_rendered.len == 0 or new_rendered[new_rendered.len - 1] != '\n'))
+    {
+        try result.appendSlice(allocator, trailing_nl);
+    }
+
+    try result.appendSlice(allocator, segment[branch.body_end..]);
+
+    return result.toOwnedSlice(allocator);
+}
+
+fn buildCpToByteMap(allocator: std.mem.Allocator, str: []const u8) ![]usize {
+    var map = std.ArrayList(usize).empty;
+    errdefer map.deinit(allocator);
+
+    const is_ascii = for (str) |c| {
+        if (!std.ascii.isAscii(c)) break false;
+    } else true;
+
+    if (is_ascii) {
+        for (0..str.len + 1) |i| try map.append(allocator, i);
+        return map.toOwnedSlice(allocator);
+    }
+
+    var i: usize = 0;
+
+    while (i < str.len) {
+        try map.append(allocator, i);
+        const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch 1;
+        i += cp_len;
+    }
+
+    try map.append(allocator, str.len);
+
+    return map.toOwnedSlice(allocator);
 }
 
 fn generateSegments(
@@ -357,6 +471,18 @@ fn generateSegments(
     }
 
     return segments;
+}
+
+/// Applies the provided template and returns the result.
+/// The caller owns the returned memory.
+pub fn applyTemplate(
+    allocator: std.mem.Allocator,
+    template: []const u8,
+) ![]const u8 {
+    const tokens = try tokenize(allocator, template);
+    defer allocator.free(tokens);
+
+    return try interpret(allocator, tokens);
 }
 
 /// Translates the rendered file back to the template and returns the result.
@@ -604,122 +730,6 @@ pub fn reverseTemplate(
     }
 
     return result.toOwnedSlice(allocator);
-}
-
-fn reverseTranslateConditional(
-    allocator: std.mem.Allocator,
-    segment: []const u8,
-    new_rendered: []const u8,
-) ![]const u8 {
-    const tokens = try tokenize(allocator, segment);
-    defer allocator.free(tokens);
-
-    var active_content_start: ?usize = null;
-    var active_content_end: ?usize = null;
-
-    var i: usize = 0;
-    var branch_taken = false;
-
-    while (i < tokens.len) {
-        if (tokens[i] != .tag) {
-            i += 1;
-            continue;
-        }
-
-        const tag = tokens[i].tag;
-
-        if (std.mem.eql(u8, tag.content, "endif")) break;
-
-        // evaluate the branch header
-        const active = try isActiveBranch(allocator, tag.content, branch_taken);
-
-        // locate the body: from this tag's end to the next tag's start
-        const content_start = tag.end;
-        var content_end = segment.len;
-        var j = i + 1;
-
-        while (j < tokens.len) {
-            if (tokens[j] == .tag) {
-                content_end = tokens[j].tag.start;
-                break;
-            }
-
-            j += 1;
-        }
-
-        if (active) {
-            branch_taken = true;
-            active_content_start = content_start;
-            active_content_end = content_end;
-            break;
-        }
-
-        // inactive: skip to the next tag
-        i = j;
-    }
-
-    if (active_content_start) |start| {
-        const end = active_content_end.?;
-        const original_body = segment[start..end];
-
-        var result = std.ArrayList(u8).empty;
-        errdefer result.deinit(allocator);
-
-        try result.appendSlice(allocator, segment[0..start]);
-
-        // re-inject leading newline(s) if the body had them but `new_rendered` does not
-        var lead: usize = 0;
-        while (lead < original_body.len and original_body[lead] == '\n') : (lead += 1) {}
-
-        if (lead > 0 and (new_rendered.len == 0 or new_rendered[0] != '\n')) {
-            try result.appendSlice(allocator, original_body[0..lead]);
-        }
-
-        try result.appendSlice(allocator, new_rendered);
-
-        // re-inject trailing newline(s)
-        var trail: usize = original_body.len;
-        while (trail > 0 and original_body[trail - 1] == '\n') : (trail -= 1) {}
-
-        const trailing_nl = original_body[trail..];
-
-        if (trailing_nl.len > 0 and
-            (new_rendered.len == 0 or new_rendered[new_rendered.len - 1] != '\n'))
-        {
-            try result.appendSlice(allocator, trailing_nl);
-        }
-
-        try result.appendSlice(allocator, segment[end..]);
-
-        return result.toOwnedSlice(allocator);
-    }
-
-    return try allocator.dupe(u8, segment);
-}
-
-fn buildCpToByteMap(allocator: std.mem.Allocator, str: []const u8) ![]usize {
-    var map = std.ArrayList(usize).empty;
-    errdefer map.deinit(allocator);
-
-    const is_ascii = for (str) |c| {
-        if (!std.ascii.isAscii(c)) break false;
-    } else true;
-
-    if (is_ascii) {
-        for (0..str.len + 1) |i| try map.append(allocator, i);
-        return map.toOwnedSlice(allocator);
-    }
-
-    var i: usize = 0;
-
-    while (i < str.len) {
-        try map.append(allocator, i);
-        const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch 1;
-        i += cp_len;
-    }
-
-    try map.append(allocator, str.len);
-    return map.toOwnedSlice(allocator);
 }
 
 fn getOS() []const u8 {
