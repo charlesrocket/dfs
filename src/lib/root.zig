@@ -28,7 +28,8 @@ const Token = union(enum) {
 const ActiveBranch = struct {
     body_start: usize,
     body_end: usize,
-    next_token: usize,
+    active_token: usize,
+    next_token: ?usize,
 };
 
 pub const TemplateError = error{
@@ -295,11 +296,14 @@ fn findActiveBranchBody(
 
         if (active and result == null) {
             branch_taken = true;
-            // next_token is filled once we find `endif`
-            result = .{ .body_start = body_start, .body_end = body_end, .next_token = 0 };
+            result = .{
+                .body_start = body_start,
+                .body_end = body_end,
+                .active_token = i,
+                .next_token = null,
+            };
         }
 
-        // advance to the next tag, skipping any interleaved text token
         i = j;
     }
 
@@ -318,24 +322,22 @@ fn evalIfGroup(
     const branch = try findActiveBranchBody(allocator, tokens, start);
 
     if (branch) |b| {
-        var body: []const u8 = "";
-        var i = start;
-
-        while (i < tokens.len) : (i += 1) {
-            if (tokens[i] == .tag and tokens[i].tag.end == b.body_start) {
-                if (i + 1 < tokens.len and tokens[i + 1] == .text)
-                    body = tokens[i + 1].text;
-
-                break;
-            }
-        }
+        // no rescan needed: the text token, if any, is
+        // directly after active_token
+        const body: []const u8 =
+            if (b.active_token + 1 < tokens.len and tokens[b.active_token + 1] == .text)
+                tokens[b.active_token + 1].text
+            else
+                "";
 
         try w.print("{s}", .{body});
-        return b.next_token;
+        // next_token is guaranteed non-null here: findActiveBranchBody only
+        // returns a non-null result after `endif`
+        return b.next_token.?;
     }
 
+    // no branch was active, skip to endif
     var i = start;
-
     while (i < tokens.len) : (i += 1) {
         if (tokens[i] == .tag and std.mem.eql(u8, tokens[i].tag.content, "endif"))
             return i + 1;
