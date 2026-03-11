@@ -397,24 +397,16 @@ fn buildCpToByteMap(allocator: std.mem.Allocator, str: []const u8) ![]usize {
     var map = std.ArrayList(usize).empty;
     errdefer map.deinit(allocator);
 
-    const is_ascii = for (str) |c| {
-        if (!std.ascii.isAscii(c)) break false;
-    } else true;
-
-    if (is_ascii) {
-        for (0..str.len + 1) |i| try map.append(allocator, i);
-        return map.toOwnedSlice(allocator);
-    }
+    try map.ensureTotalCapacity(allocator, str.len + 1);
 
     var i: usize = 0;
-
     while (i < str.len) {
-        try map.append(allocator, i);
+        map.appendAssumeCapacity(i);
         const cp_len = std.unicode.utf8ByteSequenceLength(str[i]) catch 1;
         i += cp_len;
     }
 
-    try map.append(allocator, str.len);
+    map.appendAssumeCapacity(str.len);
 
     return map.toOwnedSlice(allocator);
 }
