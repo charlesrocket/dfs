@@ -1,5 +1,4 @@
 ---
-
 name: CI
 "on": [push, pull_request]
 
@@ -96,7 +95,6 @@ jobs:
         run: |
           zig build --release=${{ matrix.mode }} --verbose --summary all
 
-
   test:
     name: Test
     strategy:
@@ -128,8 +126,6 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
 
-      - name: Build
-        run: zig build --release=${{ matrix.mode }} --verbose --summary all
       - name: Test
         run: zig build test --release=${{ matrix.mode }} --summary all
 
@@ -183,10 +179,8 @@ jobs:
 
   release:
     name: Release
-    needs: [build-linux-arm,
-            build-linux-x86,
-            build-macos, test]
-      
+    needs: [build-linux-arm, build-linux-x86, build-macos, test]
+
     permissions:
       contents: write
       id-token: write
