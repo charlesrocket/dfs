@@ -2,6 +2,54 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2] - 2026-03-20
+
+### Bug Fixes
+
+- Adjust `generateSegments()` depth
+- Improve `reverseTranslateConditional()` logic
+- Invalidate nesting blocks
+- Conditional UTF-8 decoding
+- Switch to event-driven architecture
+
+### Documentation
+
+- Update syntax
+
+### Operations
+
+- Bump actions/attest-build-provenance from 3 to 4
+- Drop redundant `build`
+
+### Performance
+
+- Optimize `buildCpToByteMap()`
+
+### Refactor
+
+- Drop `hasAnyConditionals()`
+- Drop `isWhitespace()`
+- Drop `isValidOp()`
+- Drop `Branch`
+- Improve `evalIfGroup()` loop
+- Drop redundant `trimTag()`
+- Improve `isActiveBranch()`
+- Remove redundant logic in `reverseTemplate()`
+- Extract `findActiveBranchBody()`
+- Simplify `evalIfGroup()`
+
+### Testing
+
+- Update `mixed-else`
+- Add unicode cases
+- Fix `mixed-inline`
+
+### Build
+
+- Fix library name
+- Bump `libstray` to 0.3.1
+- `gen-doc` -> `docs-meta`
+
 ## [0.7.1] - 2026-02-27
 
 ### Bug Fixes
