@@ -300,17 +300,13 @@ fn watchKqueue(
 ) !void {
     if (comptime !KQUEUE) return;
     var events: [32]std.posix.Kevent = undefined;
-    const timeout = std.posix.timespec{ .sec = 1, .nsec = 0 };
 
     while (active.*) {
-        // check for new files that were not available during addPath()
-        try self.recheckMissingFiles();
-
         const n = std.posix.kevent(
             self.kqueue_fd.?,
             &[_]std.posix.Kevent{},
             &events,
-            &timeout,
+            null,
         ) catch |err| {
             if (core.logs) {
                 Util.log(.ERROR, "Kqueue error: {}", .{err});
@@ -332,6 +328,7 @@ fn watchKqueue(
                 defer sync_queue.mutex.unlock();
 
                 sync_queue.should_sync = true;
+                sync_queue.cond.signal();
 
                 if (core.logs) {
                     Util.log(.INFO, "File changes detected", .{});
@@ -389,6 +386,7 @@ fn watchEpoll(
                 defer sync_queue.mutex.unlock();
 
                 sync_queue.should_sync = true;
+                sync_queue.cond.signal();
 
                 if (core.logs) {
                     Util.log(.INFO, "File changes detected", .{});
@@ -398,7 +396,7 @@ fn watchEpoll(
     }
 }
 
-fn recheckMissingFiles(self: *Watcher) !void {
+pub fn recheckMissingFiles(self: *Watcher) !void {
     self.mutex.lock();
     defer self.mutex.unlock();
 
@@ -502,6 +500,7 @@ fn watchPoll(
                     defer sync_queue.mutex.unlock();
 
                     sync_queue.should_sync = true;
+                    sync_queue.cond.signal();
 
                     if (core.logs) {
                         Util.log(.INFO, "File changes detected", .{});

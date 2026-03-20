@@ -1,5 +1,6 @@
 pub const SyncQueue = struct {
     mutex: Thread.Mutex = .{},
+    cond: Thread.Condition = .{},
     should_sync: bool = false,
     config_call: bool = false,
     syncing: bool = false,
@@ -69,6 +70,10 @@ pub fn start(
     while (active) {
         queue.mutex.lock();
 
+        while (!queue.should_sync and !queue.config_call) {
+            queue.cond.wait(&queue.mutex);
+        }
+
         if (queue.should_sync) {
             queue.should_sync = false;
             queue.syncing = true;
@@ -80,6 +85,7 @@ pub fn start(
                 .{ Cli.bold, Cli.yellow, Cli.reset },
             ) catch {};
 
+            try watcher.recheckMissingFiles();
             // re-scan to catch new files
             try core.scan();
 
@@ -109,13 +115,10 @@ pub fn start(
             queue.mutex.unlock();
             try openConfig(core.allocator, core.config_path);
         } else queue.mutex.unlock();
-
-        Thread.sleep(1 * std.time.ns_per_s);
     }
 
     if (core.logs) Util.log(.INFO, "Stopping the daemon", .{});
 
-    // TODO
     Thread.sleep(1 * std.time.ns_per_s);
 }
 
@@ -137,6 +140,12 @@ fn spawnTray(
 
     defer icon.destroy();
 
+    var sfd = [_]std.posix.pollfd{.{
+        .fd = try icon.fd(),
+        .events = std.posix.POLL.IN,
+        .revents = 0,
+    }};
+
     var menu = try Menu.create(core.allocator);
 
     const sync_item = try menu.addItem("Sync", onSync, queue);
@@ -152,7 +161,7 @@ fn spawnTray(
 
     icon.setMenu(&menu);
 
-    icon.register() catch {
+    const registered: bool = icon.register() catch {
         try core.stderr.print("{s}{s}Warning:{s} D-Bus failure!\n", .{
             Cli.blue,
             Cli.bold,
@@ -161,6 +170,16 @@ fn spawnTray(
 
         try core.stderr.flush();
     };
+
+    if (!registered) {
+        try core.stderr.print("{s}{s}Warning:{s} no tray watcher detected!\n", .{
+            Cli.blue,
+            Cli.bold,
+            Cli.reset,
+        });
+
+        try core.stderr.flush();
+    }
 
     while (active.*) {
         queue.mutex.lock();
@@ -178,8 +197,8 @@ fn spawnTray(
         }
 
         queue.mutex.unlock();
+        _ = try std.posix.poll(&sfd, -1);
         icon.processEvents();
-        Thread.sleep(500 * std.time.ns_per_ms);
     }
 }
 
@@ -189,6 +208,7 @@ fn onSync(menu_id: i32, queue_data: ?*anyopaque) void {
         const queue = @as(*SyncQueue, @ptrCast(@alignCast(ptr)));
         queue.mutex.lock();
         queue.*.should_sync = true;
+        queue.cond.signal();
         queue.mutex.unlock();
     }
 }
