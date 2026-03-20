@@ -3,6 +3,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const build_options = b.addOptions();
 
+    // MODULES
+
     const lib_mod = b.addModule("libdfs", .{
         .root_source_file = b.path("src/lib/root.zig"),
         .target = target,
@@ -49,24 +51,6 @@ pub fn build(b: *std.Build) void {
 
     build_options.addOption(bool, "dbus", dbus);
 
-    if (target.query.cpu_arch == null) {
-        const cova_gen = @import("cova").addCovaDocGenStep(b, cova_dep, exe, .{
-            .kinds = &.{.all},
-            .version = version(b),
-            .help_docs_config = .{
-                .section = '1',
-            },
-            .tab_complete_config = .{
-                .include_opts = true,
-                .add_cova_lib_msg = false,
-                .add_install_instructions = false,
-            },
-        });
-
-        const meta_doc_gen = b.step("gen-doc", "Generate Meta Docs");
-        meta_doc_gen.dependOn(&cova_gen.step);
-    }
-
     exe.root_module.addOptions("build_options", build_options);
     build_options.addOption([]const u8, "version", version(b));
 
@@ -82,6 +66,8 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    // TEST
 
     const test_options = b.addOptions();
     test_options.addOptionPath("exe_path", exe.getEmittedBin());
@@ -154,6 +140,8 @@ pub fn build(b: *std.Build) void {
     const coverage_step = b.step("coverage", "Generate test coverage (kcov)");
     coverage_step.dependOn(&merge_step.step);
 
+    // DOCS
+
     const build_docs = b.addInstallDirectory(.{
         .source_dir = lib.getEmittedDocs(),
         .install_dir = .prefix,
@@ -162,6 +150,26 @@ pub fn build(b: *std.Build) void {
 
     const build_docs_step = b.step("docs", "Build library documentation");
     build_docs_step.dependOn(&build_docs.step);
+
+    if (target.query.cpu_arch == null) {
+        const cova_gen = @import("cova").addCovaDocGenStep(b, cova_dep, exe, .{
+            .kinds = &.{.all},
+            .version = version(b),
+            .help_docs_config = .{
+                .section = '1',
+            },
+            .tab_complete_config = .{
+                .include_opts = true,
+                .add_cova_lib_msg = false,
+                .add_install_instructions = false,
+            },
+        });
+
+        const meta_doc_gen = b.step("docs-meta", "Generate meta documentation");
+        meta_doc_gen.dependOn(&cova_gen.step);
+    }
+
+    // ICONS
 
     const install_icons = b.addInstallFile(
         b.path("assets/icon-bright.png"),
@@ -174,6 +182,8 @@ pub fn build(b: *std.Build) void {
     ).step);
 
     b.getInstallStep().dependOn(&install_icons.step);
+
+    // CLEANUP
 
     const clean_step = b.step("clean", "Clean up project directory");
     clean_step.dependOn(&b.addRemoveDirTree(b.path("meta")).step);
