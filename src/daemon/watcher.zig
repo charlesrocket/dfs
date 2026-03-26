@@ -327,8 +327,10 @@ fn watchKqueue(
                 sync_queue.mutex.lock();
                 defer sync_queue.mutex.unlock();
 
-                sync_queue.should_sync = true;
-                sync_queue.cond.signal();
+                if (!sync_queue.paused) {
+                    sync_queue.should_sync = true;
+                    sync_queue.cond.signal();
+                }
 
                 if (core.logs) {
                     Util.log(.INFO, "File changes detected", .{});
@@ -385,8 +387,10 @@ fn watchEpoll(
                 sync_queue.mutex.lock();
                 defer sync_queue.mutex.unlock();
 
-                sync_queue.should_sync = true;
-                sync_queue.cond.signal();
+                if (!sync_queue.paused) {
+                    sync_queue.should_sync = true;
+                    sync_queue.cond.signal();
+                }
 
                 if (core.logs) {
                     Util.log(.INFO, "File changes detected", .{});
@@ -499,8 +503,10 @@ fn watchPoll(
                     sync_queue.mutex.lock();
                     defer sync_queue.mutex.unlock();
 
-                    sync_queue.should_sync = true;
-                    sync_queue.cond.signal();
+                    if (!sync_queue.paused) {
+                        sync_queue.should_sync = true;
+                        sync_queue.cond.signal();
+                    }
 
                     if (core.logs) {
                         Util.log(.INFO, "File changes detected", .{});

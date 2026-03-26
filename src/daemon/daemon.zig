@@ -1,9 +1,11 @@
 pub const SyncQueue = struct {
     mutex: Thread.Mutex = .{},
     cond: Thread.Condition = .{},
+    stopping: bool = false,
     should_sync: bool = false,
     config_call: bool = false,
     syncing: bool = false,
+    paused: bool = false,
     sync_state_changed: bool = false,
     sync_time: ?[]const u8 = null,
     sync_time_updated: bool = false,
@@ -21,6 +23,12 @@ pub const SyncQueue = struct {
             if (len == 0) "unknown" else buf[0..len],
         );
     }
+};
+
+const Context = struct {
+    queue: *SyncQueue,
+    icon: *Icon,
+    item_id: ?i32 = null,
 };
 
 pub fn start(
@@ -59,7 +67,7 @@ pub fn start(
         const tray_thread = try Thread.spawn(
             .{},
             spawnTray,
-            .{ core, config, &active, &queue },
+            .{ core, config, &queue },
         );
 
         tray_thread.detach();
@@ -70,11 +78,14 @@ pub fn start(
     while (active) {
         queue.mutex.lock();
 
-        while (!queue.should_sync and !queue.config_call) {
+        while (!queue.should_sync and !queue.config_call and !queue.stopping) {
             queue.cond.wait(&queue.mutex);
         }
 
-        if (queue.should_sync) {
+        if (queue.stopping) {
+            active = false;
+            queue.mutex.unlock();
+        } else if (queue.should_sync) {
             queue.should_sync = false;
             queue.syncing = true;
             queue.sync_state_changed = true;
@@ -125,7 +136,6 @@ pub fn start(
 fn spawnTray(
     core: *Core,
     config: *Config,
-    active: *bool,
     queue: *SyncQueue,
 ) !void {
     var icon = try Icon.create(
@@ -150,11 +160,23 @@ fn spawnTray(
 
     const sync_item = try menu.addItem("Sync", onSync, queue);
     _ = try menu.addSeparator();
+
+    var pause_ctx = Context{ .queue = queue, .icon = &icon };
+    const pause_item = try menu.addItem(
+        "Pause",
+        onPause,
+        &pause_ctx,
+    );
+
+    pause_ctx.item_id = pause_item;
+
+    _ = try menu.addSeparator();
     const config_item = try menu.addItem("Configuration", onConfig, queue);
-    const quit_item = try menu.addItem("Quit", onQuit, active);
+    const quit_item = try menu.addItem("Quit", onQuit, queue);
 
     if (config.tray.menu_icons) {
         try menu.setItemIcon(sync_item, "emblem-synchronizing");
+        try menu.setItemIcon(pause_item, "media-playback-pause");
         try menu.setItemIcon(config_item, "preferences-system");
         try menu.setItemIcon(quit_item, "application-exit");
     }
@@ -172,16 +194,19 @@ fn spawnTray(
     };
 
     if (!registered) {
-        try core.stderr.print("{s}{s}Warning:{s} no tray watcher detected!\n", .{
-            Cli.blue,
-            Cli.bold,
-            Cli.reset,
-        });
+        try core.stderr.print(
+            "{s}{s}Warning:{s} no tray watcher detected!\n",
+            .{
+                Cli.blue,
+                Cli.bold,
+                Cli.reset,
+            },
+        );
 
         try core.stderr.flush();
     }
 
-    while (active.*) {
+    while (!queue.stopping) {
         queue.mutex.lock();
 
         if (queue.sync_time_updated) {
@@ -224,12 +249,35 @@ fn onConfig(menu_id: i32, queue_data: ?*anyopaque) void {
     }
 }
 
-fn onQuit(menu_id: i32, user_data: ?*anyopaque) void {
+fn onPause(menu_id: i32, queue_data: ?*anyopaque) void {
     _ = menu_id;
 
+    if (queue_data) |ptr| {
+        const ctx = @as(*Context, @ptrCast(@alignCast(ptr)));
+        ctx.queue.mutex.lock();
+        ctx.queue.paused = !ctx.queue.paused;
+        ctx.queue.mutex.unlock();
+
+        ctx.icon.setMenuItemLabel(ctx.item_id.?, if (ctx.queue.paused)
+            "Resume"
+        else
+            "Pause") catch return;
+
+        ctx.icon.menu.?.setItemIcon(ctx.item_id.?, if (ctx.queue.paused)
+            "media-playback-start"
+        else
+            "media-playback-pause") catch return;
+    }
+}
+
+fn onQuit(menu_id: i32, user_data: ?*anyopaque) void {
+    _ = menu_id;
     if (user_data) |ptr| {
-        const bool_ptr = @as(*bool, @ptrCast(@alignCast(ptr)));
-        bool_ptr.* = false;
+        const queue = @as(*SyncQueue, @ptrCast(@alignCast(ptr)));
+        queue.mutex.lock();
+        queue.stopping = true;
+        queue.cond.signal();
+        queue.mutex.unlock();
     }
 }
 
