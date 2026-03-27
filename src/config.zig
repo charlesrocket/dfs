@@ -25,7 +25,6 @@ pub const ConfigResult = union(enum) {
 const Tray = struct {
     enabled: bool,
     icon: Icon,
-    menu_icons: bool,
 };
 
 repository: []const u8,
@@ -60,7 +59,6 @@ pub fn new(
         .tray = .{
             .enabled = true,
             .icon = .bright,
-            .menu_icons = true,
         },
     };
 }
@@ -142,12 +140,15 @@ fn read(
     const config_data =
         config_content.items[0 .. config_content.items.len - 1 :0];
 
+    var diag: std.zon.parse.Diagnostics = .{};
+    defer diag.deinit(allocator);
+
     const config = std.zon.parse.fromSlice(
         Config,
         allocator,
         config_data,
-        null,
-        .{ .ignore_unknown_fields = true },
+        &diag,
+        .{ .ignore_unknown_fields = false },
     ) catch {
         const data = try allocator.dupeZ(u8, config_data);
         return ConfigResult{ .parse_error = data };
@@ -265,7 +266,12 @@ pub fn migrateConfig(
     allocator: std.mem.Allocator,
     config_path: []const u8,
 ) !void {
-    const MigrationConfig = MigrationType(Config);
+    const deprecated_field_specs = .{
+        .{ .name = "destination", .type = []const u8 },
+        .{ .name = "tray.menu_icons", .type = bool },
+    };
+
+    const MigrationConfig = MigrationType(Config, deprecated_field_specs);
     const file = try std.fs.cwd().openFile(config_path, .{});
     defer file.close();
 
@@ -317,11 +323,9 @@ pub fn migrateConfig(
         .tray = if (old_config.tray) |v| .{
             .enabled = v.enabled orelse true,
             .icon = v.icon orelse .bright,
-            .menu_icons = v.menu_icons orelse true,
         } else .{
             .enabled = true,
             .icon = .bright,
-            .menu_icons = true,
         },
     };
 
@@ -333,33 +337,71 @@ pub fn migrateConfig(
 
     allocator.free(ignore_list);
 }
-
-fn MigrationType(comptime T: type) type {
+fn MigrationType(
+    comptime T: type,
+    comptime deprecated_fields: anytype,
+) type {
     const config_fields = std.meta.fields(T);
-    // deprecated config fields
-    const deprecated_field_specs = .{
-        .{ .name = "destination", .type = []const u8 },
-    };
+
+    // filter fields that belong at this level
+    comptime var local_count = 0;
+    inline for (deprecated_fields) |spec| {
+        if (std.mem.indexOfScalar(u8, spec.name, '.') == null)
+            local_count += 1;
+    }
 
     var fields: [
         config_fields.len +
-            deprecated_field_specs.len
-    ]std.builtin.Type.StructField =
-        undefined;
+            local_count
+    ]std.builtin.Type.StructField = undefined;
 
     inline for (config_fields, 0..) |field, i| {
         const field_type_info = @typeInfo(field.type);
+        comptime var nested_count = 0;
+
+        // collect fields for this nested struct (strip "field.")
+        inline for (deprecated_fields) |f| {
+            const dot = comptime std.mem.indexOfScalar(u8, f.name, '.');
+            if (dot != null and std.mem.eql(
+                u8,
+                f.name[0..dot.?],
+                field.name,
+            )) {
+                nested_count += 1;
+            }
+        }
+
         const FieldType = switch (field_type_info) {
-            .@"struct" => MigrationType(field.type),
+            .@"struct" => blk: {
+                var nested_fields: [nested_count]struct {
+                    name: [:0]const u8,
+                    type: type,
+                } = undefined;
+
+                comptime var j = 0;
+                inline for (deprecated_fields) |f| {
+                    const dot = comptime std.mem.indexOfScalar(u8, f.name, '.');
+
+                    if (dot != null and std.mem.eql(
+                        u8,
+                        f.name[0..dot.?],
+                        field.name,
+                    )) {
+                        nested_fields[j] = .{
+                            .name = @ptrCast(f.name[dot.? + 1 ..]),
+                            .type = f.type,
+                        };
+
+                        j += i;
+                    }
+                }
+
+                break :blk MigrationType(field.type, nested_fields);
+            },
             else => field.type,
         };
 
-        const OptionalType = @Type(.{
-            .optional = .{
-                .child = FieldType,
-            },
-        });
-
+        const OptionalType = @Type(.{ .optional = .{ .child = FieldType } });
         const default_value = @as(OptionalType, null);
 
         fields[i] = .{
@@ -371,22 +413,22 @@ fn MigrationType(comptime T: type) type {
         };
     }
 
-    inline for (deprecated_field_specs, 0..) |spec, i| {
-        const OptionalType = @Type(.{
-            .optional = .{
-                .child = spec.type,
-            },
-        });
+    comptime var di = 0;
+    inline for (deprecated_fields) |f| {
+        if (std.mem.indexOfScalar(u8, f.name, '.') == null) {
+            const OptionalType = @Type(.{ .optional = .{ .child = f.type } });
+            const default_value = @as(OptionalType, null);
 
-        const default_value = @as(OptionalType, null);
+            fields[config_fields.len + di] = .{
+                .name = f.name,
+                .type = OptionalType,
+                .default_value_ptr = &default_value,
+                .is_comptime = false,
+                .alignment = @alignOf(OptionalType),
+            };
 
-        fields[config_fields.len + i] = .{
-            .name = spec.name,
-            .type = OptionalType,
-            .default_value_ptr = &default_value,
-            .is_comptime = false,
-            .alignment = @alignOf(OptionalType),
-        };
+            di += 1;
+        }
     }
 
     return @Type(.{
@@ -527,11 +569,7 @@ test migrateConfig {
         \\    .notifications = false,
         \\    .watcher = .auto,
         \\    .ignore_list = .{ "foo", "bar" },
-        \\    .tray = .{
-        \\        .enabled = true,
-        \\        .icon = .bright,
-        \\        .menu_icons = true,
-        \\    },
+        \\    .tray = .{ .enabled = true, .icon = .bright },
         \\}
         \\
     ;
