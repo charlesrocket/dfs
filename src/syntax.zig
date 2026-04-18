@@ -155,9 +155,9 @@ fn generateExamplesSection() []const u8 {
         const multi7 = "    " ++ TAG_START ++ " end " ++ TAG_END ++ "\n\n";
 
         const inline_header = "  Inline conditionals:\n";
-        const inline1 = "    value=\"" ++ TAG_START ++
+        const inline1 = "    val=\"" ++ TAG_START ++
             " if SYSTEM.os == freebsd " ++ TAG_END ++ "FBSD" ++
-            TAG_START ++ " else " ++ TAG_END ++ "OTHER" ++ TAG_START ++
+            TAG_START ++ " else " ++ TAG_END ++ "SMTH" ++ TAG_START ++
             " endif " ++ TAG_END;
 
         return header ++ line1 ++ line2 ++ line3 ++ line4 ++ line5 ++
