@@ -1,3 +1,6 @@
+/.zig-cache/
+/zig-pkg/
+/zig-out/
 /release/
 /debug/
 /build/
@@ -11,6 +14,3 @@ dfs.log
 
 /coverage/
 /kcov-*
-
-.zig-cache/
-zig-out/
