@@ -182,13 +182,6 @@ pub fn build(b: *std.Build) void {
     ).step);
 
     b.getInstallStep().dependOn(&install_icons.step);
-
-    // CLEANUP
-
-    const clean_step = b.step("clean", "Clean up project directory");
-    clean_step.dependOn(&b.addRemoveDirTree(b.path("meta")).step);
-    clean_step.dependOn(&b.addRemoveDirTree(b.path("zig-out")).step);
-    clean_step.dependOn(&b.addRemoveDirTree(b.path(".zig-cache")).step);
 }
 
 fn version(b: *std.Build) []const u8 {
