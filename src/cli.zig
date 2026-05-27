@@ -94,7 +94,7 @@ const ValueT = CommandT.ValueT;
 
 pub const setup_cmd: CommandT = .{
     .name = "dfs",
-    .description = 
+    .description =
     \\A configuration (dotfiles) manager with a template engine and
     \\    a true 2-way synchronization. The deployed layout recreates the
     \\    source completely (except assets in the ignore list). So it is
@@ -103,10 +103,10 @@ pub const setup_cmd: CommandT = .{
     \\    TEMPLATE SYNTAX:
     \\
     \\
-++ Syntax.getSyntax(CommandT.indent_fmt),
-.examples = &.{
-    "dfs init -h",
-},
+    ++ Syntax.getSyntax(CommandT.indent_fmt),
+    .examples = &.{
+        "dfs init -h",
+    },
     .sub_cmds_mandatory = true,
     .sub_cmds = &.{
         .{
