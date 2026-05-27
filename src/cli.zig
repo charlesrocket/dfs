@@ -26,9 +26,6 @@ pub const magenta = "\x1b[35m";
 pub const CommandT = cova.Command.Custom(.{
     .global_help_prefix = assets.help_prefix,
     .help_header_fmt = assets.help_message,
-    .help_category_order = &.{
-        .Prefix, .Header, .Aliases, .Examples, .Commands, .Options, .Values,
-    },
     .examples_header_fmt = assets.examples_header,
     .global_usage_fn = struct {
         fn usage(self: anytype, writer: anytype, _: ?std.mem.Allocator) !void {
