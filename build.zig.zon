@@ -2,7 +2,7 @@
     .name = .dfs,
     .version = "0.8.0",
     .fingerprint = 0x4a345649b0c10f61,
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.16.0",
 
     .dependencies = .{
         .cova = .{
