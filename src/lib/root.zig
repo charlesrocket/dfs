@@ -62,10 +62,14 @@ pub const SYSTEM = enum {
         return null;
     }
 
-    fn getValue(self: SYSTEM, allocator: std.mem.Allocator) ![]const u8 {
+    fn getValue(
+        self: SYSTEM,
+        allocator: std.mem.Allocator,
+        environ: *std.process.Environ.Map,
+    ) ![]const u8 {
         return switch (self) {
             .os => getOS(),
-            .desktop => getDesktop(allocator),
+            .desktop => getDesktop(allocator, environ),
             .hostname => getHostname(allocator),
             .arch => getArch(),
         };
@@ -137,11 +141,15 @@ fn isValidCondition(condition: []const u8) bool {
     return parsed.rhs.len > 0;
 }
 
-fn evalCondition(allocator: std.mem.Allocator, cond: []const u8) !bool {
+fn evalCondition(
+    allocator: std.mem.Allocator,
+    environ: *std.process.Environ.Map,
+    cond: []const u8,
+) !bool {
     const parsed = try parseCondition(cond);
 
     const var_type = SYSTEM.fromString(parsed.lhs) orelse return false;
-    const actual_value = var_type.getValue(allocator) catch return false;
+    const actual_value = var_type.getValue(allocator, environ) catch return false;
     const should_free = var_type.shouldFree();
 
     defer if (should_free) allocator.free(actual_value);
@@ -184,22 +192,26 @@ fn tokenize(allocator: std.mem.Allocator, template: []const u8) ![]Token {
     return try tokens.toOwnedSlice(allocator);
 }
 
-fn interpret(allocator: std.mem.Allocator, tokens: []Token) ![]u8 {
+fn interpret(
+    allocator: std.mem.Allocator,
+    environ: *std.process.Environ.Map,
+    tokens: []Token,
+) ![]u8 {
     var out = std.ArrayList(u8).empty;
     defer out.deinit(allocator);
 
-    var w = out.writer(allocator);
+    var w = std.Io.Writer.Allocating.init(allocator);
     var i: usize = 0;
 
     while (i < tokens.len) {
         switch (tokens[i]) {
             .text => |t| {
-                try w.print("{s}", .{t});
+                try w.writer.print("{s}", .{t});
                 i += 1;
             },
             .tag => |tag_info| {
                 if (std.mem.startsWith(u8, tag_info.content, "if")) {
-                    i = try evalIfGroup(allocator, tokens, i, &w);
+                    i = try evalIfGroup(allocator, environ, tokens, i, &w);
                 } else {
                     // outside of an if-group tags are not allowed
                     return TemplateError.MissingCondition;
@@ -231,6 +243,7 @@ fn parseTag(template: []const u8, i: usize) !Tag {
 
 fn isActiveBranch(
     allocator: std.mem.Allocator,
+    environ: *std.process.Environ.Map,
     tag_content: []const u8,
     branch_taken: bool,
 ) !bool {
@@ -241,16 +254,17 @@ fn isActiveBranch(
         return !branch_taken;
 
     if (std.mem.startsWith(u8, tag_content, "if "))
-        return try evalCondition(allocator, tag_content[3..]);
+        return try evalCondition(allocator, environ, tag_content[3..]);
 
     if (std.mem.startsWith(u8, tag_content, "elif "))
-        return !branch_taken and try evalCondition(allocator, tag_content[5..]);
+        return !branch_taken and try evalCondition(allocator, environ, tag_content[5..]);
 
     return TemplateError.InvalidTag;
 }
 
 fn findActiveBranchBody(
     allocator: std.mem.Allocator,
+    environ: *std.process.Environ.Map,
     tokens: []Token,
     start: usize,
 ) !?ActiveBranch {
@@ -272,7 +286,13 @@ fn findActiveBranchBody(
             return result;
         }
 
-        const active = try isActiveBranch(allocator, tag.content, branch_taken);
+        const active = try isActiveBranch(
+            allocator,
+            environ,
+            tag.content,
+            branch_taken,
+        );
+
         const body_start = tag.end;
 
         var body_end = body_start;
@@ -312,6 +332,7 @@ fn findActiveBranchBody(
 
 fn evalIfGroup(
     allocator: std.mem.Allocator,
+    environ: *std.process.Environ.Map,
     tokens: []Token,
     start: usize,
     w: anytype,
@@ -319,7 +340,7 @@ fn evalIfGroup(
     if (start >= tokens.len) return TemplateError.IndexOutOfBounds;
     if (tokens[start] != .tag) return TemplateError.InvalidToken;
 
-    const branch = try findActiveBranchBody(allocator, tokens, start);
+    const branch = try findActiveBranchBody(allocator, environ, tokens, start);
 
     if (branch) |b| {
         // no rescan needed: the text token, if any, is
@@ -330,7 +351,7 @@ fn evalIfGroup(
             else
                 "";
 
-        try w.print("{s}", .{body});
+        try w.writer.print("{s}", .{body});
         // next_token is guaranteed non-null here: findActiveBranchBody only
         // returns a non-null result after `endif`
         return b.next_token.?;
@@ -348,13 +369,14 @@ fn evalIfGroup(
 
 fn reverseTranslateConditional(
     allocator: std.mem.Allocator,
+    environ: *std.process.Environ.Map,
     segment: []const u8,
     new_rendered: []const u8,
 ) ![]const u8 {
     const tokens = try tokenize(allocator, segment);
     defer allocator.free(tokens);
 
-    const branch = try findActiveBranchBody(allocator, tokens, 0) orelse {
+    const branch = try findActiveBranchBody(allocator, environ, tokens, 0) orelse {
         // no branch was active; return segment unchanged.
         return try allocator.dupe(u8, segment);
     };
@@ -471,25 +493,27 @@ fn generateSegments(
 /// The caller owns the returned memory.
 pub fn applyTemplate(
     allocator: std.mem.Allocator,
+    environ: *std.process.Environ.Map,
     template: []const u8,
 ) ![]const u8 {
     const tokens = try tokenize(allocator, template);
     defer allocator.free(tokens);
 
-    return try interpret(allocator, tokens);
+    return try interpret(allocator, environ, tokens);
 }
 
 /// Translates the rendered file back to the template and returns the result.
 /// The caller owns the returned memory.
 pub fn reverseTemplate(
     allocator: std.mem.Allocator,
+    environ: *std.process.Environ.Map,
     render: []const u8,
     template: []const u8,
 ) ![]const u8 {
     var segments = try generateSegments(allocator, template);
     defer segments.deinit(allocator);
 
-    const original_render = try applyTemplate(allocator, template);
+    const original_render = try applyTemplate(allocator, environ, template);
     defer allocator.free(original_render);
 
     var render_map = std.ArrayList(struct {
@@ -506,7 +530,7 @@ pub fn reverseTemplate(
     }
 
     for (segments.items) |segment| {
-        const rendered = try applyTemplate(allocator, segment);
+        const rendered = try applyTemplate(allocator, environ, segment);
 
         try render_map.append(allocator, .{
             .segment = segment,
@@ -712,6 +736,7 @@ pub fn reverseTemplate(
         } else {
             const updated = try reverseTranslateConditional(
                 allocator,
+                environ,
                 map.segment,
                 edited_content,
             );
@@ -740,30 +765,25 @@ fn getHostname(allocator: std.mem.Allocator) ![]const u8 {
     return try allocator.dupe(u8, host);
 }
 
-fn getDesktop(allocator: std.mem.Allocator) ![]const u8 {
-    const xdg_session_desktop = std.process.getEnvVarOwned(
-        allocator,
+fn getDesktop(allocator: std.mem.Allocator, environ: *std.process.Environ.Map) ![]const u8 {
+    const keys = [_][]const u8{
         "XDG_SESSION_DESKTOP",
-    ) catch {
-        const desktop_session = std.process.getEnvVarOwned(
-            allocator,
-            "DESKTOP_SESSION",
-        ) catch {
-            const current_desktop = std.process.getEnvVarOwned(
-                allocator,
-                "XDG_CURRENT_DESKTOP",
-            ) catch
-                return std.ascii.allocLowerString(allocator, "UNKNOWN");
-            defer allocator.free(current_desktop);
-            return std.ascii.allocLowerString(allocator, current_desktop);
-        };
-
-        defer allocator.free(desktop_session);
-        return std.ascii.allocLowerString(allocator, desktop_session);
+        "DESKTOP_SESSION",
+        "XDG_CURRENT_DESKTOP",
     };
 
-    defer allocator.free(xdg_session_desktop);
-    return std.ascii.allocLowerString(allocator, xdg_session_desktop);
+    for (keys) |key| {
+        const val = environ.get(key);
+        //defer allocator.free(val);
+
+        if (val == null) continue;
+
+        if (val.?.len > 0) {
+            return std.ascii.allocLowerString(allocator, val.?);
+        }
+    }
+
+    return std.ascii.allocLowerString(allocator, "UNKNOWN");
 }
 
 fn trimTag(tag: []const u8) []const u8 {
@@ -1278,6 +1298,10 @@ test validate {
 }
 
 test interpret {
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
+
     {
         const template_invalid =
             \\FOO
@@ -1290,7 +1314,7 @@ test interpret {
         const tokenized_invalid = try tokenize(std.testing.allocator, template_invalid);
         defer std.testing.allocator.free(tokenized_invalid);
 
-        const interpreted_invalid = interpret(std.testing.allocator, tokenized_invalid);
+        const interpreted_invalid = interpret(std.testing.allocator, &environ_map, tokenized_invalid);
         try std.testing.expectError(TemplateError.MissingCondition, interpreted_invalid);
     }
 
@@ -1308,7 +1332,12 @@ test interpret {
         const tokenized = try tokenize(std.testing.allocator, template);
         defer std.testing.allocator.free(tokenized);
 
-        const interpreted = try interpret(std.testing.allocator, tokenized);
+        const interpreted = try interpret(
+            std.testing.allocator,
+            &environ_map,
+            tokenized,
+        );
+
         defer std.testing.allocator.free(interpreted);
 
         try std.testing.expectEqualStrings("FOO\n\nval=\"HOST1\"\n\n", interpreted);
@@ -1432,6 +1461,10 @@ test generateSegments {
 }
 
 test evalCondition {
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
+
     {
         const current_os = @tagName(builtin.target.os.tag);
         const condition = std.fmt.allocPrint(
@@ -1442,7 +1475,11 @@ test evalCondition {
 
         defer testing.allocator.free(condition);
 
-        try testing.expect(try evalCondition(testing.allocator, condition));
+        try testing.expect(try evalCondition(
+            testing.allocator,
+            &environ_map,
+            condition,
+        ));
     }
 
     {
@@ -1455,7 +1492,11 @@ test evalCondition {
 
         defer testing.allocator.free(condition);
 
-        try testing.expect(try evalCondition(testing.allocator, condition));
+        try testing.expect(try evalCondition(
+            testing.allocator,
+            &environ_map,
+            condition,
+        ));
     }
 
     {
@@ -1468,7 +1509,11 @@ test evalCondition {
 
         defer testing.allocator.free(condition);
 
-        try testing.expect(try evalCondition(testing.allocator, condition));
+        try testing.expect(try evalCondition(
+            testing.allocator,
+            &environ_map,
+            condition,
+        ));
     }
 
     {
@@ -1481,27 +1526,46 @@ test evalCondition {
 
         defer testing.allocator.free(condition);
 
-        const result = evalCondition(testing.allocator, condition);
+        const result = evalCondition(
+            testing.allocator,
+            &environ_map,
+            condition,
+        );
+
         try testing.expectError(TemplateError.InvalidCondition, result);
     }
 }
 
 test evalIfGroup {
     const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     {
         const tokens_oob = &[_]Token{};
         var out = std.ArrayList(u8).empty;
         defer out.deinit(allocator);
 
-        const result = evalIfGroup(allocator, tokens_oob, 0, out.writer(allocator));
+        const result = evalIfGroup(
+            allocator,
+            &environ_map,
+            tokens_oob,
+            0,
+            out.writer(allocator),
+        );
+
         try testing.expectError(TemplateError.IndexOutOfBounds, result);
     }
 
     {
         var tokens_unexpected = [_]Token{
             .{ .text = "unexpected text" },
-            .{ .tag = .{ .content = "endif", .raw = " endif ", .start = 0, .end = 10 } },
+            .{ .tag = .{
+                .content = "endif",
+                .raw = " endif ",
+                .start = 0,
+                .end = 10,
+            } },
         };
 
         var out = std.ArrayList(u8).empty;
@@ -1513,7 +1577,12 @@ test evalIfGroup {
 
     {
         var tokens_invalid_tag = [_]Token{
-            .{ .tag = .{ .content = "if SYSTEM.os == foo", .raw = " if SYSTEM.os == foo ", .start = 0, .end = 10 } },
+            .{ .tag = .{
+                .content = "if SYSTEM.os == foo",
+                .raw = " if SYSTEM.os == foo ",
+                .start = 0,
+                .end = 10,
+            } },
             .{ .text = "content" },
             .{ .text = "unexpected text" },
         };
@@ -1521,51 +1590,92 @@ test evalIfGroup {
         var out_invalid_tag = std.ArrayList(u8).empty;
         defer out_invalid_tag.deinit(allocator);
 
-        const result_invalid_tag = evalIfGroup(allocator, &tokens_invalid_tag, 0, out_invalid_tag.writer(allocator));
+        const result_invalid_tag = evalIfGroup(
+            allocator,
+            &tokens_invalid_tag,
+            0,
+            out_invalid_tag.writer(allocator),
+        );
+
         try testing.expectError(TemplateError.InvalidTag, result_invalid_tag);
     }
 
     {
         var tokens_invalid_template = [_]Token{
-            .{ .tag = .{ .content = "unknown_tag", .raw = " unknown_tag ", .start = 0, .end = 10 } },
+            .{ .tag = .{
+                .content = "unknown_tag",
+                .raw = " unknown_tag ",
+                .start = 0,
+                .end = 10,
+            } },
             .{ .tag = .{ .content = "endif", .raw = " endif ", .start = 20, .end = 30 } },
         };
 
         var out_invalid_template = std.ArrayList(u8).empty;
         defer out_invalid_template.deinit(allocator);
 
-        const result_invalid_template = evalIfGroup(allocator, &tokens_invalid_template, 0, out_invalid_template.writer(allocator));
+        const result_invalid_template = evalIfGroup(
+            allocator,
+            &tokens_invalid_template,
+            0,
+            out_invalid_template.writer(allocator),
+        );
         try testing.expectError(TemplateError.InvalidTag, result_invalid_template);
     }
 
     {
         var tokens_missing_end = [_]Token{
-            .{ .tag = .{ .content = "if SYSTEM.os == foo", .raw = " if SYSTEM.os == foo ", .start = 0, .end = 10 } },
+            .{ .tag = .{
+                .content = "if SYSTEM.os == foo",
+                .raw = " if SYSTEM.os == foo ",
+                .start = 0,
+                .end = 10,
+            } },
             .{ .text = "body" },
         };
 
         var out = std.ArrayList(u8).empty;
         defer out.deinit(allocator);
 
-        const result = evalIfGroup(allocator, &tokens_missing_end, 0, out.writer(allocator));
+        const result = evalIfGroup(
+            allocator,
+            &tokens_missing_end,
+            0,
+            out.writer(allocator),
+        );
+
         try testing.expectError(TemplateError.MissingEndTag, result);
     }
 
     {
         var tokens_end_only = [_]Token{
-            .{ .tag = .{ .content = "endif", .raw = " endif ", .start = 0, .end = 5 } },
+            .{ .tag = .{
+                .content = "endif",
+                .raw = " endif ",
+                .start = 0,
+                .end = 5,
+            } },
         };
 
         var out = std.ArrayList(u8).empty;
         defer out.deinit(allocator);
 
-        const result = try evalIfGroup(allocator, &tokens_end_only, 0, out.writer(allocator));
+        const result = try evalIfGroup(
+            allocator,
+            &tokens_end_only,
+            0,
+            out.writer(allocator),
+        );
+
         try testing.expect(result == 1);
     }
 }
 
 test applyTemplate {
     var allocator = std.testing.allocator;
+    const environ = std.testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
+
     const os = @tagName(builtin.target.os.tag);
     const arch = @tagName(builtin.cpu.arch);
     const host = try getHostname(allocator);
@@ -1615,7 +1725,7 @@ test applyTemplate {
         \\
     ;
 
-    const rendered = try applyTemplate(allocator, template);
+    const rendered = try applyTemplate(allocator, &environ_map, template);
     defer allocator.free(rendered);
 
     try std.testing.expectEqualStrings(rendered_expected, rendered);
@@ -1624,8 +1734,9 @@ test applyTemplate {
 test reverseTemplate {
     const os = @tagName(builtin.target.os.tag);
     const arch = @tagName(builtin.cpu.arch);
-
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1662,7 +1773,13 @@ test reverseTemplate {
         \\
     ;
 
-    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    const reversed = try reverseTemplate(
+        allocator,
+        &environ_map,
+        rendered_user_edit,
+        template,
+    );
+
     defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
@@ -1697,7 +1814,9 @@ test reverseTemplate {
 
 test "forward" {
     const os = @tagName(builtin.target.os.tag);
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1722,14 +1841,16 @@ test "forward" {
         \\
     ;
 
-    const rendered = try applyTemplate(allocator, template);
+    const rendered = try applyTemplate(allocator, &environ_map, template);
     defer allocator.free(rendered);
     try std.testing.expectEqualStrings(rendered_expected, rendered);
 }
 
 test "forward-inline" {
     const os = @tagName(builtin.target.os.tag);
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1746,14 +1867,16 @@ test "forward-inline" {
         \\
     ;
 
-    const rendered = try applyTemplate(allocator, template);
+    const rendered = try applyTemplate(allocator, &environ_map, template);
     defer allocator.free(rendered);
     try std.testing.expectEqualStrings(rendered_expected, rendered);
 }
 
 test "back-template" {
     const os = @tagName(builtin.target.os.tag);
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1776,7 +1899,13 @@ test "back-template" {
         \\
     ;
 
-    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    const reversed = try reverseTemplate(
+        allocator,
+        &environ_map,
+        rendered_user_edit,
+        template,
+    );
+
     defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
@@ -1800,7 +1929,9 @@ test "back-template" {
 
 test "back-no_template" {
     const os = @tagName(builtin.target.os.tag);
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1825,7 +1956,13 @@ test "back-no_template" {
         \\
     ;
 
-    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    const reversed = try reverseTemplate(
+        allocator,
+        &environ_map,
+        rendered_user_edit,
+        template,
+    );
+
     defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
@@ -1851,7 +1988,9 @@ test "back-no_template" {
 test "complex" {
     const os = @tagName(builtin.target.os.tag);
     const arch = @tagName(builtin.cpu.arch);
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1896,7 +2035,13 @@ test "complex" {
         \\
     ;
 
-    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    const reversed = try reverseTemplate(
+        allocator,
+        &environ_map,
+        rendered_user_edit,
+        template,
+    );
+
     defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
@@ -1930,7 +2075,9 @@ test "complex" {
 
 test "mixed" {
     const os = @tagName(builtin.target.os.tag);
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1953,13 +2100,19 @@ test "mixed" {
         \\BAR
         \\#
         \\val="Zoot"
-        \\# 
+        \\#
         \\;;
         \\//
         \\
     ;
 
-    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    const reversed = try reverseTemplate(
+        allocator,
+        &environ_map,
+        rendered_user_edit,
+        template,
+    );
+
     defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
@@ -1984,7 +2137,9 @@ test "mixed" {
 
 test "mixed-inline" {
     const os = @tagName(builtin.target.os.tag);
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -2003,7 +2158,13 @@ test "mixed-inline" {
         \\
     ;
 
-    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    const reversed = try reverseTemplate(
+        allocator,
+        &environ_map,
+        rendered_user_edit,
+        template,
+    );
+
     defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
@@ -2021,7 +2182,9 @@ test "mixed-inline" {
 }
 
 test "mixed-else" {
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template =
         \\FOO
@@ -2041,7 +2204,13 @@ test "mixed-else" {
         \\
     ;
 
-    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    const reversed = try reverseTemplate(
+        allocator,
+        &environ_map,
+        rendered_user_edit,
+        template,
+    );
+
     defer allocator.free(reversed);
 
     const expected_template =
@@ -2062,7 +2231,9 @@ test "mixed-else" {
 test "blocks" {
     const os = @tagName(builtin.target.os.tag);
     const arch = @tagName(builtin.cpu.arch);
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -2101,7 +2272,13 @@ test "blocks" {
         \\
     ;
 
-    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    const reversed = try reverseTemplate(
+        allocator,
+        &environ_map,
+        rendered_user_edit,
+        template,
+    );
+
     defer allocator.free(reversed);
 
     const expected_template = std.fmt.allocPrint(
@@ -2138,7 +2315,9 @@ test "blocks" {
 test "blocks-mixed" {
     const os = @tagName(builtin.target.os.tag);
     const arch = @tagName(builtin.cpu.arch);
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -2158,7 +2337,7 @@ test "blocks-mixed" {
 
     defer testing.allocator.free(template);
 
-    const render = try applyTemplate(allocator, template);
+    const render = try applyTemplate(allocator, &environ_map, template);
     defer allocator.free(render);
 
     const expected =
@@ -2176,7 +2355,9 @@ test "blocks-mixed" {
 }
 
 test "unicode" {
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template =
         \\🫠
@@ -2188,7 +2369,7 @@ test "unicode" {
         \\
     ;
 
-    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    const reversed = try reverseTemplate(allocator, &environ_map, rendered_user_edit, template);
     defer allocator.free(reversed);
 
     const expected_template =
@@ -2200,7 +2381,9 @@ test "unicode" {
 }
 
 test "unicode-template" {
-    var allocator = std.testing.allocator;
+    const allocator = testing.allocator;
+    const environ = testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
     const template =
         \\😀
@@ -2220,7 +2403,7 @@ test "unicode-template" {
         \\
     ;
 
-    const reversed = try reverseTemplate(allocator, rendered_user_edit, template);
+    const reversed = try reverseTemplate(allocator, &environ_map, rendered_user_edit, template);
     defer allocator.free(reversed);
 
     const expected_template =

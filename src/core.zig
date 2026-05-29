@@ -16,10 +16,12 @@ pub const MAC_SPECIFIC = [_][]const u8{
 };
 
 allocator: std.mem.Allocator,
+environ_map: *std.process.Environ.Map,
+io: std.Io,
 stdout: *std.Io.Writer,
 stderr: *std.Io.Writer,
 direction: Cli.Direction = .dual,
-src_dir: std.fs.Dir = undefined,
+src_dir: std.Io.Dir = undefined,
 source: []const u8 = undefined,
 target: []const u8 = undefined,
 config_path: []const u8 = undefined,
@@ -34,15 +36,19 @@ json: bool = false,
 
 pub fn new(
     allocator: std.mem.Allocator,
+    io: std.Io,
+    environ: *std.process.Environ.Map,
     out: *std.Io.Writer,
     err: *std.Io.Writer,
 ) Core {
     return .{
         .allocator = allocator,
+        .environ_map = environ,
+        .io = io,
         .stdout = out,
         .stderr = err,
         .direction = Cli.Direction.dual,
-        .src_dir = std.fs.cwd(),
+        .src_dir = std.Io.Dir.cwd(),
         .source = undefined,
         .target = undefined,
         .config_path = undefined,
@@ -72,18 +78,21 @@ pub fn init(
 
     var repo_usr = try Cli.getUserInput(
         allocator,
+        self.io,
         self.stdout,
         Cli.UserInput.Url,
     );
 
     var src_usr = try Cli.getUserInput(
         allocator,
+        self.io,
         self.stdout,
         Cli.UserInput.Source,
     );
 
     var dest_usr = try Cli.getUserInput(
         allocator,
+        self.io,
         self.stdout,
         Cli.UserInput.Destination,
     );
@@ -98,10 +107,10 @@ pub fn init(
     const src = src_usr.items;
     const dest = dest_usr.items;
 
-    var config = try Config.new(allocator, repo, src, dest);
+    var config = try Config.new(repo, src, dest, self.environ_map);
 
     try Util.cloneRepo(allocator, repo, src, self);
-    try config.write(allocator, config_path);
+    try config.write(allocator, self.io, config_path);
     _ = try self.stdout.write("COMPLETED\n");
     try self.stdout.flush();
 }
@@ -130,18 +139,15 @@ pub fn scan(
 
     defer if (self.progress != null) scan_node.?.end();
 
-    if (self.logs) Util.log(INFO, "Scanning the source", .{});
+    if (self.logs) Util.log(self.io, INFO, "Scanning the source", .{});
 
-    walk: while (try walker.next()) |entry| {
+    walk: while (try walker.next(self.io)) |entry| {
         if (Util.isIgnored(entry.basename, self.ignore_items)) {
             if (self.logs)
-                Util.log(INFO, "Ignoring: {s}", .{entry.basename});
+                Util.log(self.io, INFO, "Ignoring: {s}", .{entry.basename});
 
             if (entry.kind == .directory) {
-                // remove from stack, with prejudice
-                var item = walker.stack.pop().?;
-                // don't let this be the root directory
-                item.iter.dir.close();
+                walker.leave(self.io);
             }
 
             continue :walk;
@@ -184,6 +190,7 @@ pub fn sync(
     defer if (self.progress != null) sync_node.?.end();
 
     if (self.logs) Util.log(
+        self.io,
         INFO,
         "Syncing ({s}/{s})",
         .{ @tagName(self.direction), switch (self.dry) {
@@ -198,7 +205,13 @@ pub fn sync(
             &self.counter,
             self,
         ) catch |err| {
-            if (self.logs) Util.log(ERR, "{}: {s}", .{ err, file.src });
+            if (self.logs) Util.log(
+                self.io,
+                ERR,
+                "{}: {s}",
+                .{ err, file.src },
+            );
+
             if (!self.json) {
                 try self.stderr.print("{s}{s}ERROR | {}:{s} {s}\n", .{
                     Cli.bold,

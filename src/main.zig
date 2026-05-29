@@ -2,27 +2,25 @@ const VERSION = build_options.version;
 pub const CommandT = Cli.CommandT;
 pub const setup_cmd = Cli.setup_cmd;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
     const stderr = &stderr_writer.interface;
 
     const main_cmd = try setup_cmd.init(allocator, .{});
     defer main_cmd.deinit();
 
-    var core = Core.new(allocator, stdout, stderr);
+    var core = Core.new(init.gpa, init.io, init.environ_map, stdout, stderr);
     var custom_config_path: ?[]const u8 = null;
     var usage_help_called = false;
-    var args_iter = try cova.ArgIteratorGeneric.init(allocator);
+    var args_iter = try cova.ArgIteratorGeneric.init(allocator, init.minimal.args);
     defer args_iter.deinit();
 
     cova.parseArgs(
@@ -67,7 +65,7 @@ pub fn main() !void {
         custom_config_path = try dest.val.getAs([]const u8);
     }
 
-    const config_default = try Config.defaultConfigPath(allocator);
+    const config_default = try Config.defaultConfigPath(allocator, init.environ_map);
     defer allocator.free(config_default);
 
     const config_path = if (custom_config_path == null)
@@ -80,14 +78,14 @@ pub fn main() !void {
             assets.help_prefix,
         });
 
-        const data = try Config.getXdgDir(allocator, Config.XdgDir.Data);
+        const data = try Config.getXdgDir(allocator, Config.XdgDir.Data, init.environ_map);
         defer allocator.free(data);
 
-        const state = try Config.getXdgDir(allocator, Config.XdgDir.State);
+        const state = try Config.getXdgDir(allocator, Config.XdgDir.State, init.environ_map);
         defer allocator.free(state);
 
-        try std.fs.cwd().deleteTree(data);
-        try std.fs.cwd().deleteTree(state);
+        try std.Io.Dir.cwd().deleteTree(io, data);
+        try std.Io.Dir.cwd().deleteTree(io, state);
         try core.stdout.print("COMPLETED\n", .{});
         try core.stdout.flush();
 
@@ -134,7 +132,7 @@ pub fn main() !void {
     core.config_path = config_path;
     core.logs = config.logging;
 
-    if (core.logs) try Util.setLogger(allocator);
+    if (core.logs) try Util.setLogger(allocator, core.io, core.environ_map);
 
     if (opts.get("target")) |target| {
         config.target = try target.val.getAs([]const u8);
@@ -151,11 +149,13 @@ pub fn main() !void {
     core.source = try Config.pathFormat(
         allocator,
         config.source,
+        core.environ_map,
     );
 
     core.target = try Config.pathFormat(
         allocator,
         config.target,
+        core.environ_map,
     );
 
     defer {
@@ -234,13 +234,15 @@ pub fn main() !void {
 
     try core.stdout.flush();
 
-    core.src_dir = std.fs.cwd().openDir(
+    core.src_dir = std.Io.Dir.cwd().openDir(
+        core.io,
         core.source,
         .{ .iterate = true },
     ) catch |err| {
         switch (err) {
             error.FileNotFound => {
                 if (core.logs) Util.log(
+                    core.io,
                     ERR,
                     "Source not found: {s}",
                     .{core.source},
@@ -253,7 +255,7 @@ pub fn main() !void {
         }
     };
 
-    defer core.src_dir.close();
+    defer core.src_dir.close(core.io);
 
     try core.stdout.print("Target is {s}{s}{s}\n", .{
         Cli.underline,
@@ -267,9 +269,10 @@ pub fn main() !void {
         (!sync_cmd or !validate_cmd) or daemon_cmd;
 
     var main_node = if (no_progress) null else std.Progress.start(
+        core.io,
         .{
             .disable_printing = no_progress,
-            .initial_delay_ns = 80,
+            .initial_delay_ns = std.Io.Duration{ .nanoseconds = 80 },
         },
     );
 
@@ -290,11 +293,12 @@ pub fn main() !void {
 
         defer validate_node.end();
 
-        if (core.logs) Util.log(INFO, "Validating", .{});
+        if (core.logs) Util.log(core.io, INFO, "Validating", .{});
 
         for (core.files.items) |file| {
             _ = file.validate(
                 allocator,
+                core.io,
                 &core.counter,
                 core.json,
             );
@@ -375,7 +379,7 @@ pub fn main() !void {
 
                 defer allocator.free(stats);
                 Cli.sendNotification(
-                    allocator,
+                    core.io,
                     "DFS Sync completed",
                     stats,
                     "normal",
@@ -385,6 +389,7 @@ pub fn main() !void {
     }
 
     if (core.logs and (!daemon_cmd and !validate_cmd)) Util.log(
+        core.io,
         INFO,
         "Finished: total {d}, updated {d}, templates {d}, renders {d}, binaries {d}, errors {d}",
         .{

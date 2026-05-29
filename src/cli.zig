@@ -239,11 +239,12 @@ fn genVals(T: type, default: ?usize) []const u8 {
 
 pub fn getUserInput(
     allocator: std.mem.Allocator,
-    stdout: *std.io.Writer,
+    io: std.Io,
+    stdout: *std.Io.Writer,
     input: UserInput,
 ) !std.ArrayList(u8) {
     var stdin_buffer: [2048]u8 = undefined;
-    var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
+    var stdin_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
     const stdin = &stdin_reader.interface;
 
     var buf: [2048]u8 = undefined;
@@ -259,7 +260,7 @@ pub fn getUserInput(
 
     try stdout.flush();
 
-    var writer = std.io.Writer.fixed(&buf);
+    var writer = std.Io.Writer.fixed(&buf);
     const len = try stdin.streamDelimiter(&writer, '\n');
 
     try list.appendSlice(allocator, buf[0..len]);
@@ -267,27 +268,23 @@ pub fn getUserInput(
 }
 
 pub fn sendNotification(
-    allocator: std.mem.Allocator,
+    io: std.Io,
     summary: []const u8,
     body: []const u8,
     urgency: []const u8,
 ) void {
-    const args = [5][]const u8{
+    const args = [7][]const u8{
         "notify-send",
         summary,
         body,
         "-u",
         urgency,
-        //"-a",
-        //"dfs",
+        "-a",
+        "dfs",
     };
 
-    var proc = std.process.Child.init(&args, allocator);
-
-    proc.stdout_behavior = .Ignore;
-    proc.stderr_behavior = .Ignore;
-
-    _ = proc.spawnAndWait() catch {};
+    var proc = std.process.spawn(io, .{ .argv = &args }) catch return;
+    _ = proc.wait(io) catch {};
 }
 
 const main = @import("main.zig");

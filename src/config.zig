@@ -37,21 +37,22 @@ ignore_list: [][]const u8,
 tray: Tray,
 
 pub fn new(
-    allocator: std.mem.Allocator,
     repository: []const u8,
     source: []const u8,
     target: ?[]const u8,
+    environ_map: *std.process.Environ.Map,
 ) !Config {
     // destination
     const path = if (target == null)
-        try std.process.getEnvVarOwned(allocator, "HOME")
+        // TODO handle null value
+        environ_map.get("HOME")
     else
         target.?;
 
     return .{
         .repository = repository,
         .source = source,
-        .target = path,
+        .target = path.?,
         .logging = false,
         .notifications = false,
         .watcher = WatcherMode.auto,
@@ -66,24 +67,27 @@ pub fn new(
 pub fn write(
     self: *Config,
     allocator: std.mem.Allocator,
+    io: std.Io,
     path: []const u8,
 ) !void {
     const parent_dir = std.fs.path.dirname(path);
 
     if (parent_dir != null) try Util.createDirRecursively(
         allocator,
+        io,
         parent_dir.?,
     );
 
-    const f = try std.fs.cwd().createFile(
+    const f = try std.Io.Dir.cwd().createFile(
+        io,
         path,
         .{ .read = false, .truncate = true },
     );
 
-    defer f.close();
+    defer f.close(io);
 
     var buf: [1024]u8 = undefined;
-    var file_writer = f.writer(&buf);
+    var file_writer = f.writer(io, &buf);
     const writer = &file_writer.interface;
 
     _ = try std.zon.stringify.serialize(
@@ -101,7 +105,7 @@ fn read(
     path: []const u8,
     core: *Core,
 ) !ConfigResult {
-    const config_file = std.fs.cwd().openFile(path, .{}) catch |err|
+    const config_file = std.Io.Dir.cwd().openFile(core.io, path, .{}) catch |err|
         switch (err) {
             error.FileNotFound => {
                 try core.stderr.print(
@@ -118,12 +122,14 @@ fn read(
             else => return err,
         };
 
-    defer config_file.close();
+    defer config_file.close(core.io);
 
-    const config_size: usize = @intCast((try config_file.stat()).size);
-    const config_content_t = try config_file.readToEndAlloc(
+    const config_size: usize = @intCast((try config_file.stat(core.io)).size);
+
+    var config_reader = config_file.reader(core.io, &.{});
+    const config_content_t = try config_reader.interface.allocRemaining(
         allocator,
-        config_size,
+        .limited(config_size),
     );
 
     defer allocator.free(config_content_t);
@@ -173,7 +179,7 @@ pub fn open(
                 Cli.reset,
             });
 
-            Config.migrateConfig(allocator, path) catch |err| {
+            Config.migrateConfig(allocator, core.io, path) catch |err| {
                 try core.stderr.print("{s}{s}INVALID CONFIG{s}: {s}\n", .{
                     Cli.red,
                     Cli.bold,
@@ -187,10 +193,10 @@ pub fn open(
                 );
 
                 const example_config = try Config.new(
-                    allocator,
                     "https://gibson.com/git/dotfiles",
                     "$HOME/src/dotfiles",
                     "/tmp/test",
+                    core.environ_map,
                 );
 
                 _ = try core.stderr.write("Example:\n\n");
@@ -205,7 +211,7 @@ pub fn open(
                 return err;
             };
 
-            if (core.logs) Util.log(WARN, "Config updated!", .{});
+            if (core.logs) Util.log(core.io, WARN, "Config updated!", .{});
             _ = try core.stderr.print(
                 "{s}Config updated{s}\n\n",
                 .{ Cli.green, Cli.reset },
@@ -226,21 +232,18 @@ pub fn bootstrap(
     url: []const u8,
     core: *Core,
 ) !void {
-    const config_home = try getXdgDir(allocator, XdgDir.Config);
+    const config_home = try getXdgDir(allocator, XdgDir.Config, core.environ_map);
     defer allocator.free(config_home);
 
-    const config_path = try defaultConfigPath(allocator);
+    const config_path = try defaultConfigPath(allocator, core.environ_map);
     defer allocator.free(config_path);
 
-    var client = std.http.Client{ .allocator = allocator };
+    var client = std.http.Client{ .allocator = allocator, .io = core.io };
     defer client.deinit();
 
-    try Util.createDirRecursively(allocator, config_home);
-
-    var file = try std.fs.createFileAbsolute(
-        config_path,
-        .{ .read = false, .truncate = true },
-    );
+    try Util.createDirRecursively(allocator, core.io, config_home);
+    var file = try std.Io.Dir.createFileAbsolute(core.io, config_path, .{});
+    defer file.close(core.io);
 
     var result_body = std.Io.Writer.Allocating.init(allocator);
     defer result_body.deinit();
@@ -254,16 +257,26 @@ pub fn bootstrap(
         return error.UnexpectedRequestStatus;
     }
 
-    try file.writeAll(result_body.written());
-    file.close();
+    const body = result_body.written();
+
+    const buf = try allocator.alloc(u8, body.len);
+    defer allocator.free(buf);
+
+    var file_writer = file.writer(core.io, buf);
+    const writer = &file_writer.interface;
+
+    try writer.writeAll(body);
+    try writer.flush();
 
     const config = try open(allocator, config_path, core);
     defer std.zon.parse.free(allocator, config);
+
     try Util.cloneRepo(allocator, config.repository, config.source, core);
 }
 
 pub fn migrateConfig(
     allocator: std.mem.Allocator,
+    io: std.Io,
     config_path: []const u8,
 ) !void {
     const deprecated_field_specs = .{
@@ -272,18 +285,17 @@ pub fn migrateConfig(
     };
 
     const MigrationConfig = MigrationType(Config, deprecated_field_specs);
-    const file = try std.fs.cwd().openFile(config_path, .{});
-    defer file.close();
 
-    // null-terminated
-    const content = try file.readToEndAllocOptions(
+    const raw = try std.Io.Dir.cwd().readFileAlloc(
+        io,
+        config_path,
         allocator,
-        1024 * 1024,
-        null,
-        @enumFromInt(@alignOf(u8)),
-        0,
+        .unlimited,
     );
 
+    defer allocator.free(raw);
+
+    const content = try allocator.dupeZ(u8, raw);
     defer allocator.free(content);
 
     const old_config = try std.zon.parse.fromSlice(
@@ -295,7 +307,6 @@ pub fn migrateConfig(
     );
 
     defer std.zon.parse.free(allocator, old_config);
-
     var ignore_list: [][]const u8 = &[_][]const u8{};
 
     if (old_config.ignore_list) |v| {
@@ -328,15 +339,13 @@ pub fn migrateConfig(
             .icon = .bright,
         },
     };
-
-    try new_config.write(allocator, config_path);
-
+    try new_config.write(allocator, io, config_path);
     for (ignore_list) |item| {
         allocator.free(item);
     }
-
     allocator.free(ignore_list);
 }
+
 fn MigrationType(
     comptime T: type,
     comptime deprecated_fields: anytype,
@@ -346,22 +355,24 @@ fn MigrationType(
     // filter fields that belong at this level
     comptime var local_count = 0;
     inline for (deprecated_fields) |spec| {
-        if (std.mem.indexOfScalar(u8, spec.name, '.') == null)
+        if (std.mem.findScalar(u8, spec.name, '.') == null)
             local_count += 1;
     }
 
-    var fields: [
-        config_fields.len +
-            local_count
-    ]std.builtin.Type.StructField = undefined;
+    const total = config_fields.len + local_count;
+
+    // @Struct takes three separate arrays: names, types, attrs
+    var field_names: [total][]const u8 = undefined;
+    var field_types: [total]type = undefined;
+    var field_attrs: [total]std.builtin.Type.StructField.Attributes = undefined;
 
     inline for (config_fields, 0..) |field, i| {
         const field_type_info = @typeInfo(field.type);
-        comptime var nested_count = 0;
 
-        // collect fields for this nested struct (strip "field.")
+        // count deprecated fields that are children of this field
+        comptime var nested_count = 0;
         inline for (deprecated_fields) |f| {
-            const dot = comptime std.mem.indexOfScalar(u8, f.name, '.');
+            const dot = comptime std.mem.findScalar(u8, f.name, '.');
             if (dot != null and std.mem.eql(
                 u8,
                 f.name[0..dot.?],
@@ -380,7 +391,7 @@ fn MigrationType(
 
                 comptime var j = 0;
                 inline for (deprecated_fields) |f| {
-                    const dot = comptime std.mem.indexOfScalar(u8, f.name, '.');
+                    const dot = comptime std.mem.findScalar(u8, f.name, '.');
 
                     if (dot != null and std.mem.eql(
                         u8,
@@ -392,7 +403,7 @@ fn MigrationType(
                             .type = f.type,
                         };
 
-                        j += i;
+                        j += 1;
                     }
                 }
 
@@ -401,55 +412,47 @@ fn MigrationType(
             else => field.type,
         };
 
-        const OptionalType = @Type(.{ .optional = .{ .child = FieldType } });
-        const default_value = @as(OptionalType, null);
+        const OptionalType = ?FieldType;
+        const default_value: OptionalType = null;
 
-        fields[i] = .{
-            .name = field.name,
-            .type = OptionalType,
-            .default_value_ptr = &default_value,
-            .is_comptime = false,
-            .alignment = @alignOf(OptionalType),
-        };
+        field_names[i] = field.name;
+        field_types[i] = OptionalType;
+        field_attrs[i] = .{ .default_value_ptr = &default_value };
     }
 
     comptime var di = 0;
     inline for (deprecated_fields) |f| {
-        if (std.mem.indexOfScalar(u8, f.name, '.') == null) {
-            const OptionalType = @Type(.{ .optional = .{ .child = f.type } });
-            const default_value = @as(OptionalType, null);
+        if (std.mem.findScalar(u8, f.name, '.') == null) {
+            const OptionalType = ?f.type;
+            const default_value: OptionalType = null;
 
-            fields[config_fields.len + di] = .{
-                .name = f.name,
-                .type = OptionalType,
-                .default_value_ptr = &default_value,
-                .is_comptime = false,
-                .alignment = @alignOf(OptionalType),
-            };
+            field_names[config_fields.len + di] = f.name;
+            field_types[config_fields.len + di] = OptionalType;
+            field_attrs[config_fields.len + di] = .{ .default_value_ptr = &default_value };
 
             di += 1;
         }
     }
 
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &fields,
-            .decls = &.{},
-            .is_tuple = false,
-        },
-    });
+    return @Struct(
+        .auto,
+        null,
+        &field_names,
+        &field_types,
+        &field_attrs,
+    );
 }
 
 // deallocate on changes
 pub fn pathFormat(
     allocator: std.mem.Allocator,
     path: []const u8,
+    environ: *std.process.Environ.Map,
 ) ![]const u8 {
     const trailing_slash = std.mem.endsWith(u8, path, "/");
 
     if (std.mem.startsWith(u8, path, "$HOME")) {
-        const home = try getXdgDir(allocator, XdgDir.Home);
+        const home = try getXdgDir(allocator, XdgDir.Home, environ);
         defer allocator.free(home);
 
         const size = std.mem.replacementSize(u8, path, "$HOME", home);
@@ -471,55 +474,67 @@ pub fn pathFormat(
     }
 }
 
-pub fn getXdgDir(allocator: std.mem.Allocator, env_var: XdgDir) ![]const u8 {
-    const path = std.process.getEnvVarOwned(
-        allocator,
+pub fn getXdgDir(
+    allocator: std.mem.Allocator,
+    env_var: XdgDir,
+    environ: *std.process.Environ.Map,
+) ![]const u8 {
+    const path = environ.get(
         switch (env_var) {
             .Config => "XDG_CONFIG_HOME",
             .Data => "XDG_DATA_HOME",
             .State => "XDG_STATE_HOME",
             .Home => "HOME",
         },
-    ) catch {
-        const home = try std.process.getEnvVarOwned(allocator, "HOME");
-        defer allocator.free(home);
+    );
 
+    if (path == null) {
+        const home = environ.get("HOME");
+
+        // TODO handle null value
         switch (env_var) {
             .Config => return try std.fs.path.join(allocator, &.{
-                home,
+                home.?,
                 ".config",
                 "dfs",
             }),
             .Data => return try std.fs.path.join(allocator, &.{
-                home,
+                home.?,
                 ".local",
                 "share",
                 "dfs",
             }),
             .State => return try std.fs.path.join(allocator, &.{
-                home,
+                home.?,
                 ".local",
                 "state",
                 "dfs",
             }),
-            .Home => return allocator.dupe(u8, home),
+            .Home => return allocator.dupe(u8, home.?),
         }
-    };
+    }
 
     switch (env_var) {
-        .Home => return path,
+        .Home => return path.?,
         .Config, .Data, .State => {
-            defer allocator.free(path);
             return try std.fs.path.join(allocator, &.{
-                path,
+                path.?,
                 "dfs",
             });
         },
     }
 }
 
-pub fn defaultConfigPath(allocator: std.mem.Allocator) ![]const u8 {
-    const config_home = try Config.getXdgDir(allocator, Config.XdgDir.Config);
+pub fn defaultConfigPath(
+    allocator: std.mem.Allocator,
+    environ: *std.process.Environ.Map,
+) ![]const u8 {
+    const config_home = try Config.getXdgDir(
+        allocator,
+        Config.XdgDir.Config,
+        environ,
+    );
+
     defer allocator.free(config_home);
 
     return try std.fmt.allocPrint(
@@ -532,8 +547,11 @@ pub fn defaultConfigPath(allocator: std.mem.Allocator) ![]const u8 {
 // might fail with non-default XDG env vars
 test defaultConfigPath {
     const allocator = std.testing.allocator;
-    const home = try getXdgDir(allocator, XdgDir.Home);
-    const config_path = try defaultConfigPath(allocator);
+    const environ = std.testing.environ;
+
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
+    const home = try getXdgDir(allocator, XdgDir.Home, &environ_map);
+    const config_path = try defaultConfigPath(allocator, &environ_map);
     const expected_path = try std.fmt.allocPrint(
         allocator,
         "{s}/.config/dfs/config.zon",
@@ -550,6 +568,8 @@ test defaultConfigPath {
 }
 
 test migrateConfig {
+    const io = std.testing.io;
+
     const old_config =
         \\.{
         \\    .repository = "https://gibson.com/test",
@@ -574,17 +594,18 @@ test migrateConfig {
         \\
     ;
 
-    const old_file = try std.fs.cwd().createFile(
+    const old_file = try std.Io.Dir.cwd().createFile(
+        io,
         "test/conf-old.zon",
         .{ .read = false },
     );
 
     try old_file.writeAll(old_config);
-    old_file.close();
+    old_file.close(io);
 
     try migrateConfig(std.testing.allocator, "test/conf-old.zon");
 
-    const new_file = try std.fs.cwd().openFile("test/conf-old.zon", .{});
+    const new_file = try std.Io.Dir.cwd().openFile(io, "test/conf-old.zon", .{});
     const content = try new_file.readToEndAlloc(
         std.testing.allocator,
         1024,
@@ -593,7 +614,7 @@ test migrateConfig {
     defer std.testing.allocator.free(content);
 
     try std.testing.expectEqualStrings(expected_config, content);
-    try std.fs.cwd().deleteFile("test/conf-old.zon");
+    try std.Io.Dir.cwd(io).deleteFile("test/conf-old.zon");
 }
 
 test pathFormat {

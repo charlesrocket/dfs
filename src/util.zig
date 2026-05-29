@@ -44,12 +44,12 @@ pub fn cloneRepo(
     dest: []const u8,
     core: *Core,
 ) !void {
-    if (!isGitPresent(allocator, core.stderr)) return error.GitFailure;
+    if (!isGitPresent(core.io, core.stderr)) return error.GitFailure;
 
-    const destination = try Config.pathFormat(allocator, dest);
+    const destination = try Config.pathFormat(allocator, dest, core.environ_map);
     defer allocator.free(destination);
 
-    try createDirRecursively(allocator, destination);
+    try createDirRecursively(allocator, core.io, destination);
 
     const command = [_][]const u8{
         "git",
@@ -59,17 +59,22 @@ pub fn cloneRepo(
         destination,
     };
 
-    var proc = std.process.Child.init(&command, allocator);
+    var proc = try std.process.spawn(core.io, .{
+        .argv = &command,
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    });
 
-    try proc.spawn();
-    _ = try proc.wait();
+    _ = try proc.wait(core.io);
 }
 
 pub fn createDirRecursively(
     allocator: std.mem.Allocator,
+    io: std.Io,
     path: []const u8,
 ) !void {
-    var parts = try std.fs.path.componentIterator(path);
+    var parts = std.fs.path.componentIterator(path);
     var buffer = std.ArrayList(u8).empty;
     defer buffer.deinit(allocator);
 
@@ -95,12 +100,12 @@ pub fn createDirRecursively(
         const dir_path = buffer.items;
 
         if (absolute) {
-            std.fs.makeDirAbsolute(dir_path) catch |err| switch (err) {
+            std.Io.Dir.createDirAbsolute(io, dir_path, .default_dir) catch |err| switch (err) {
                 error.PathAlreadyExists => {},
                 else => return err,
             };
         } else {
-            std.fs.cwd().makeDir(dir_path) catch |err| switch (err) {
+            std.Io.Dir.createDirAbsolute(io, dir_path, .default_dir) catch |err| switch (err) {
                 error.PathAlreadyExists => {},
                 else => return err,
             };
@@ -159,18 +164,17 @@ pub fn isText(data: []const u8) bool {
 }
 
 pub fn isGitPresent(
-    allocator: std.mem.Allocator,
+    io: std.Io,
     stderr: *std.Io.Writer,
 ) bool {
-    var proc = std.process.Child.init(
-        &[_][]const u8{ "git", "--version" },
-        allocator,
-    );
+    const argv = &[_][]const u8{ "git", "--version" };
 
-    proc.stdout_behavior = .Pipe;
-    proc.stderr_behavior = .Pipe;
-
-    const result = proc.spawnAndWait() catch |err| switch (err) {
+    var child = std.process.spawn(io, .{
+        .argv = argv,
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    }) catch |err| switch (err) {
         error.FileNotFound => {
             stderr.print(
                 "{s}{s}Git is not installed or not in $PATH{s}\n",
@@ -183,24 +187,39 @@ pub fn isGitPresent(
         else => return false,
     };
 
-    if (result.Exited != 0) {
-        stderr.print(
-            "{s}{s}Git binary detected but returned nonzero exit code: {d}{s}\n",
-            .{ Cli.red, Cli.bold, result.Exited, Cli.reset },
-        ) catch {};
+    const result = child.wait(io) catch return false;
 
-        stderr.flush() catch {};
-        return false;
-    } else {
-        return true;
+    switch (result) {
+        .exited => |code| {
+            if (code != 0) {
+                stderr.print(
+                    "{s}{s}Git binary detected but returned nonzero exit code: {d}{s}\n",
+                    .{ Cli.red, Cli.bold, code, Cli.reset },
+                ) catch {};
+
+                stderr.flush() catch {};
+                return false;
+            }
+            return true;
+        },
+        else => return false,
     }
 }
 
-pub fn setLogger(allocator: std.mem.Allocator) !void {
-    const state_dir = try Config.getXdgDir(allocator, Config.XdgDir.State);
+pub fn setLogger(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    environ: *std.process.Environ.Map,
+) !void {
+    const state_dir = try Config.getXdgDir(
+        allocator,
+        Config.XdgDir.State,
+        environ,
+    );
+
     defer allocator.free(state_dir);
 
-    try createDirRecursively(allocator, state_dir);
+    try createDirRecursively(allocator, io, state_dir);
 
     LOG_FILE = try std.fmt.bufPrint(
         &LOG_FILE_BUF,
@@ -210,6 +229,7 @@ pub fn setLogger(allocator: std.mem.Allocator) !void {
 }
 
 pub fn log(
+    io: std.Io,
     comptime level: Level,
     comptime message: []const u8,
     args: anytype,
@@ -217,7 +237,8 @@ pub fn log(
     var buf: [std.fs.max_path_bytes * 10]u8 = undefined;
 
     const prefix = "[" ++ comptime @tagName(level) ++ "] ";
-    const timestamp_ns = std.time.nanoTimestamp();
+    const now = std.Io.Clock.now(.real, io);
+    const timestamp_ns = now.toNanoseconds();
     const timestamp = @divFloor(timestamp_ns, std.time.ns_per_s);
     const nanos: u32 = @intCast(@mod(timestamp_ns, std.time.ns_per_s));
     const epoch = std.time.epoch.EpochSeconds{
@@ -243,24 +264,27 @@ pub fn log(
         } ++ args,
     ) catch return;
 
-    const file = std.fs.cwd().openFile(LOG_FILE, .{
+    const file = std.Io.Dir.cwd().openFile(io, LOG_FILE, .{
         .mode = .write_only,
     }) catch |err| f: {
         if (err == error.FileNotFound) {
-            break :f std.fs.cwd().createFile(
+            break :f std.Io.Dir.cwd().createFile(
+                io,
                 LOG_FILE,
-                .{ .mode = 0o600 },
+                .{},
             ) catch return;
         }
 
         return;
     };
 
-    const stat = file.stat() catch return;
+    const stat = file.stat(io) catch return;
+
+    var msg_buf: [4096]u8 = undefined;
 
     // cycle log file
     if (stat.size > LOG_SIZE_MAX) {
-        file.close();
+        file.close(io);
 
         var old_buf: [std.fs.max_path_bytes]u8 = undefined;
         const old_log = std.fmt.bufPrint(
@@ -269,31 +293,45 @@ pub fn log(
             .{LOG_FILE},
         ) catch return;
 
-        std.fs.cwd().deleteFile(old_log) catch {};
-        std.fs.cwd().rename(LOG_FILE, old_log) catch return;
+        const dir = std.Io.Dir.cwd();
+        dir.deleteFile(io, old_log) catch {};
 
-        const new_file = std.fs.cwd().createFile(
+        std.Io.Dir.rename(dir, LOG_FILE, dir, old_log, io) catch return;
+
+        const new_file = std.Io.Dir.cwd().createFile(
+            io,
             LOG_FILE,
-            .{ .mode = 0o600 },
+            .{},
         ) catch return;
 
-        new_file.writeAll(msg) catch return;
-        new_file.close();
+        var file_writer = new_file.writer(io, &msg_buf);
+        const writer = &file_writer.interface;
+
+        writer.writeAll(msg) catch return;
+        writer.flush() catch return;
+        new_file.close(io);
         return;
     }
 
-    file.seekFromEnd(0) catch return;
-    file.writeAll(msg) catch return;
-    file.close();
+    var file_writer = file.writer(io, &msg_buf);
+    const writer = &file_writer.interface;
+
+    file_writer.seekTo(0) catch return;
+    writer.writeAll(msg) catch return;
+    writer.flush() catch return;
+
+    file.close(io);
 }
 
 test "isGitPresent" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
     var buf: [2048]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&buf);
+    var stderr_writer = std.Io.File.stderr().writer(io, &buf);
 
     const writer = &stderr_writer.interface;
-    const git_binary = isGitPresent(allocator, writer);
+    const git_binary = isGitPresent(io, writer);
     const git_check = std.process.Child.run(.{
         .allocator = allocator,
         .argv = &[_][]const u8{ "git", "--version" },
@@ -313,15 +351,16 @@ test "isGitPresent" {
 
 test log {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
     {
         const message = "Log test";
-        log(Level.INFO, message, .{});
+        log(io, Level.INFO, message, .{});
 
-        const log_file = try std.fs.cwd().openFile("dfs.log", .{});
-        defer log_file.close();
+        const log_file = try std.Io.Dir.cwd().openFile(io, "dfs.log", .{});
+        defer log_file.close(io);
 
-        const log_size: usize = @intCast((try log_file.stat()).size);
+        const log_size: usize = @intCast((try log_file.stat(io)).size);
         const log_content = try log_file.readToEndAlloc(
             allocator,
             log_size,
@@ -340,7 +379,7 @@ test log {
     {
         const message = "All WORK AND NO PLAY MAKES JACK A DULL BOY.";
 
-        var file = try std.fs.cwd().createFile(LOG_FILE, .{ .truncate = true });
+        var file = try std.Io.Dir.cwd().createFile(io, LOG_FILE, .{ .truncate = true });
         var written: usize = 0;
         const buffer = try allocator.alloc(u8, message.len);
         defer allocator.free(buffer);
@@ -354,20 +393,24 @@ test log {
 
         file.close();
         log(Level.WARNING, message, .{});
-        std.fs.cwd().deleteFile("dfs.log.old") catch unreachable;
-        std.fs.cwd().deleteFile("dfs.log") catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, "dfs.log.old") catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, "dfs.log") catch unreachable;
     }
 }
 
-pub fn createTestFile(path: []const u8, content: []const u8) !void {
-    const file = try std.fs.cwd().createFile(path, .{});
-    defer file.close();
+pub fn createTestFile(io: std.Io, path: []const u8, content: []const u8) !void {
+    const file = try std.Io.Dir.cwd().createFile(io, path, .{});
+    defer file.close(io);
     try file.writeAll(content);
 }
 
-pub fn modifyTestFile(path: []const u8, content: []const u8) !void {
+pub fn modifyTestFile(
+    path: []const u8,
+    content: []const u8,
+    io: std.Io,
+) !void {
     // ensure mtime changes
-    std.Thread.sleep(std.time.ns_per_ms * 10);
+    io.sleep(.fromMilliseconds(10), .boot) catch {};
     try createTestFile(path, content);
 }
 
