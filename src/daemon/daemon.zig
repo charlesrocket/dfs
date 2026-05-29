@@ -1,6 +1,7 @@
 pub const SyncQueue = struct {
-    mutex: Thread.Mutex = .{},
-    cond: Thread.Condition = .{},
+    mutex: std.Io.Mutex = .init,
+    io: std.Io,
+    cond: std.Io.Condition = .init,
     stopping: bool = false,
     should_sync: bool = false,
     config_call: bool = false,
@@ -37,7 +38,7 @@ pub fn start(
 ) !void {
     const tray_enabled = config.tray.enabled;
     var active = true;
-    var queue = SyncQueue{};
+    var queue = SyncQueue{ .io = core.io };
     defer if (queue.sync_time) |v| core.allocator.free(v);
 
     // initial sync
@@ -50,7 +51,7 @@ pub fn start(
         .{},
     ) catch {};
 
-    var watcher = try Watcher.init(core.allocator, config.watcher);
+    var watcher = try Watcher.init(core.allocator, core.io, config.watcher);
     defer watcher.deinit();
 
     try watcher.addPaths(core.files.items);
@@ -73,23 +74,23 @@ pub fn start(
         tray_thread.detach();
     }
 
-    Thread.sleep(500 * std.time.ns_per_ms);
+    core.io.sleep(.fromMilliseconds(500), .boot) catch {};
 
     while (active) {
-        queue.mutex.lock();
+        try queue.mutex.lock(core.io);
 
         while (!queue.should_sync and !queue.config_call and !queue.stopping) {
-            queue.cond.wait(&queue.mutex);
+            try queue.cond.wait(core.io, &queue.mutex);
         }
 
         if (queue.stopping) {
             active = false;
-            queue.mutex.unlock();
+            queue.mutex.unlock(core.io);
         } else if (queue.should_sync) {
             queue.should_sync = false;
             queue.syncing = true;
             queue.sync_state_changed = true;
-            queue.mutex.unlock();
+            queue.mutex.unlock(core.io);
 
             core.stdout.print(
                 "{s}{s}Syncing{s}\n",
@@ -101,10 +102,10 @@ pub fn start(
             try core.scan();
 
             core.sync() catch {
-                queue.mutex.lock();
+                queue.mutex.lock(core.io) catch return;
                 queue.syncing = false;
                 queue.sync_state_changed = true;
-                queue.mutex.unlock();
+                queue.mutex.unlock(core.io);
                 continue; // do not crash
             };
 
@@ -115,22 +116,21 @@ pub fn start(
 
             try core.stdout.flush();
 
-            queue.mutex.lock();
+            queue.mutex.lock(core.io) catch return;
             try queue.updateSyncTime(core.allocator);
             queue.syncing = false;
             queue.sync_state_changed = true;
             queue.sync_time_updated = true;
-            queue.mutex.unlock();
+            queue.mutex.unlock(core.io);
         } else if (queue.config_call) {
             queue.config_call = false;
-            queue.mutex.unlock();
-            try openConfig(core.allocator, core.config_path);
-        } else queue.mutex.unlock();
+            queue.mutex.unlock(core.io);
+            try openConfig(core.io, core.config_path);
+        } else queue.mutex.unlock(core.io);
     }
 
-    if (core.logs) Util.log(.INFO, "Stopping the daemon", .{});
-
-    Thread.sleep(1 * std.time.ns_per_s);
+    if (core.logs) Util.log(core.io, .INFO, "Stopping the daemon", .{});
+    core.io.sleep(.fromMilliseconds(1), .boot) catch {};
 }
 
 fn spawnTray(
@@ -205,7 +205,7 @@ fn spawnTray(
     }
 
     while (!queue.stopping) {
-        queue.mutex.lock();
+        try queue.mutex.lock(core.io);
 
         if (queue.sync_time_updated) {
             queue.sync_time_updated = false;
@@ -219,7 +219,7 @@ fn spawnTray(
             icon.setMenuItemEnabled(sync_item, !queue.syncing);
         }
 
-        queue.mutex.unlock();
+        queue.mutex.unlock(core.io);
         _ = try std.posix.poll(&sfd, -1);
         icon.processEvents();
     }
@@ -229,10 +229,10 @@ fn onSync(menu_id: i32, queue_data: ?*anyopaque) void {
     _ = menu_id;
     if (queue_data) |ptr| {
         const queue = @as(*SyncQueue, @ptrCast(@alignCast(ptr)));
-        queue.mutex.lock();
+        queue.mutex.lock(queue.io) catch return;
         queue.*.should_sync = true;
-        queue.cond.signal();
-        queue.mutex.unlock();
+        queue.cond.signal(queue.io);
+        queue.mutex.unlock(queue.io);
     }
 }
 
@@ -241,9 +241,9 @@ fn onConfig(menu_id: i32, queue_data: ?*anyopaque) void {
 
     if (queue_data) |ptr| {
         const queue = @as(*SyncQueue, @ptrCast(@alignCast(ptr)));
-        queue.mutex.lock();
+        queue.mutex.lock(queue.io) catch return;
         queue.*.config_call = true;
-        queue.mutex.unlock();
+        queue.mutex.unlock(queue.io);
     }
 }
 
@@ -252,9 +252,9 @@ fn onPause(menu_id: i32, queue_data: ?*anyopaque) void {
 
     if (queue_data) |ptr| {
         const ctx = @as(*Context, @ptrCast(@alignCast(ptr)));
-        ctx.queue.mutex.lock();
+        ctx.queue.mutex.lock(ctx.queue.io) catch return;
         ctx.queue.paused = !ctx.queue.paused;
-        ctx.queue.mutex.unlock();
+        ctx.queue.mutex.unlock(ctx.queue.io);
 
         ctx.icon.setMenuItemLabel(ctx.item_id.?, if (ctx.queue.paused)
             "Resume"
@@ -272,22 +272,21 @@ fn onQuit(menu_id: i32, user_data: ?*anyopaque) void {
     _ = menu_id;
     if (user_data) |ptr| {
         const queue = @as(*SyncQueue, @ptrCast(@alignCast(ptr)));
-        queue.mutex.lock();
+        queue.mutex.lock(queue.io) catch return;
         queue.stopping = true;
-        queue.cond.signal();
-        queue.mutex.unlock();
+        queue.cond.signal(queue.io);
+        queue.mutex.unlock(queue.io);
     }
 }
 
-fn openConfig(allocator: std.mem.Allocator, path: []const u8) !void {
+fn openConfig(io: std.Io, path: []const u8) !void {
     const xdg_command = [_][]const u8{
         "xdg-open",
         path,
     };
 
-    var proc = std.process.Child.init(&xdg_command, allocator);
-    try proc.spawn();
-    _ = try proc.wait();
+    var proc = try std.process.spawn(io, .{ .argv = &xdg_command });
+    _ = try proc.wait(io);
 }
 
 const std = @import("std");

@@ -9,7 +9,8 @@ const File = struct {
 };
 
 allocator: std.mem.Allocator,
-mutex: std.Thread.Mutex,
+mutex: std.Io.Mutex,
+io: std.Io,
 files: std.ArrayList(File),
 mode: Config.WatcherMode,
 poll_interval_ms: u64,
@@ -19,8 +20,12 @@ kqueue_fd: ?std.posix.fd_t = null,
 epoll_fd: ?std.posix.fd_t = null,
 inotify_fd: ?std.posix.fd_t = null,
 
-pub fn init(allocator: std.mem.Allocator, mode: Config.WatcherMode) !Watcher {
-    const kq_fd = if (KQUEUE) try std.posix.kqueue() else null;
+pub fn init(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    mode: Config.WatcherMode,
+) !Watcher {
+    const kq_fd = if (KQUEUE) std.posix.system.kqueue() else null;
 
     var epoll_fd: ?std.posix.fd_t = null;
     var inotify_fd: ?std.posix.fd_t = null;
@@ -47,7 +52,8 @@ pub fn init(allocator: std.mem.Allocator, mode: Config.WatcherMode) !Watcher {
 
     return .{
         .allocator = allocator,
-        .mutex = std.Thread.Mutex{},
+        .io = io,
+        .mutex = std.Io.Mutex.init,
         .files = std.ArrayList(File).empty,
         .mode = mode,
         .poll_interval_ms = 5000,
@@ -60,8 +66,8 @@ pub fn init(allocator: std.mem.Allocator, mode: Config.WatcherMode) !Watcher {
 }
 
 pub fn deinit(self: *Watcher) void {
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    self.mutex.lock(self.io) catch return;
+    defer self.mutex.unlock(self.io);
 
     for (self.files.items) |item| {
         if (EPOLL and self.inotify_fd != null and item.wd != null) {
@@ -69,30 +75,30 @@ pub fn deinit(self: *Watcher) void {
         }
 
         if (item.fd) |fd| {
-            std.posix.close(fd);
+            _ = std.posix.system.close(fd);
         }
 
         self.allocator.free(item.path);
     }
 
     if (self.kqueue_fd) |kq| {
-        std.posix.close(kq);
+        _ = std.posix.system.close(kq);
     }
 
     if (self.inotify_fd) |fd| {
-        std.posix.close(fd);
+        _ = std.posix.system.close(fd);
     }
 
     if (self.epoll_fd) |fd| {
-        std.posix.close(fd);
+        _ = std.posix.system.close(fd);
     }
 
     self.files.deinit(self.allocator);
 }
 
 pub fn addPaths(self: *Watcher, files: []const Dotfile) !void {
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    try self.mutex.lock(self.io);
+    defer self.mutex.unlock(self.io);
 
     for (files) |file| {
         try self.addPath(file.src);
@@ -125,26 +131,20 @@ fn addPath(self: *Watcher, path: []const u8) !void {
 
     if (use_kqueue and KQUEUE) {
         if (comptime KQUEUE) {
-            // try to open the file
-            const fd = std.posix.open(
-                path,
-                .{ .ACCMODE = .RDONLY },
-                0,
-            ) catch |err|
-                switch (err) {
-                    error.FileNotFound => {
-                        // file does not exist yet, add with no values
-                        try self.files.append(
-                            self.allocator,
-                            .{ .path = path_copy, .mtime = 0, .fd = null },
-                        );
+            const file = std.Io.Dir.cwd().openFile(self.io, path, .{}) catch |err| switch (err) {
+                error.FileNotFound => {
+                    try self.files.append(
+                        self.allocator,
+                        .{ .path = path_copy, .mtime = 0, .fd = null },
+                    );
 
-                        return;
-                    },
-                    else => return err,
-                };
+                    return;
+                },
+                else => return err,
+            };
 
-            errdefer std.posix.close(fd);
+            errdefer file.close(self.io);
+            const fd = file.handle;
 
             // add to kqueue
             var kev: std.posix.Kevent = undefined;
@@ -158,20 +158,23 @@ fn addPath(self: *Watcher, path: []const u8) !void {
             kev.udata = 0;
 
             const changes = [_]std.posix.Kevent{kev};
-            _ = try std.posix.kevent(
+            _ = try std.Io.Kqueue.kevent(
                 self.kqueue_fd.?,
                 &changes,
                 &[_]std.posix.Kevent{},
                 null,
             );
 
-            const stat = try std.posix.fstat(fd);
-            const mtime_ns = @as(i128, stat.mtime().sec) *
-                std.time.ns_per_s + stat.mtime().nsec;
+            const stat = try file.stat(self.io);
+
+            const mtime = @divFloor(
+                @as(u64, @intCast(stat.mtime.toMilliseconds())),
+                1000000000,
+            );
 
             try self.files.append(self.allocator, .{
                 .path = path_copy,
-                .mtime = mtime_ns,
+                .mtime = mtime,
                 .fd = fd,
             });
         }
@@ -231,7 +234,7 @@ fn addPath(self: *Watcher, path: []const u8) !void {
     } else {
         // fallback to polling mode
         // heavier on resources, but platform-agnostic
-        const stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
+        const stat = std.Io.Dir.cwd().statFile(self.io, path, .{}) catch |err| switch (err) {
             error.FileNotFound => {
                 try self.files.append(self.allocator, .{
                     .path = path_copy,
@@ -246,7 +249,7 @@ fn addPath(self: *Watcher, path: []const u8) !void {
 
         try self.files.append(self.allocator, .{
             .path = path_copy,
-            .mtime = stat.mtime,
+            .mtime = stat.mtime.toMilliseconds(),
             .fd = null,
         });
     }
@@ -259,6 +262,7 @@ pub fn watch(
     queue: *anyopaque,
 ) !void {
     if (core.logs) Util.log(
+        self.io,
         .INFO,
         "Watcher in {s} mode",
         .{@tagName(self.mode)},
@@ -302,14 +306,14 @@ fn watchKqueue(
     var events: [32]std.posix.Kevent = undefined;
 
     while (active.*) {
-        const n = std.posix.kevent(
+        const n = std.Io.Kqueue.kevent(
             self.kqueue_fd.?,
             &[_]std.posix.Kevent{},
             &events,
             null,
         ) catch |err| {
             if (core.logs) {
-                Util.log(.ERROR, "Kqueue error: {}", .{err});
+                Util.log(self.io, .ERROR, "Kqueue error: {}", .{err});
             }
 
             try core.stderr.print("Kqueue failed: {}\n", .{err});
@@ -317,23 +321,24 @@ fn watchKqueue(
         };
 
         if (n > 0) {
-            const now = std.time.milliTimestamp();
+            const clock = std.Io.Clock.now(.real, self.io);
+            const now = clock.toMilliseconds();
             const debounce_delay_ms_i64 = @as(i64, @intCast(self.debounce_delay_ms));
 
             if (now - self.last_change_time >= debounce_delay_ms_i64) {
                 self.last_change_time = now;
 
                 const sync_queue = @as(*SyncQueue, @ptrCast(@alignCast(queue)));
-                sync_queue.mutex.lock();
-                defer sync_queue.mutex.unlock();
+                try sync_queue.mutex.lock(self.io);
+                defer sync_queue.mutex.unlock(self.io);
 
                 if (!sync_queue.paused) {
                     sync_queue.should_sync = true;
-                    sync_queue.cond.signal();
+                    sync_queue.cond.signal(self.io);
                 }
 
                 if (core.logs) {
-                    Util.log(.INFO, "File changes detected", .{});
+                    Util.log(self.io, .INFO, "File changes detected", .{});
                 }
             }
         }
@@ -401,8 +406,8 @@ fn watchEpoll(
 }
 
 pub fn recheckMissingFiles(self: *Watcher) !void {
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    try self.mutex.lock(self.io);
+    defer self.mutex.unlock(self.io);
 
     if (comptime KQUEUE) {
         if (KQUEUE and self.kqueue_fd != null) {
@@ -410,11 +415,12 @@ pub fn recheckMissingFiles(self: *Watcher) !void {
                 if (item.fd != null) continue;
 
                 // try to open file that was previously missing
-                const fd = std.posix.open(item.path, .{ .ACCMODE = .RDONLY }, 0) catch continue;
-                errdefer std.posix.close(fd);
+                const file = std.Io.Dir.cwd().openFile(self.io, item.path, .{}) catch |err| return err;
+                defer file.close(self.io);
+                const fd = file.handle;
 
                 // add to kqueue
-                var kev: std.posix.Kevent = undefined;
+                var kev: std.posix.system.Kevent = undefined;
                 kev.ident = @intCast(fd);
                 kev.filter = std.posix.system.EVFILT.VNODE;
                 kev.flags = std.posix.system.EV.ADD | std.posix.system.EV.CLEAR;
@@ -423,8 +429,8 @@ pub fn recheckMissingFiles(self: *Watcher) !void {
                 kev.udata = 0;
 
                 const changes = [_]std.posix.Kevent{kev};
-                _ = std.posix.kevent(self.kqueue_fd.?, &changes, &[_]std.posix.Kevent{}, null) catch {
-                    std.posix.close(fd);
+                _ = std.Io.Kqueue.kevent(self.kqueue_fd.?, &changes, &[_]std.posix.Kevent{}, null) catch {
+                    _ = std.posix.system.close(fd);
                     continue;
                 };
 
@@ -457,10 +463,14 @@ pub fn recheckMissingFiles(self: *Watcher) !void {
             if (item.mtime != 0) continue;
 
             // try to stat the file
-            const stat = std.fs.cwd().statFile(item.path) catch continue;
+            const stat = std.Io.Dir.cwd().statFile(
+                self.io,
+                item.path,
+                .{},
+            ) catch continue;
 
             // file now exists, update its mtime
-            item.mtime = stat.mtime;
+            item.mtime = stat.mtime.toMilliseconds();
         }
     }
 }
@@ -493,41 +503,46 @@ fn watchPoll(
             const has_changes = try self.checkForChanges();
 
             if (has_changes) {
-                const now = std.time.milliTimestamp();
+                const clock = std.Io.Clock.now(.real, self.io);
+                const now = clock.toMilliseconds();
                 const debounce_delay_ms_i64 = @as(i64, @intCast(self.debounce_delay_ms));
 
                 if (now - self.last_change_time >= debounce_delay_ms_i64) {
                     self.last_change_time = now;
 
                     const sync_queue = @as(*SyncQueue, @ptrCast(@alignCast(queue)));
-                    sync_queue.mutex.lock();
-                    defer sync_queue.mutex.unlock();
+                    try sync_queue.mutex.lock(self.io);
+                    defer sync_queue.mutex.unlock(self.io);
 
                     if (!sync_queue.paused) {
                         sync_queue.should_sync = true;
-                        sync_queue.cond.signal();
+                        sync_queue.cond.signal(self.io);
                     }
 
                     if (core.logs) {
-                        Util.log(.INFO, "File changes detected", .{});
+                        Util.log(self.io, .INFO, "File changes detected", .{});
                     }
                 }
             }
         }
 
-        std.Thread.sleep(sleep_chunk_ms * std.time.ns_per_ms);
+        core.io.sleep(.fromMilliseconds(sleep_chunk_ms), .boot) catch {};
         elapsed_ms += sleep_chunk_ms;
     }
 }
 
 fn checkForChanges(self: *Watcher) !bool {
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    try self.mutex.lock(self.io);
+    defer self.mutex.unlock(self.io);
 
     var has_changes = false;
 
     for (self.files.items) |*item| {
-        const stat = std.fs.cwd().statFile(item.path) catch |err| switch (err) {
+        const stat = std.Io.Dir.cwd().statFile(
+            self.io,
+            item.path,
+            .{},
+        ) catch |err| switch (err) {
             error.FileNotFound => {
                 if (item.mtime != 0) {
                     has_changes = true;
@@ -538,9 +553,11 @@ fn checkForChanges(self: *Watcher) !bool {
             else => return err,
         };
 
-        if (stat.mtime != item.mtime) {
+        const mtime = stat.mtime.toMilliseconds();
+
+        if (mtime != item.mtime) {
             has_changes = true;
-            item.mtime = stat.mtime;
+            item.mtime = mtime;
         }
     }
 
@@ -549,15 +566,16 @@ fn checkForChanges(self: *Watcher) !bool {
 
 test "addPath" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     // single file
     {
         const test_file = "test_watcher_single.txt";
 
-        try Util.createTestFile(test_file, "initial content");
-        defer std.fs.cwd().deleteFile(test_file) catch unreachable;
+        try Util.createTestFile(allocator, io, test_file, "initial content");
+        defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
 
-        var watcher = try Watcher.init(allocator, .polling);
+        var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
 
         try watcher.addPath(test_file);
@@ -571,7 +589,7 @@ test "addPath" {
     {
         const test_file = "nonexistent_file.txt";
 
-        var watcher = try Watcher.init(allocator, .polling);
+        var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
 
         try watcher.addPath(test_file);
@@ -585,15 +603,15 @@ test "addPath" {
         const src_file = "test_src.txt";
         const dest_file = "test_dest.txt";
 
-        try Util.createTestFile(src_file, "source");
-        try Util.createTestFile(dest_file, "dest");
+        try Util.createTestFile(allocator, io, src_file, "source");
+        try Util.createTestFile(allocator, io, dest_file, "dest");
 
         defer {
-            std.fs.cwd().deleteFile(src_file) catch unreachable;
-            std.fs.cwd().deleteFile(dest_file) catch unreachable;
+            std.Io.Dir.cwd().deleteFile(io, src_file) catch unreachable;
+            std.Io.Dir.cwd().deleteFile(io, dest_file) catch unreachable;
         }
 
-        var watcher = try Watcher.init(allocator, .polling);
+        var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
 
         const dotfiles = [_]Dotfile{
@@ -608,15 +626,16 @@ test "addPath" {
 
 test "checkForChanges" {
     const allocator = testing.allocator;
+    const io = testing.io;
 
     // no changes
     {
         const test_file = "test_no_change_polling.txt";
 
-        try Util.createTestFile(test_file, "content");
-        std.fs.cwd().deleteFile(test_file) catch unreachable;
+        try Util.createTestFile(allocator, io, test_file, "content");
+        std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
 
-        var watcher = try Watcher.init(allocator, .polling);
+        var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
 
         try watcher.addPath(test_file);
@@ -629,15 +648,15 @@ test "checkForChanges" {
     {
         const test_file = "test_modified_polling.txt";
 
-        try Util.createTestFile(test_file, "initial");
-        defer std.fs.cwd().deleteFile(test_file) catch unreachable;
+        try Util.createTestFile(allocator, io, test_file, "initial");
+        defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
 
-        var watcher = try Watcher.init(allocator, .polling);
+        var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
 
         try watcher.addPath(test_file);
 
-        try Util.modifyTestFile(test_file, "modified content");
+        try Util.modifyTestFile(test_file, "modified content", io);
 
         const has_changes = try watcher.checkForChanges();
         try testing.expect(has_changes);
@@ -650,14 +669,14 @@ test "checkForChanges" {
     {
         const test_file = "test_deleted_polling.txt";
 
-        try Util.createTestFile(test_file, "content");
+        try Util.createTestFile(allocator, io, test_file, "content");
 
-        var watcher = try Watcher.init(allocator, .polling);
+        var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
 
         try watcher.addPath(test_file);
 
-        std.fs.cwd().deleteFile(test_file) catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
 
         const has_changes = try watcher.checkForChanges();
         try testing.expect(has_changes);
@@ -667,15 +686,15 @@ test "checkForChanges" {
     //created after watch
     {
         const test_file = "test_created_later_polling.txt";
-        defer std.fs.cwd().deleteFile(test_file) catch unreachable;
+        defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
 
-        var watcher = try Watcher.init(allocator, .polling);
+        var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
 
         try watcher.addPath(test_file);
         try testing.expect(watcher.files.items[0].mtime == 0);
 
-        try Util.createTestFile(test_file, "new content");
+        try Util.createTestFile(allocator, io, test_file, "new content");
 
         const has_changes = try watcher.checkForChanges();
         try testing.expect(has_changes);
@@ -688,24 +707,24 @@ test "checkForChanges" {
         const file2 = "test_multi2_polling.txt";
         const file3 = "test_multi3_polling.txt";
 
-        try Util.createTestFile(file1, "file1");
-        try Util.createTestFile(file2, "file2");
-        try Util.createTestFile(file3, "file3");
+        try Util.createTestFile(allocator, io, file1, "file1");
+        try Util.createTestFile(allocator, io, file2, "file2");
+        try Util.createTestFile(allocator, io, file3, "file3");
 
         defer {
-            std.fs.cwd().deleteFile(file1) catch unreachable;
-            std.fs.cwd().deleteFile(file2) catch unreachable;
-            std.fs.cwd().deleteFile(file3) catch unreachable;
+            std.Io.Dir.cwd().deleteFile(io, file1) catch unreachable;
+            std.Io.Dir.cwd().deleteFile(io, file2) catch unreachable;
+            std.Io.Dir.cwd().deleteFile(io, file3) catch unreachable;
         }
 
-        var watcher = try Watcher.init(allocator, .polling);
+        var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
 
         try watcher.addPath(file1);
         try watcher.addPath(file2);
         try watcher.addPath(file3);
 
-        try Util.modifyTestFile(file2, "file2 modified");
+        try Util.modifyTestFile(file2, "file2 modified", io);
 
         const has_changes = try watcher.checkForChanges();
         try testing.expect(has_changes);
@@ -716,12 +735,16 @@ test "kqueue" {
     if (!KQUEUE) return error.SkipZigTest;
 
     const allocator = testing.allocator;
+    const io = testing.io;
     const test_file = "test_watch_kqueue.txt";
 
-    try Util.createTestFile(test_file, "initial");
-    defer std.fs.cwd().deleteFile(test_file) catch unreachable;
+    const environ = std.testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
-    var watcher = try Watcher.init(allocator, .kqueue);
+    try Util.createTestFile(allocator, io, test_file, "initial");
+    defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
+
+    var watcher = try Watcher.init(allocator, io, .kqueue);
     defer watcher.deinit();
 
     watcher.poll_interval_ms = 100;
@@ -730,33 +753,36 @@ test "kqueue" {
     try watcher.addPath(test_file);
 
     var queue = SyncQueue{
-        .mutex = std.Thread.Mutex{},
+        .mutex = std.Io.Mutex.init,
         .should_sync = false,
+        .io = io,
     };
 
     var active = true;
 
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_file = try std.fs.cwd().createFile("test_out_kqueue.txt", .{});
-    defer stdout_file.close();
+    var stdout_file = try std.Io.Dir.cwd().createFile(io, "test_out_kqueue.txt", .{});
+    defer stdout_file.close(io);
 
     var stderr_buf: [1024]u8 = undefined;
-    var stderr_file = try std.fs.cwd().createFile("test_err_kqueue.txt", .{});
-    defer stderr_file.close();
+    var stderr_file = try std.Io.Dir.cwd().createFile(io, "test_err_kqueue.txt", .{});
+    defer stderr_file.close(io);
 
     defer {
-        std.fs.cwd().deleteFile("test_out_kqueue.txt") catch unreachable;
-        std.fs.cwd().deleteFile("test_err_kqueue.txt") catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, "test_out_kqueue.txt") catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, "test_err_kqueue.txt") catch unreachable;
     }
 
-    var stdout_writer = stdout_file.writer(&stdout_buf);
+    var stdout_writer = stdout_file.writer(io, &stdout_buf);
     const stdout_interface: *std.Io.Writer = &stdout_writer.interface;
 
-    var stderr_writer = stderr_file.writer(&stderr_buf);
+    var stderr_writer = stderr_file.writer(io, &stderr_buf);
     const stderr_interface: *std.Io.Writer = &stderr_writer.interface;
 
     var core = Core{
         .allocator = allocator,
+        .io = io,
+        .environ_map = &environ_map,
         .stdout = stdout_interface,
         .stderr = stderr_interface,
         .logs = false,
@@ -782,17 +808,17 @@ test "kqueue" {
         }
     }.run, .{&context});
 
-    std.Thread.sleep(std.time.ns_per_ms * 100);
+    core.io.sleep(.fromMilliseconds(100), .boot) catch {};
 
-    try Util.modifyTestFile(test_file, "modified");
+    try Util.modifyTestFile(test_file, "modified", io);
 
-    std.Thread.sleep(std.time.ns_per_ms * 3000);
+    core.io.sleep(.fromMilliseconds(3000), .boot) catch {};
 
     active = false;
     thread.join();
 
-    queue.mutex.lock();
-    defer queue.mutex.unlock();
+    try queue.mutex.lock(io);
+    defer queue.mutex.unlock(io);
     try testing.expect(queue.should_sync);
 }
 
@@ -800,12 +826,13 @@ test "epoll" {
     if (!EPOLL) return error.SkipZigTest;
 
     const allocator = testing.allocator;
+    const io = testing.io;
     const test_file = "test_watch_epoll.txt";
 
-    try Util.createTestFile(test_file, "initial");
-    defer std.fs.cwd().deleteFile(test_file) catch unreachable;
+    try Util.createTestFile(allocator, io, test_file, "initial");
+    defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
 
-    var watcher = try Watcher.init(allocator, .epoll);
+    var watcher = try Watcher.init(allocator, io, .epoll);
     defer watcher.deinit();
 
     watcher.poll_interval_ms = 100;
@@ -816,6 +843,7 @@ test "epoll" {
     var queue = SyncQueue{
         .mutex = std.Thread.Mutex{},
         .should_sync = false,
+        .io = io,
     };
 
     var active = true;
@@ -866,11 +894,11 @@ test "epoll" {
         }
     }.run, .{&context});
 
-    std.Thread.sleep(std.time.ns_per_ms * 100);
+    core.io.sleep(.fromMilliseconds(100), .boot) catch {};
 
-    try Util.modifyTestFile(test_file, "modified");
+    try Util.modifyTestFile(test_file, "modified", io);
 
-    std.Thread.sleep(std.time.ns_per_ms * 3000);
+    core.io.sleep(.fromMilliseconds(3000), .boot) catch {};
 
     active = false;
     thread.join();
@@ -882,12 +910,16 @@ test "epoll" {
 
 test "polling" {
     const allocator = testing.allocator;
+    const io = testing.io;
     const test_file = "test_watch_polling.txt";
 
-    try Util.createTestFile(test_file, "initial");
-    defer std.fs.cwd().deleteFile(test_file) catch unreachable;
+    const environ = std.testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
 
-    var watcher = try Watcher.init(allocator, .polling);
+    try Util.createTestFile(allocator, io, test_file, "initial");
+    defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
+
+    var watcher = try Watcher.init(allocator, io, .polling);
     defer watcher.deinit();
 
     watcher.poll_interval_ms = 100;
@@ -896,33 +928,36 @@ test "polling" {
     try watcher.addPath(test_file);
 
     var queue = SyncQueue{
-        .mutex = std.Thread.Mutex{},
+        .mutex = std.Io.Mutex.init,
         .should_sync = false,
+        .io = io,
     };
 
     var active = true;
 
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_file = try std.fs.cwd().createFile("test_out_polling.txt", .{});
-    defer stdout_file.close();
+    var stdout_file = try std.Io.Dir.cwd().createFile(io, "test_out_polling.txt", .{});
+    defer stdout_file.close(io);
 
     var stderr_buf: [1024]u8 = undefined;
-    var stderr_file = try std.fs.cwd().createFile("test_err_polling.txt", .{});
-    defer stderr_file.close();
+    var stderr_file = try std.Io.Dir.cwd().createFile(io, "test_err_polling.txt", .{});
+    defer stderr_file.close(io);
 
     defer {
-        std.fs.cwd().deleteFile("test_out_polling.txt") catch unreachable;
-        std.fs.cwd().deleteFile("test_err_polling.txt") catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, "test_out_polling.txt") catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, "test_err_polling.txt") catch unreachable;
     }
 
-    var stdout_writer = stdout_file.writer(&stdout_buf);
+    var stdout_writer = stdout_file.writer(io, &stdout_buf);
     const stdout_interface: *std.Io.Writer = &stdout_writer.interface;
 
-    var stderr_writer = stderr_file.writer(&stderr_buf);
+    var stderr_writer = stderr_file.writer(io, &stderr_buf);
     const stderr_interface: *std.Io.Writer = &stderr_writer.interface;
 
     var core = Core{
         .allocator = allocator,
+        .io = io,
+        .environ_map = &environ_map,
         .stdout = stdout_interface,
         .stderr = stderr_interface,
         .logs = false,
@@ -948,17 +983,17 @@ test "polling" {
         }
     }.run, .{&context});
 
-    std.Thread.sleep(std.time.ns_per_ms * 100);
+    core.io.sleep(.fromMilliseconds(100), .boot) catch {};
 
-    try Util.modifyTestFile(test_file, "modified");
+    try Util.modifyTestFile(test_file, "modified", io);
 
-    std.Thread.sleep(std.time.ns_per_ms * 3000);
+    core.io.sleep(.fromMilliseconds(3000), .boot) catch {};
 
     active = false;
     thread.join();
 
-    queue.mutex.lock();
-    defer queue.mutex.unlock();
+    try queue.mutex.lock(io);
+    defer queue.mutex.unlock(io);
     try testing.expect(queue.should_sync);
 }
 
