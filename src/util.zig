@@ -324,7 +324,6 @@ pub fn log(
 }
 
 test "isGitPresent" {
-    const allocator = std.testing.allocator;
     const io = std.testing.io;
 
     var buf: [2048]u8 = undefined;
@@ -332,20 +331,16 @@ test "isGitPresent" {
 
     const writer = &stderr_writer.interface;
     const git_binary = isGitPresent(io, writer);
-    const git_check = std.process.Child.run(.{
-        .allocator = allocator,
+
+    var git_check = try std.process.spawn(io, .{
         .argv = &[_][]const u8{ "git", "--version" },
-    }) catch {
-        try std.testing.expect(!git_binary);
-        return;
-    };
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    });
 
-    defer {
-        allocator.free(git_check.stdout);
-        allocator.free(git_check.stderr);
-    }
-
-    const git_exists = git_check.term.Exited == 0;
+    const git_result = try git_check.wait(io);
+    const git_exists = git_result.exited == 0;
     try std.testing.expectEqual(git_exists, git_binary);
 }
 
@@ -361,16 +356,20 @@ test log {
         defer log_file.close(io);
 
         const log_size: usize = @intCast((try log_file.stat(io)).size);
-        const log_content = try log_file.readToEndAlloc(
+        var log_reader = log_file.reader(io, &.{});
+
+        const log_content = try log_reader.interface.allocRemaining(
             allocator,
-            log_size,
+            .limited(log_size),
         );
+
+        defer allocator.free(log_content);
 
         const expected = "] [INFO] Log test\n";
 
         defer {
             allocator.free(log_content);
-            std.fs.cwd().deleteFile("dfs.log") catch unreachable;
+            std.Io.Dir.cwd().deleteFile(io, "dfs.log") catch unreachable;
         }
 
         try std.testing.expectStringEndsWith(log_content, expected);
@@ -387,21 +386,38 @@ test log {
         @memcpy(buffer, message);
 
         while (written < LOG_SIZE_MAX) {
-            try file.writeAll(buffer);
+            const buf = try allocator.alloc(u8, buffer.len);
+            defer allocator.free(buf);
+
+            var output_file_writer = file.writer(io, buf);
+            try output_file_writer.interface.writeAll(buffer);
+            try output_file_writer.interface.flush();
+
             written += buffer.len;
         }
 
-        file.close();
-        log(Level.WARNING, message, .{});
+        file.close(io);
+        log(io, Level.WARNING, message, .{});
         std.Io.Dir.cwd().deleteFile(io, "dfs.log.old") catch unreachable;
         std.Io.Dir.cwd().deleteFile(io, "dfs.log") catch unreachable;
     }
 }
 
-pub fn createTestFile(io: std.Io, path: []const u8, content: []const u8) !void {
+pub fn createTestFile(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    path: []const u8,
+    content: []const u8,
+) !void {
     const file = try std.Io.Dir.cwd().createFile(io, path, .{});
     defer file.close(io);
-    try file.writeAll(content);
+
+    const buf = try allocator.alloc(u8, content.len);
+    defer allocator.free(buf);
+
+    var output_writer = file.writer(io, buf);
+    try output_writer.interface.writeAll(content);
+    try output_writer.interface.flush();
 }
 
 pub fn modifyTestFile(
@@ -411,7 +427,7 @@ pub fn modifyTestFile(
 ) !void {
     // ensure mtime changes
     io.sleep(.fromMilliseconds(10), .boot) catch {};
-    try createTestFile(path, content);
+    try createTestFile(std.testing.allocator, io, path, content);
 }
 
 const std = @import("std");
