@@ -1543,15 +1543,15 @@ test evalIfGroup {
 
     {
         const tokens_oob = &[_]Token{};
-        var out = std.ArrayList(u8).empty;
-        defer out.deinit(allocator);
+        var out: std.Io.Writer.Allocating = .init(allocator);
+        defer out.deinit();
 
         const result = evalIfGroup(
             allocator,
             &environ_map,
             tokens_oob,
             0,
-            out.writer(allocator),
+            &out,
         );
 
         try testing.expectError(TemplateError.IndexOutOfBounds, result);
@@ -1568,10 +1568,16 @@ test evalIfGroup {
             } },
         };
 
-        var out = std.ArrayList(u8).empty;
-        defer out.deinit(allocator);
+        var out: std.Io.Writer.Allocating = .init(allocator);
+        defer out.deinit();
 
-        const result = evalIfGroup(allocator, &tokens_unexpected, 0, out.writer(allocator));
+        const result = evalIfGroup(
+            allocator,
+            &environ_map,
+            &tokens_unexpected,
+            0,
+            &out,
+        );
         try testing.expectError(TemplateError.InvalidToken, result);
     }
 
@@ -1587,14 +1593,16 @@ test evalIfGroup {
             .{ .text = "unexpected text" },
         };
 
-        var out_invalid_tag = std.ArrayList(u8).empty;
-        defer out_invalid_tag.deinit(allocator);
+        var out_invalid_tag: std.Io.Writer.Allocating = .init(allocator);
+
+        defer out_invalid_tag.deinit();
 
         const result_invalid_tag = evalIfGroup(
             allocator,
+            &environ_map,
             &tokens_invalid_tag,
             0,
-            out_invalid_tag.writer(allocator),
+            &out_invalid_tag,
         );
 
         try testing.expectError(TemplateError.InvalidTag, result_invalid_tag);
@@ -1611,14 +1619,15 @@ test evalIfGroup {
             .{ .tag = .{ .content = "endif", .raw = " endif ", .start = 20, .end = 30 } },
         };
 
-        var out_invalid_template = std.ArrayList(u8).empty;
-        defer out_invalid_template.deinit(allocator);
+        var out_invalid_template: std.Io.Writer.Allocating = .init(allocator);
+        defer out_invalid_template.deinit();
 
         const result_invalid_template = evalIfGroup(
             allocator,
+            &environ_map,
             &tokens_invalid_template,
             0,
-            out_invalid_template.writer(allocator),
+            &out_invalid_template,
         );
         try testing.expectError(TemplateError.InvalidTag, result_invalid_template);
     }
@@ -1634,14 +1643,15 @@ test evalIfGroup {
             .{ .text = "body" },
         };
 
-        var out = std.ArrayList(u8).empty;
-        defer out.deinit(allocator);
+        var out: std.Io.Writer.Allocating = .init(allocator);
+        defer out.deinit();
 
         const result = evalIfGroup(
             allocator,
+            &environ_map,
             &tokens_missing_end,
             0,
-            out.writer(allocator),
+            &out,
         );
 
         try testing.expectError(TemplateError.MissingEndTag, result);
@@ -1657,14 +1667,15 @@ test evalIfGroup {
             } },
         };
 
-        var out = std.ArrayList(u8).empty;
-        defer out.deinit(allocator);
+        var out: std.Io.Writer.Allocating = .init(allocator);
+        defer out.deinit();
 
         const result = try evalIfGroup(
             allocator,
+            &environ_map,
             &tokens_end_only,
             0,
-            out.writer(allocator),
+            &out,
         );
 
         try testing.expect(result == 1);

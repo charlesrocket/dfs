@@ -666,8 +666,9 @@ pub fn processFile(
 }
 
 test processFile {
+    const allocator = std.testing.allocator;
     const io = std.testing.io;
-    var env_map = try std.testing.environ.createMap(std.testing.allocator);
+    var env_map = try std.testing.environ.createMap(allocator);
 
     var counter = Util.Counter.new(false);
     var bufo: [4096]u8 = undefined;
@@ -675,7 +676,7 @@ test processFile {
     var stdout_writer = std.Io.File.stdout().writer(io, &bufo);
     var stderr_writer = std.Io.File.stderr().writer(io, &bufe);
     var core = Core.new(
-        std.testing.allocator,
+        allocator,
         io,
         &env_map,
         &stdout_writer.interface,
@@ -692,21 +693,19 @@ test processFile {
         var dotfile_d = new("test/root/testfile1", "test/dest2/testfile-unit");
 
         _ = try dotfile_d.processFile(
-            std.testing.allocator,
+            allocator,
             &counter,
             &core,
         );
 
         const file_dual = try std.Io.Dir.cwd().openFile(io, "test/dest2/testfile-unit", .{});
-        const file_dual_content = try file_dual.readToEndAlloc(
-            std.testing.allocator,
-            1024,
-        );
+        var file_dual_reader = file_dual.reader(io, &.{});
+        const file_dual_content = try file_dual_reader.interface.allocRemaining(allocator, .limited(1024));
 
-        file_dual.close();
+        file_dual.close(io);
 
         errdefer std.Io.Dir.cwd().deleteTree(io, "test/dest2") catch unreachable;
-        defer std.testing.allocator.free(file_dual_content);
+        defer allocator.free(file_dual_content);
 
         const expected_dual_content =
             \\# TEST
@@ -727,20 +726,18 @@ test processFile {
         core.direction = Cli.Direction.forward;
 
         _ = try dotfile_f.processFile(
-            std.testing.allocator,
+            allocator,
             &counter,
             &core,
         );
 
         const file_fwd = try std.Io.Dir.cwd().openFile(io, "test/dest2/testfile-unit", .{});
-        const file_fwd_content = try file_fwd.readToEndAlloc(
-            std.testing.allocator,
-            1024,
-        );
+        var file_fwd_reader = file_fwd.reader(io, &.{});
+        const file_fwd_content = try file_fwd_reader.interface.allocRemaining(allocator, .limited(1024));
 
         file_fwd.close(io);
 
-        defer std.testing.allocator.free(file_fwd_content);
+        defer allocator.free(file_fwd_content);
 
         const expected_fwd_content =
             \\# TEST
@@ -756,7 +753,7 @@ test processFile {
 
     // back
     {
-        try std.Io.Dir.cwd().makeDir(io, "test/root2");
+        try std.Io.Dir.cwd().createDir(io, "test/root2", .default_dir);
         var dotfile_b = new("test/root2/testfile1", "test/dest2/testfile-unit");
         core.direction = Cli.Direction.back;
 
@@ -766,10 +763,17 @@ test processFile {
             .{ .read = true, .truncate = false },
         );
 
-        try template.writeAll(
+        const content_a =
             \\# TEST
             \\
-        );
+        ;
+
+        const buf_a = try allocator.alloc(u8, content_a.len);
+        defer allocator.free(buf_a);
+
+        var output_file_writer = template.writer(io, buf_a);
+        try output_file_writer.interface.writeAll(content_a);
+        try output_file_writer.interface.flush();
 
         template.close(io);
 
@@ -779,30 +783,35 @@ test processFile {
             .{ .read = true, .truncate = true },
         );
 
-        try render.writeAll(
+        const content_b =
             \\# TEST
             \\Foo
             \\val="Zoot"
             \\
-        );
+        ;
+
+        const buf_b = try allocator.alloc(u8, content_b.len);
+        defer allocator.free(buf_b);
+
+        var render_writer = render.writer(io, buf_b);
+        try render_writer.interface.writeAll(content_b);
+        try render_writer.interface.flush();
 
         render.close(io);
 
         _ = try dotfile_b.processFile(
-            std.testing.allocator,
+            allocator,
             &counter,
             &core,
         );
 
         const file_bwd = try std.Io.Dir.cwd().openFile(io, "test/root2/testfile1", .{});
-        const file_bwd_content = try file_bwd.readToEndAlloc(
-            std.testing.allocator,
-            1024,
-        );
+        var file_bwd_reader = file_bwd.reader(io, &.{});
+        const file_bwd_content = try file_bwd_reader.interface.allocRemaining(allocator, .limited(1024));
 
         file_bwd.close(io);
 
-        defer std.testing.allocator.free(file_bwd_content);
+        defer allocator.free(file_bwd_content);
 
         const expected_bwd_content =
             \\# TEST

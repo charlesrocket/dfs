@@ -568,6 +568,7 @@ test defaultConfigPath {
 }
 
 test migrateConfig {
+    const allocator = std.testing.allocator;
     const io = std.testing.io;
 
     const old_config =
@@ -600,30 +601,37 @@ test migrateConfig {
         .{ .read = false },
     );
 
-    try old_file.writeAll(old_config);
+    const buf = try allocator.alloc(u8, old_config.len);
+    defer allocator.free(buf);
+
+    var old_file_writer = old_file.writer(io, buf);
+    try old_file_writer.interface.writeAll(old_config);
+    try old_file_writer.interface.flush();
+
     old_file.close(io);
 
-    try migrateConfig(std.testing.allocator, "test/conf-old.zon");
+    try migrateConfig(allocator, io, "test/conf-old.zon");
 
     const new_file = try std.Io.Dir.cwd().openFile(io, "test/conf-old.zon", .{});
-    const content = try new_file.readToEndAlloc(
-        std.testing.allocator,
-        1024,
-    );
+    var new_file_reader = new_file.reader(io, &.{});
+    const content = try new_file_reader.interface.allocRemaining(allocator, .limited(1024));
 
-    defer std.testing.allocator.free(content);
+    defer allocator.free(content);
 
     try std.testing.expectEqualStrings(expected_config, content);
-    try std.Io.Dir.cwd(io).deleteFile("test/conf-old.zon");
+    try std.Io.Dir.cwd().deleteFile(io, "test/conf-old.zon");
 }
 
 test pathFormat {
     const allocator = std.testing.allocator;
-    const home = try std.process.getEnvVarOwned(allocator, "HOME");
+    const environ = std.testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
+
+    const home = try environ.getAlloc(allocator, "HOME");
     defer allocator.free(home);
 
     {
-        const result = try pathFormat(allocator, "$HOME/documents");
+        const result = try pathFormat(allocator, "$HOME/documents", &environ_map);
         const expected = try std.fmt.allocPrint(allocator, "{s}/documents/", .{home});
 
         defer {
@@ -635,7 +643,7 @@ test pathFormat {
     }
 
     {
-        const result = try pathFormat(allocator, "$HOME/documents/");
+        const result = try pathFormat(allocator, "$HOME/documents/", &environ_map);
         const expected = try std.fmt.allocPrint(allocator, "{s}/documents/", .{home});
 
         defer {
@@ -647,7 +655,7 @@ test pathFormat {
     }
 
     {
-        const result = try pathFormat(allocator, "$HOME");
+        const result = try pathFormat(allocator, "$HOME", &environ_map);
         const expected = try std.fmt.allocPrint(allocator, "{s}/", .{home});
 
         defer {
@@ -659,24 +667,24 @@ test pathFormat {
     }
 
     {
-        const result = try pathFormat(allocator, "/tmp/foo/");
+        const result = try pathFormat(allocator, "/tmp/foo/", &environ_map);
         try std.testing.expectEqualStrings("/tmp/foo/", result);
     }
 
     {
-        const result = try pathFormat(allocator, "/tmp/foo");
+        const result = try pathFormat(allocator, "/tmp/foo", &environ_map);
         defer allocator.free(result);
 
         try std.testing.expectEqualStrings("/tmp/foo/", result);
     }
 
     {
-        const result = try pathFormat(allocator, "test/foo/");
+        const result = try pathFormat(allocator, "test/foo/", &environ_map);
         try std.testing.expectEqualStrings("test/foo/", result);
     }
 
     {
-        const result = try pathFormat(allocator, "test/foo");
+        const result = try pathFormat(allocator, "test/foo", &environ_map);
         defer allocator.free(result);
 
         try std.testing.expectEqualStrings("test/foo/", result);
