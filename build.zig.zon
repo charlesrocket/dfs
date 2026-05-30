@@ -6,11 +6,11 @@
 
     .dependencies = .{
         .cova = .{
-            .url = "https://github.com/00JCIV00/cova/archive/62ead80ef63bfa255a31d5e121920576d25ba342.zip",
+            .url = "https://github.com/00JCIV00/cova/archive/62ead80ef63bfa255a31d5e121920576d25ba342.tar.gz",
             .hash = "cova-0.10.1-_OE4RzPaBAD0JKOMIrEJ8uHfz1_OXM7jpBEBocS_81gw",
         },
         .libstray = .{
-            .url = "https://github.com/charlesrocket/libstray/archive/7642814fe443a5e0ea3eb73d060d05b83bc14bae.zip",
+            .url = "https://github.com/charlesrocket/libstray/archive/7642814fe443a5e0ea3eb73d060d05b83bc14bae.tar.gz",
             .hash = "libstray-0.4.1-KHBc_3hOAQBdOxlmVfwy2Fl3CS7MJVM27ztQH3trn3-z",
         },
         .ghext = .{
