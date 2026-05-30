@@ -27,6 +27,15 @@ pub const CommandT = cova.Command.Custom(.{
     .global_help_prefix = assets.help_prefix,
     .help_header_fmt = assets.help_message,
     .examples_header_fmt = assets.examples_header,
+    .help_category_order = &.{
+        .prefix,
+        .header,
+        .aliases,
+        .examples,
+        .commands,
+        .options,
+        .values,
+    },
     .global_usage_fn = struct {
         fn usage(self: anytype, writer: anytype, _: ?std.mem.Allocator) !void {
             const CmdT = @TypeOf(self.*);
@@ -34,8 +43,6 @@ pub const CommandT = cova.Command.Custom(.{
             const indent_fmt = CmdT.indent_fmt;
             var no_args = true;
             var pre_sep: []const u8 = "";
-
-            try writer.print("{s}{s}USAGE:\n", .{ assets.help_prefix, "\n" });
 
             if (self.opts) |opts| {
                 no_args = false;
