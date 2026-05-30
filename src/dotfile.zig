@@ -425,7 +425,7 @@ fn backSync(
         template_content,
     ) else rendered_content;
 
-    defer allocator.free(new_template);
+    defer if (is_text) allocator.free(new_template);
 
     if (!core.dry) {
         const updated_template = std.Io.Dir.cwd().openFile(
