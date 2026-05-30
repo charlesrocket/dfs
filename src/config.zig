@@ -110,10 +110,7 @@ fn read(
             error.FileNotFound => {
                 try core.stderr.print(
                     "{s}Config not found!{s}\nRun `dfs init`.\n",
-                    .{
-                        Cli.red,
-                        Cli.reset,
-                    },
+                    .{ Cli.red, Cli.reset },
                 );
 
                 try core.stderr.flush();
@@ -124,32 +121,22 @@ fn read(
 
     defer config_file.close(core.io);
 
-    const config_size: usize = @intCast((try config_file.stat(core.io)).size);
-
-    var config_reader = config_file.reader(core.io, &.{});
-    const config_content_t = try config_reader.interface.allocRemaining(
+    const raw = try std.Io.Dir.cwd().readFileAlloc(
+        core.io,
+        path,
         allocator,
-        .limited(config_size),
+        .unlimited,
     );
 
-    defer allocator.free(config_content_t);
+    defer allocator.free(raw);
 
-    var config_content = std.ArrayList(u8).empty;
-    defer config_content.deinit(allocator);
-
-    for (config_content_t) |c| {
-        try config_content.append(allocator, c);
-    }
-
-    try config_content.append(allocator, 0);
-
-    const config_data =
-        config_content.items[0 .. config_content.items.len - 1 :0];
+    const config_data = try allocator.dupeZ(u8, raw);
+    defer allocator.free(config_data);
 
     var diag: std.zon.parse.Diagnostics = .{};
     defer diag.deinit(allocator);
 
-    const config = std.zon.parse.fromSlice(
+    const config = std.zon.parse.fromSliceAlloc(
         Config,
         allocator,
         config_data,
@@ -298,7 +285,7 @@ pub fn migrateConfig(
     const content = try allocator.dupeZ(u8, raw);
     defer allocator.free(content);
 
-    const old_config = try std.zon.parse.fromSlice(
+    const old_config = try std.zon.parse.fromSliceAlloc(
         MigrationConfig,
         allocator,
         content,
@@ -515,7 +502,7 @@ pub fn getXdgDir(
     }
 
     switch (env_var) {
-        .Home => return path.?,
+        .Home => return allocator.dupe(u8, path.?),
         .Config, .Data, .State => {
             return try std.fs.path.join(allocator, &.{
                 path.?,
@@ -550,6 +537,8 @@ test defaultConfigPath {
     const environ = std.testing.environ;
 
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
+
     const home = try getXdgDir(allocator, XdgDir.Home, &environ_map);
     const config_path = try defaultConfigPath(allocator, &environ_map);
     const expected_path = try std.fmt.allocPrint(
@@ -626,6 +615,7 @@ test pathFormat {
     const allocator = std.testing.allocator;
     const environ = std.testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const home = try environ.getAlloc(allocator, "HOME");
     defer allocator.free(home);

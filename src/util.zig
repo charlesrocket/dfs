@@ -105,7 +105,7 @@ pub fn createDirRecursively(
                 else => return err,
             };
         } else {
-            std.Io.Dir.createDirAbsolute(io, dir_path, .default_dir) catch |err| switch (err) {
+            std.Io.Dir.cwd().createDir(io, dir_path, .default_dir) catch |err| switch (err) {
                 error.PathAlreadyExists => {},
                 else => return err,
             };
@@ -307,6 +307,7 @@ pub fn log(
         var file_writer = new_file.writer(io, &msg_buf);
         const writer = &file_writer.interface;
 
+        file_writer.seekTo(stat.size) catch return;
         writer.writeAll(msg) catch return;
         writer.flush() catch return;
         new_file.close(io);
@@ -350,27 +351,22 @@ test log {
 
     {
         const message = "Log test";
-        log(io, Level.INFO, message, .{});
 
-        const log_file = try std.Io.Dir.cwd().openFile(io, "dfs.log", .{});
+        log(io, Level.INFO, message, .{});
+        defer std.Io.Dir.cwd().deleteFile(io, LOG_FILE) catch {};
+
+        const log_file = try std.Io.Dir.cwd().openFile(io, LOG_FILE, .{});
         defer log_file.close(io);
 
-        const log_size: usize = @intCast((try log_file.stat(io)).size);
         var log_reader = log_file.reader(io, &.{});
-
         const log_content = try log_reader.interface.allocRemaining(
             allocator,
-            .limited(log_size),
+            .unlimited,
         );
 
         defer allocator.free(log_content);
 
         const expected = "] [INFO] Log test\n";
-
-        defer {
-            allocator.free(log_content);
-            std.Io.Dir.cwd().deleteFile(io, "dfs.log") catch unreachable;
-        }
 
         try std.testing.expectStringEndsWith(log_content, expected);
     }
@@ -380,6 +376,7 @@ test log {
 
         var file = try std.Io.Dir.cwd().createFile(io, LOG_FILE, .{ .truncate = true });
         var written: usize = 0;
+
         const buffer = try allocator.alloc(u8, message.len);
         defer allocator.free(buffer);
 
@@ -392,14 +389,15 @@ test log {
             var output_file_writer = file.writer(io, buf);
             try output_file_writer.interface.writeAll(buffer);
             try output_file_writer.interface.flush();
-
             written += buffer.len;
         }
 
         file.close(io);
+
         log(io, Level.WARNING, message, .{});
-        std.Io.Dir.cwd().deleteFile(io, "dfs.log.old") catch unreachable;
-        std.Io.Dir.cwd().deleteFile(io, "dfs.log") catch unreachable;
+
+        defer std.Io.Dir.cwd().deleteFile(io, "dfs.log") catch {};
+        defer std.Io.Dir.cwd().deleteFile(io, "dfs.log.old") catch {};
     }
 }
 

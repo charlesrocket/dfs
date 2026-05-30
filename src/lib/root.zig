@@ -197,12 +197,10 @@ fn interpret(
     environ: *std.process.Environ.Map,
     tokens: []Token,
 ) ![]u8 {
-    var out = std.ArrayList(u8).empty;
-    defer out.deinit(allocator);
-
     var w = std.Io.Writer.Allocating.init(allocator);
-    var i: usize = 0;
+    defer w.deinit();
 
+    var i: usize = 0;
     while (i < tokens.len) {
         switch (tokens[i]) {
             .text => |t| {
@@ -220,7 +218,7 @@ fn interpret(
         }
     }
 
-    return try out.toOwnedSlice(allocator);
+    return try w.toOwnedSlice();
 }
 
 fn parseTag(template: []const u8, i: usize) !Tag {
@@ -1301,6 +1299,7 @@ test interpret {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     {
         const template_invalid =
@@ -1464,6 +1463,7 @@ test evalCondition {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     {
         const current_os = @tagName(builtin.target.os.tag);
@@ -1540,6 +1540,7 @@ test evalIfGroup {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     {
         const tokens_oob = &[_]Token{};
@@ -1686,6 +1687,7 @@ test applyTemplate {
     var allocator = std.testing.allocator;
     const environ = std.testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const os = @tagName(builtin.target.os.tag);
     const arch = @tagName(builtin.cpu.arch);
@@ -1748,6 +1750,7 @@ test reverseTemplate {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1828,6 +1831,7 @@ test "forward" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1862,6 +1866,7 @@ test "forward-inline" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1888,6 +1893,7 @@ test "back-template" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -1943,6 +1949,7 @@ test "back-no_template" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -2002,6 +2009,7 @@ test "complex" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -2089,6 +2097,7 @@ test "mixed" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -2151,6 +2160,7 @@ test "mixed-inline" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -2196,6 +2206,7 @@ test "mixed-else" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template =
         \\FOO
@@ -2245,6 +2256,7 @@ test "blocks" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -2329,6 +2341,7 @@ test "blocks-mixed" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template = std.fmt.allocPrint(
         testing.allocator,
@@ -2369,6 +2382,7 @@ test "unicode" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template =
         \\🫠
@@ -2395,6 +2409,7 @@ test "unicode-template" {
     const allocator = testing.allocator;
     const environ = testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     const template =
         \\😀

@@ -229,15 +229,13 @@ pub fn lastMod(
         .Render => self.dest,
     };
 
-    const stat = std.Io.Dir.cwd().statFile(io, target, .{}) catch return null;
+    const stat = std.Io.Dir.cwd().statFile(
+        io,
+        target,
+        .{},
+    ) catch return null;
 
-    // compress the integer
-    const result = @divFloor(
-        @as(u64, @intCast(stat.mtime.toMilliseconds())),
-        1000000000,
-    );
-
-    return result;
+    return @intCast(stat.mtime.toMilliseconds());
 }
 
 fn forwardSync(
@@ -316,11 +314,11 @@ fn forwardSync(
             },
         );
 
-        const output_file_size: usize = @intCast((try output_file.stat(core.io)).size);
+        //const output_file_size: usize = @intCast((try output_file.stat(core.io)).size);
         var output_file_reader = output_file.reader(core.io, &.{});
         const output_file_content = try output_file_reader.interface.allocRemaining(
             allocator,
-            .limited(output_file_size),
+            .unlimited,
         );
 
         defer {
@@ -409,19 +407,16 @@ fn backSync(
 
     defer rendered_file.close(core.io);
 
-    const rendered_size: usize = @intCast((try rendered_file
-        .stat(core.io)).size);
+    //const rendered_size: usize = @intCast((try rendered_file.stat(core.io)).size);
 
     var rendered_reader = rendered_file.reader(core.io, &.{});
 
     const rendered_content = try rendered_reader.interface.allocRemaining(
         allocator,
-        .limited(rendered_size),
+        .unlimited,
     );
 
     defer allocator.free(rendered_content);
-
-    defer if (is_text) allocator.free(rendered_content);
 
     const new_template = if (is_text) try lib.reverseTemplate(
         allocator,
@@ -521,11 +516,11 @@ pub fn processFile(
 
     defer template_file.close(core.io);
 
-    const template_size: usize = @intCast((try template_file.stat(core.io)).size);
+    //const template_size: usize = @intCast((try template_file.stat(core.io)).size);
     var template_reader = template_file.reader(core.io, &.{});
     const template_content = try template_reader.interface.allocRemaining(
         allocator,
-        .limited(template_size),
+        .unlimited,
     );
 
     defer allocator.free(template_content);
@@ -585,9 +580,12 @@ pub fn processFile(
     }
 
     if (meta_file != null) {
-        const meta_file_size: usize = @intCast((try meta_file.?.stat(core.io)).size);
+        //const meta_file_size: usize = @intCast((try meta_file.?.stat(core.io)).size);
         var meta_file_reader = meta_file.?.reader(core.io, &.{});
-        const meta_content_t = try meta_file_reader.interface.allocRemaining(allocator, .limited(meta_file_size));
+        const meta_content_t = try meta_file_reader.interface.allocRemaining(
+            allocator,
+            .unlimited,
+        );
 
         defer allocator.free(meta_content_t);
 
@@ -602,7 +600,7 @@ pub fn processFile(
         try meta_content.append(allocator, 0);
 
         const input = meta_content.items[0 .. meta_content.items.len - 1 :0];
-        const meta = std.zon.parse.fromSlice(
+        const meta = std.zon.parse.fromSliceAlloc(
             Meta,
             allocator,
             input,
@@ -669,6 +667,7 @@ test processFile {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
     var env_map = try std.testing.environ.createMap(allocator);
+    defer env_map.deinit();
 
     var counter = Util.Counter.new(false);
     var bufo: [4096]u8 = undefined;

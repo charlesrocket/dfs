@@ -740,6 +740,7 @@ test "kqueue" {
 
     const environ = std.testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     try Util.createTestFile(allocator, io, test_file, "initial");
     defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
@@ -915,6 +916,7 @@ test "polling" {
 
     const environ = std.testing.environ;
     var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     try Util.createTestFile(allocator, io, test_file, "initial");
     defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
