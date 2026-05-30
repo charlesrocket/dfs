@@ -5,22 +5,32 @@ const Proc = struct {
 };
 
 fn runner(args: []const []const u8) !Proc {
-    var proc = std.process.Child.init(args, allocator);
+    const io = testing.io;
+    var proc = try std.process.spawn(io, .{
+        .argv = args,
+        .stdout = .pipe,
+        .stderr = .pipe,
+    });
 
-    proc.stdout_behavior = .Pipe;
-    proc.stderr_behavior = .Pipe;
+    var stdout_buf: [13312]u8 = undefined;
+    var stderr_buf: [13312]u8 = undefined;
+
+    var stdout_reader = proc.stdout.?.reader(io, &stdout_buf);
+    var stderr_reader = proc.stderr.?.reader(io, &stderr_buf);
 
     var stdout: std.ArrayListUnmanaged(u8) = .empty;
     var stderr: std.ArrayListUnmanaged(u8) = .empty;
 
-    try proc.spawn();
-    try proc.collectOutput(allocator, &stdout, &stderr, 13312);
+    try stdout_reader.interface.appendRemaining(allocator, &stdout, .unlimited);
+    try stderr_reader.interface.appendRemaining(allocator, &stderr, .unlimited);
 
-    const term = try proc.wait();
-    const out = try stdout.toOwnedSlice(allocator);
-    const err = try stderr.toOwnedSlice(allocator);
+    const term = try proc.wait(io);
 
-    return Proc{ .term = term, .out = out, .err = err };
+    return Proc{
+        .term = term,
+        .out = try stdout.toOwnedSlice(allocator),
+        .err = try stderr.toOwnedSlice(allocator),
+    };
 }
 
 fn stripAnsi(alloc: std.mem.Allocator, input: []const u8) ![]u8 {
@@ -67,7 +77,9 @@ fn stripAnsi(alloc: std.mem.Allocator, input: []const u8) ![]u8 {
 }
 
 test "sync" {
-    try std.fs.cwd().deleteTree("test/dest");
+    const io = testing.io;
+
+    try std.Io.Dir.cwd().deleteTree(io, "test/dest");
 
     const argv = [3][]const u8{
         exe_path,
@@ -108,15 +120,17 @@ test "sync" {
         allocator.free(proc.err);
     }
 
-    try std.fs.cwd().deleteTree("test/dest");
+    try std.Io.Dir.cwd().deleteTree(io, "test/dest");
 
     try std.testing.expectEqualStrings(expected, out);
-    try std.testing.expectEqual(proc.term.Exited, 0);
+    try std.testing.expectEqual(proc.term.exited, 0);
 }
 
 test "sync-dry" {
-    try std.fs.cwd().deleteTree("test/dest-dry");
-    try std.fs.cwd().deleteTree("test/root-dry");
+    const io = testing.io;
+
+    try std.Io.Dir.cwd().deleteTree(io, "test/dest-dry");
+    try std.Io.Dir.cwd().deleteTree(io, "test/root-dry");
 
     const argv = [4][]const u8{
         exe_path,
@@ -136,15 +150,16 @@ test "sync-dry" {
         \\
     ;
 
-    try std.fs.cwd().makeDir("test/root-dry");
+    try std.Io.Dir.cwd().createDir(io, "test/root-dry", .default_dir);
 
-    const orig = try std.fs.cwd().createFile(
+    const orig = try std.Io.Dir.cwd().createFile(
+        io,
         "test/root-dry/testfile1",
         .{ .read = true },
     );
 
-    try orig.writeAll(template);
-    orig.close();
+    try orig.writeStreamingAll(io, template);
+    orig.close(io);
 
     const proc = try runner(&argv);
 
@@ -189,17 +204,20 @@ test "sync-dry" {
         allocator.free(out);
         allocator.free(proc.out);
         allocator.free(proc.err);
-        std.fs.cwd().deleteTree("test/dest-dry") catch unreachable;
-        std.fs.cwd().deleteTree("test/root-dry") catch unreachable;
+        std.Io.Dir.cwd().deleteTree(io, "test/dest-dry") catch {};
+        std.Io.Dir.cwd().deleteTree(io, "test/root-dry") catch {};
     }
 
     try std.testing.expectEqualStrings(expected, out);
-    try std.testing.expectEqual(proc.term.Exited, 0);
+    try std.testing.expectEqual(proc.term.exited, 0);
 }
 
 test "sync-back" {
-    defer std.fs.cwd().deleteTree("test/dest-back") catch unreachable;
-    defer std.fs.cwd().deleteTree("test/root-back") catch unreachable;
+    const io = testing.io;
+    var cwd = std.Io.Dir.cwd();
+
+    defer cwd.deleteTree(io, "test/dest-back") catch {};
+    defer cwd.deleteTree(io, "test/root-back") catch {};
 
     const argv = [3][]const u8{
         exe_path,
@@ -218,33 +236,35 @@ test "sync-back" {
         \\
     ;
 
-    try std.fs.cwd().makeDir("test/root-back");
+    cwd.createDir(io, "test/root-back", .default_dir) catch {};
 
-    const orig = try std.fs.cwd().createFile(
+    const orig = try cwd.createFile(
+        io,
         "test/root-back/testfile1",
         .{ .read = true },
     );
 
-    try orig.writeAll(orig_template);
-    orig.close();
+    try orig.writeStreamingAll(io, orig_template);
+    orig.close(io);
 
     const proc1 = try runner(&argv);
 
-    std.Thread.sleep(1000000000);
+    try io.sleep(.fromSeconds(2), .awake);
 
-    const file = try std.fs.cwd().createFile(
+    const file = try cwd.createFile(
+        io,
         "test/dest-back/testfile1",
         .{ .read = true, .truncate = true },
     );
 
-    try file.writeAll(
+    try file.writeStreamingAll(io,
         \\# TEST
         \\Foo
         \\val="TEST"
         \\
     );
 
-    file.close();
+    file.close(io);
 
     const proc2 = try runner(&argv);
 
@@ -259,10 +279,11 @@ test "sync-back" {
         \\
     ;
 
-    const template = try std.fs.cwd().openFile("test/root-back/testfile1", .{});
-    const template_content = try template.readToEndAlloc(
+    const template = try cwd.openFile(io, "test/root-back/testfile1", .{});
+    var template_reader = template.reader(io, &.{});
+    const template_content = try template_reader.interface.allocRemaining(
         std.testing.allocator,
-        1024,
+        .limited(1024),
     );
 
     defer std.testing.allocator.free(template_content);
@@ -274,17 +295,19 @@ test "sync-back" {
         allocator.free(proc2.err);
     }
 
-    defer std.fs.cwd().deleteTree("test/dest-back") catch unreachable;
-    defer std.fs.cwd().deleteTree("test/root-back") catch unreachable;
+    defer cwd.deleteTree(io, "test/dest-back") catch {};
+    defer cwd.deleteTree(io, "test/root-back") catch {};
 
     try std.testing.expectEqualStrings(expected_template, template_content);
-    try std.testing.expectEqual(proc1.term.Exited, 0);
-    try std.testing.expectEqual(proc2.term.Exited, 0);
+    try std.testing.expectEqual(proc1.term.exited, 0);
+    try std.testing.expectEqual(proc2.term.exited, 0);
 }
 
 test "sync-forward-forced" {
-    defer std.fs.cwd().deleteTree("test/dest-forward-forced") catch unreachable;
-    defer std.fs.cwd().deleteTree("test/root-forward-forced") catch unreachable;
+    const io = testing.io;
+
+    defer std.Io.Dir.cwd().deleteTree(io, "test/dest-forward-forced") catch {};
+    defer std.Io.Dir.cwd().deleteTree(io, "test/root-forward-forced") catch {};
 
     const argv = [4][]const u8{
         exe_path,
@@ -304,30 +327,32 @@ test "sync-forward-forced" {
         \\
     ;
 
-    try std.fs.cwd().makeDir("test/root-forward-forced");
-    try std.fs.cwd().makeDir("test/dest-forward-forced");
+    try std.Io.Dir.cwd().createDir(io, "test/root-forward-forced", .default_dir);
+    try std.Io.Dir.cwd().createDir(io, "test/dest-forward-forced", .default_dir);
 
-    const root = try std.fs.cwd().createFile(
+    const root = try std.Io.Dir.cwd().createFile(
+        io,
         "test/root-forward-forced/testfile1",
         .{ .read = true },
     );
 
-    try root.writeAll(root_template);
-    root.close();
+    try root.writeStreamingAll(io, root_template);
+    root.close(io);
 
-    const file = try std.fs.cwd().createFile(
+    const file = try std.Io.Dir.cwd().createFile(
+        io,
         "test/dest-forward-forced/testfile1",
         .{ .read = true, .truncate = true },
     );
 
-    try file.writeAll(
+    try file.writeStreamingAll(io,
         \\# TEST
         \\Foo
         \\val="TEST"
         \\
     );
 
-    file.close();
+    file.close(io);
 
     const proc = try runner(&argv);
 
@@ -340,10 +365,11 @@ test "sync-forward-forced" {
         \\
     ;
 
-    const render = try std.fs.cwd().openFile("test/dest-forward-forced/testfile1", .{});
-    const render_content = try render.readToEndAlloc(
+    const render = try std.Io.Dir.cwd().openFile(io, "test/dest-forward-forced/testfile1", .{});
+    var render_reader = render.reader(io, &.{});
+    const render_content = try render_reader.interface.allocRemaining(
         std.testing.allocator,
-        1024,
+        .limited(1024),
     );
 
     defer std.testing.allocator.free(render_content);
@@ -353,16 +379,19 @@ test "sync-forward-forced" {
         allocator.free(proc.err);
     }
 
-    defer std.fs.cwd().deleteTree("test/dest-forward-forced") catch unreachable;
-    defer std.fs.cwd().deleteTree("test/root-forward-forced") catch unreachable;
+    defer std.Io.Dir.cwd().deleteTree(io, "test/dest-forward-forced") catch {};
+    defer std.Io.Dir.cwd().deleteTree(io, "test/root-forward-forced") catch {};
 
     try std.testing.expectEqualStrings(expected_render, render_content);
-    try std.testing.expectEqual(proc.term.Exited, 0);
+    try std.testing.expectEqual(proc.term.exited, 0);
 }
 
 test "sync-back-forced" {
-    defer std.fs.cwd().deleteTree("test/dest-back-forced") catch unreachable;
-    defer std.fs.cwd().deleteTree("test/root-back-forced") catch unreachable;
+    const io = testing.io;
+    var cwd = std.Io.Dir.cwd();
+
+    defer cwd.deleteTree(io, "test/dest-back-forced") catch {};
+    defer cwd.deleteTree(io, "test/root-back-forced") catch {};
 
     const argv = [4][]const u8{
         exe_path,
@@ -382,30 +411,32 @@ test "sync-back-forced" {
         \\
     ;
 
-    try std.fs.cwd().makeDir("test/root-back-forced");
-    try std.fs.cwd().makeDir("test/dest-back-forced");
+    try cwd.createDir(io, "test/root-back-forced", .default_dir);
+    try cwd.createDir(io, "test/dest-back-forced", .default_dir);
 
-    const orig = try std.fs.cwd().createFile(
+    const orig = try cwd.createFile(
+        io,
         "test/root-back-forced/testfile1",
         .{ .read = true },
     );
 
-    try orig.writeAll(orig_template);
-    orig.close();
+    try orig.writeStreamingAll(io, orig_template);
+    orig.close(io);
 
-    const file = try std.fs.cwd().createFile(
+    const file = try cwd.createFile(
+        io,
         "test/dest-back-forced/testfile1",
         .{ .read = true, .truncate = true },
     );
 
-    try file.writeAll(
+    try file.writeStreamingAll(io,
         \\# TEST
         \\Foo
         \\val="TEST"
         \\
     );
 
-    file.close();
+    file.close(io);
 
     const proc = try runner(&argv);
 
@@ -420,10 +451,11 @@ test "sync-back-forced" {
         \\
     ;
 
-    const template = try std.fs.cwd().openFile("test/root-back-forced/testfile1", .{});
-    const template_content = try template.readToEndAlloc(
+    const template = try cwd.openFile(io, "test/root-back-forced/testfile1", .{});
+    var template_reader = template.reader(io, &.{});
+    const template_content = try template_reader.interface.allocRemaining(
         std.testing.allocator,
-        1024,
+        .limited(1024),
     );
 
     defer std.testing.allocator.free(template_content);
@@ -433,11 +465,11 @@ test "sync-back-forced" {
         allocator.free(proc.err);
     }
 
-    defer std.fs.cwd().deleteTree("test/dest-back-forced") catch unreachable;
-    defer std.fs.cwd().deleteTree("test/root-back-forced") catch unreachable;
+    defer cwd.deleteTree(io, "test/dest-back-forced") catch {};
+    defer cwd.deleteTree(io, "test/root-back-forced") catch {};
 
     try std.testing.expectEqualStrings(expected_template, template_content);
-    try std.testing.expectEqual(proc.term.Exited, 0);
+    try std.testing.expectEqual(proc.term.exited, 0);
 }
 
 test "config bad" {
@@ -474,7 +506,7 @@ test "config bad" {
     }
 
     try std.testing.expect(std.mem.indexOf(u8, proc.err, expected_err) != null);
-    try std.testing.expectEqual(proc.term.Exited, 1);
+    try std.testing.expectEqual(proc.term.exited, 1);
 }
 
 test "config not found" {
@@ -500,11 +532,12 @@ test "config not found" {
     }
 
     try std.testing.expectStringEndsWith(proc.err, expected_err);
-    try std.testing.expectEqual(proc.term.Exited, 1);
+    try std.testing.expectEqual(proc.term.exited, 1);
 }
 
 const std = @import("std");
 const allocator = std.testing.allocator;
+const testing = std.testing;
 
 const build_options = @import("build_options");
 const exe_path = build_options.exe_path;
