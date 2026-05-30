@@ -249,7 +249,7 @@ test "sync-back" {
 
     const proc1 = try runner(&argv);
 
-    try io.sleep(.fromSeconds(2), .awake);
+    try io.sleep(.fromSeconds(1), .awake);
 
     const file = try cwd.createFile(
         io,
