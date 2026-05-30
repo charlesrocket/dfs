@@ -36,12 +36,14 @@ pub const CommandT = cova.Command.Custom(.{
             var pre_sep: []const u8 = "";
 
             try writer.print("{s}{s}USAGE:\n", .{ assets.help_prefix, "\n" });
+
             if (self.opts) |opts| {
                 no_args = false;
                 try writer.print("{s}{s} [", .{
                     indent_fmt,
                     self.name,
                 });
+
                 for (opts) |opt| {
                     try writer.print("{s} {s}{s} <{s}>", .{
                         pre_sep,
@@ -49,17 +51,22 @@ pub const CommandT = cova.Command.Custom(.{
                         opt.long_name orelse &.{opt.short_name orelse 0},
                         opt.val.childTypeName(),
                     });
+
                     pre_sep = "\n  " ++ indent_fmt ++ indent_fmt;
                 }
+
                 try writer.print(" ]\n\n", .{});
             }
+
             if (self.sub_cmds) |cmds| {
                 no_args = false;
                 try writer.print("{s}{s} [", .{
                     indent_fmt,
                     self.name,
                 });
+
                 pre_sep = "";
+
                 for (cmds) |cmd| {
                     try writer.print("{s} {s} ", .{
                         pre_sep,
@@ -67,8 +74,10 @@ pub const CommandT = cova.Command.Custom(.{
                     });
                     pre_sep = "|";
                 }
+
                 try writer.print("]\n\n", .{});
             }
+
             if (no_args) try writer.print("{s}{s}{s}", .{
                 indent_fmt,
                 indent_fmt,
