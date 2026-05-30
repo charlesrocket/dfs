@@ -31,18 +31,18 @@ pub fn init(
     var inotify_fd: ?std.posix.fd_t = null;
 
     if (EPOLL) {
-        inotify_fd = try std.posix.inotify_init1(std.os.linux.IN.CLOEXEC);
+        inotify_fd = @intCast(std.os.linux.inotify_init1(std.os.linux.IN.CLOEXEC));
         errdefer if (inotify_fd) |fd| std.posix.close(fd);
 
-        epoll_fd = try std.posix.epoll_create1(std.os.linux.EPOLL.CLOEXEC);
+        epoll_fd = @intCast(std.os.linux.epoll_create1(std.os.linux.EPOLL.CLOEXEC));
         errdefer if (epoll_fd) |fd| std.posix.close(fd);
 
-        var event = std.posix.system.epoll_event{
+        var event = std.os.linux.epoll_event{
             .events = std.os.linux.EPOLL.IN,
             .data = .{ .fd = inotify_fd.? },
         };
 
-        try std.posix.epoll_ctl(
+        _ = std.os.linux.epoll_ctl(
             epoll_fd.?,
             std.os.linux.EPOLL.CTL_ADD,
             inotify_fd.?,
@@ -71,7 +71,7 @@ pub fn deinit(self: *Watcher) void {
 
     for (self.files.items) |item| {
         if (EPOLL and self.inotify_fd != null and item.wd != null) {
-            _ = std.posix.inotify_rm_watch(self.inotify_fd.?, item.wd.?);
+            _ = std.os.linux.inotify_rm_watch(self.inotify_fd.?, item.wd.?);
         }
 
         if (item.fd) |fd| {
@@ -85,12 +85,14 @@ pub fn deinit(self: *Watcher) void {
         _ = std.posix.system.close(kq);
     }
 
-    if (self.inotify_fd) |fd| {
-        _ = std.posix.system.close(fd);
-    }
+    if (EPOLL) {
+        if (self.inotify_fd) |fd| {
+            _ = std.posix.system.close(fd);
+        }
 
-    if (self.epoll_fd) |fd| {
-        _ = std.posix.system.close(fd);
+        if (self.epoll_fd) |fd| {
+            _ = std.posix.system.close(fd);
+        }
     }
 
     self.files.deinit(self.allocator);
@@ -180,39 +182,43 @@ fn addPath(self: *Watcher, path: []const u8) !void {
         }
     } else if (use_epoll and EPOLL) {
         if (comptime EPOLL) {
+            const path_z = try std.posix.toPosixPath(path);
             // add inotify watch
-            const wd = std.posix.inotify_add_watch(
+            const wd = std.os.linux.inotify_add_watch(
                 self.inotify_fd.?,
-                path,
+                &path_z,
                 std.os.linux.IN.MODIFY | std.os.linux.IN.CREATE |
                     std.os.linux.IN.DELETE | std.os.linux.IN.MOVE,
+            );
+
+            if (wd < 0) {
+                // file does not exist yet, add with no watch descriptor
+                try self.files.append(
+                    self.allocator,
+                    .{
+                        .path = path_copy,
+                        .mtime = 0,
+                        .fd = null,
+                        .wd = null,
+                    },
+                );
+
+                return;
+            }
+
+            const stat = std.Io.Dir.cwd().statFile(
+                self.io,
+                path,
+                .{},
             ) catch |err| switch (err) {
                 error.FileNotFound => {
-                    // file does not exist yet, add with no watch descriptor
                     try self.files.append(
                         self.allocator,
                         .{
                             .path = path_copy,
                             .mtime = 0,
                             .fd = null,
-                            .wd = null,
-                        },
-                    );
-
-                    return;
-                },
-                else => return err,
-            };
-
-            const stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
-                error.FileNotFound => {
-                    try self.files.append(
-                        self.allocator,
-                        .{
-                            .path = path_copy,
-                            .mtime = 0,
-                            .fd = null,
-                            .wd = wd,
+                            .wd = @intCast(wd),
                         },
                     );
 
@@ -225,9 +231,9 @@ fn addPath(self: *Watcher, path: []const u8) !void {
                 self.allocator,
                 .{
                     .path = path_copy,
-                    .mtime = stat.mtime,
+                    .mtime = stat.mtime.toMilliseconds(),
                     .fd = null,
-                    .wd = wd,
+                    .wd = @intCast(wd),
                 },
             );
         }
@@ -364,16 +370,17 @@ fn watchEpoll(
     queue: *anyopaque,
 ) !void {
     if (comptime !EPOLL) return;
-    var events: [32]std.posix.system.epoll_event = undefined;
+    var events: [32]std.os.linux.epoll_event = undefined;
     const timeout_ms: i32 = 1000;
 
     while (active.*) {
         // check for new files that were not available during addPath()
         try self.recheckMissingFiles();
 
-        const n = std.posix.epoll_wait(
+        const n = std.os.linux.epoll_wait(
             self.epoll_fd.?,
             &events,
+            events.len,
             timeout_ms,
         );
 
@@ -382,23 +389,24 @@ fn watchEpoll(
             var buf: [4096]u8 align(@alignOf(std.os.linux.inotify_event)) = undefined;
             _ = std.posix.read(self.inotify_fd.?, &buf) catch continue;
 
-            const now = std.time.milliTimestamp();
+            const clock = std.Io.Clock.now(.real, self.io);
+            const now = clock.toMilliseconds();
             const debounce_delay_ms_i64 = @as(i64, @intCast(self.debounce_delay_ms));
 
             if (now - self.last_change_time >= debounce_delay_ms_i64) {
                 self.last_change_time = now;
 
                 const sync_queue = @as(*SyncQueue, @ptrCast(@alignCast(queue)));
-                sync_queue.mutex.lock();
-                defer sync_queue.mutex.unlock();
+                try sync_queue.mutex.lock(self.io);
+                defer sync_queue.mutex.unlock(self.io);
 
                 if (!sync_queue.paused) {
                     sync_queue.should_sync = true;
-                    sync_queue.cond.signal();
+                    sync_queue.cond.signal(self.io);
                 }
 
                 if (core.logs) {
-                    Util.log(.INFO, "File changes detected", .{});
+                    Util.log(self.io, .INFO, "File changes detected", .{});
                 }
             }
         }
@@ -443,16 +451,18 @@ pub fn recheckMissingFiles(self: *Watcher) !void {
         if (EPOLL and self.inotify_fd != null) {
             for (self.files.items) |*item| {
                 if (item.wd != null) continue;
-
+                const path_z = try std.posix.toPosixPath(item.path);
                 // try to add inotify watch for file that was previously missing
-                const wd = std.posix.inotify_add_watch(
+                const wd = std.os.linux.inotify_add_watch(
                     self.inotify_fd.?,
-                    item.path,
+                    &path_z,
                     std.os.linux.IN.MODIFY | std.os.linux.IN.CREATE |
                         std.os.linux.IN.DELETE | std.os.linux.IN.MOVE,
-                ) catch continue;
+                );
 
-                item.wd = wd;
+                if (wd < 0) continue;
+
+                item.wd = @intCast(wd);
             }
         }
     }
@@ -573,7 +583,7 @@ test "addPath" {
         const test_file = "test_watcher_single.txt";
 
         try Util.createTestFile(allocator, io, test_file, "initial content");
-        defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
+        defer std.Io.Dir.cwd().deleteFile(io, test_file) catch {};
 
         var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
@@ -607,8 +617,8 @@ test "addPath" {
         try Util.createTestFile(allocator, io, dest_file, "dest");
 
         defer {
-            std.Io.Dir.cwd().deleteFile(io, src_file) catch unreachable;
-            std.Io.Dir.cwd().deleteFile(io, dest_file) catch unreachable;
+            std.Io.Dir.cwd().deleteFile(io, src_file) catch {};
+            std.Io.Dir.cwd().deleteFile(io, dest_file) catch {};
         }
 
         var watcher = try Watcher.init(allocator, io, .polling);
@@ -633,7 +643,7 @@ test "checkForChanges" {
         const test_file = "test_no_change_polling.txt";
 
         try Util.createTestFile(allocator, io, test_file, "content");
-        std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, test_file) catch {};
 
         var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
@@ -649,7 +659,7 @@ test "checkForChanges" {
         const test_file = "test_modified_polling.txt";
 
         try Util.createTestFile(allocator, io, test_file, "initial");
-        defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
+        defer std.Io.Dir.cwd().deleteFile(io, test_file) catch {};
 
         var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
@@ -676,7 +686,7 @@ test "checkForChanges" {
 
         try watcher.addPath(test_file);
 
-        std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, test_file) catch {};
 
         const has_changes = try watcher.checkForChanges();
         try testing.expect(has_changes);
@@ -686,7 +696,7 @@ test "checkForChanges" {
     //created after watch
     {
         const test_file = "test_created_later_polling.txt";
-        defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
+        defer std.Io.Dir.cwd().deleteFile(io, test_file) catch {};
 
         var watcher = try Watcher.init(allocator, io, .polling);
         defer watcher.deinit();
@@ -712,9 +722,9 @@ test "checkForChanges" {
         try Util.createTestFile(allocator, io, file3, "file3");
 
         defer {
-            std.Io.Dir.cwd().deleteFile(io, file1) catch unreachable;
-            std.Io.Dir.cwd().deleteFile(io, file2) catch unreachable;
-            std.Io.Dir.cwd().deleteFile(io, file3) catch unreachable;
+            std.Io.Dir.cwd().deleteFile(io, file1) catch {};
+            std.Io.Dir.cwd().deleteFile(io, file2) catch {};
+            std.Io.Dir.cwd().deleteFile(io, file3) catch {};
         }
 
         var watcher = try Watcher.init(allocator, io, .polling);
@@ -743,7 +753,7 @@ test "kqueue" {
     defer environ_map.deinit();
 
     try Util.createTestFile(allocator, io, test_file, "initial");
-    defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
+    defer std.Io.Dir.cwd().deleteFile(io, test_file) catch {};
 
     var watcher = try Watcher.init(allocator, io, .kqueue);
     defer watcher.deinit();
@@ -770,8 +780,8 @@ test "kqueue" {
     defer stderr_file.close(io);
 
     defer {
-        std.Io.Dir.cwd().deleteFile(io, "test_out_kqueue.txt") catch unreachable;
-        std.Io.Dir.cwd().deleteFile(io, "test_err_kqueue.txt") catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, "test_out_kqueue.txt") catch {};
+        std.Io.Dir.cwd().deleteFile(io, "test_err_kqueue.txt") catch {};
     }
 
     var stdout_writer = stdout_file.writer(io, &stdout_buf);
@@ -829,9 +839,12 @@ test "epoll" {
     const allocator = testing.allocator;
     const io = testing.io;
     const test_file = "test_watch_epoll.txt";
+    const environ = std.testing.environ;
+    var environ_map = try std.process.Environ.createMap(environ, allocator);
+    defer environ_map.deinit();
 
     try Util.createTestFile(allocator, io, test_file, "initial");
-    defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
+    defer std.Io.Dir.cwd().deleteFile(io, test_file) catch {};
 
     var watcher = try Watcher.init(allocator, io, .epoll);
     defer watcher.deinit();
@@ -842,7 +855,7 @@ test "epoll" {
     try watcher.addPath(test_file);
 
     var queue = SyncQueue{
-        .mutex = std.Thread.Mutex{},
+        .mutex = .init,
         .should_sync = false,
         .io = io,
     };
@@ -850,26 +863,28 @@ test "epoll" {
     var active = true;
 
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_file = try std.fs.cwd().createFile("test_out_epoll.txt", .{});
-    defer stdout_file.close();
+    var stdout_file = try std.Io.Dir.cwd().createFile(io, "test_out_epoll.txt", .{});
+    defer stdout_file.close(io);
 
     var stderr_buf: [1024]u8 = undefined;
-    var stderr_file = try std.fs.cwd().createFile("test_err_epoll.txt", .{});
-    defer stderr_file.close();
+    var stderr_file = try std.Io.Dir.cwd().createFile(io, "test_err_epoll.txt", .{});
+    defer stderr_file.close(io);
 
     defer {
-        std.fs.cwd().deleteFile("test_out_epoll.txt") catch unreachable;
-        std.fs.cwd().deleteFile("test_err_epoll.txt") catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, "test_out_epoll.txt") catch {};
+        std.Io.Dir.cwd().deleteFile(io, "test_err_epoll.txt") catch {};
     }
 
-    var stdout_writer = stdout_file.writer(&stdout_buf);
+    var stdout_writer = stdout_file.writer(io, &stdout_buf);
     const stdout_interface: *std.Io.Writer = &stdout_writer.interface;
 
-    var stderr_writer = stderr_file.writer(&stderr_buf);
+    var stderr_writer = stderr_file.writer(io, &stderr_buf);
     const stderr_interface: *std.Io.Writer = &stderr_writer.interface;
 
     var core = Core{
         .allocator = allocator,
+        .io = io,
+        .environ_map = &environ_map,
         .stdout = stdout_interface,
         .stderr = stderr_interface,
         .logs = false,
@@ -897,15 +912,15 @@ test "epoll" {
 
     core.io.sleep(.fromMilliseconds(100), .boot) catch {};
 
-    try Util.modifyTestFile(test_file, "modified", io);
+    try Util.modifyTestFile(test_file, "modified", core.io);
 
     core.io.sleep(.fromMilliseconds(3000), .boot) catch {};
 
     active = false;
     thread.join();
 
-    queue.mutex.lock();
-    defer queue.mutex.unlock();
+    try queue.mutex.lock(core.io);
+    defer queue.mutex.unlock(core.io);
     try testing.expect(queue.should_sync);
 }
 
@@ -919,7 +934,7 @@ test "polling" {
     defer environ_map.deinit();
 
     try Util.createTestFile(allocator, io, test_file, "initial");
-    defer std.Io.Dir.cwd().deleteFile(io, test_file) catch unreachable;
+    defer std.Io.Dir.cwd().deleteFile(io, test_file) catch {};
 
     var watcher = try Watcher.init(allocator, io, .polling);
     defer watcher.deinit();
@@ -930,7 +945,7 @@ test "polling" {
     try watcher.addPath(test_file);
 
     var queue = SyncQueue{
-        .mutex = std.Io.Mutex.init,
+        .mutex = .init,
         .should_sync = false,
         .io = io,
     };
@@ -946,8 +961,8 @@ test "polling" {
     defer stderr_file.close(io);
 
     defer {
-        std.Io.Dir.cwd().deleteFile(io, "test_out_polling.txt") catch unreachable;
-        std.Io.Dir.cwd().deleteFile(io, "test_err_polling.txt") catch unreachable;
+        std.Io.Dir.cwd().deleteFile(io, "test_out_polling.txt") catch {};
+        std.Io.Dir.cwd().deleteFile(io, "test_err_polling.txt") catch {};
     }
 
     var stdout_writer = stdout_file.writer(io, &stdout_buf);
