@@ -66,7 +66,7 @@ pub fn init(
 }
 
 pub fn deinit(self: *Watcher) void {
-    self.mutex.lock(self.io) catch return;
+    self.mutex.lockUncancelable(self.io);
     defer self.mutex.unlock(self.io);
 
     for (self.files.items) |item| {
@@ -99,7 +99,7 @@ pub fn deinit(self: *Watcher) void {
 }
 
 pub fn addPaths(self: *Watcher, files: []const Dotfile) !void {
-    try self.mutex.lock(self.io);
+    self.mutex.lockUncancelable(self.io);
     defer self.mutex.unlock(self.io);
 
     for (files) |file| {
@@ -335,7 +335,7 @@ fn watchKqueue(
                 self.last_change_time = now;
 
                 const sync_queue = @as(*SyncQueue, @ptrCast(@alignCast(queue)));
-                try sync_queue.mutex.lock(self.io);
+                sync_queue.mutex.lockUncancelable(self.io);
                 defer sync_queue.mutex.unlock(self.io);
 
                 if (!sync_queue.paused) {
@@ -397,7 +397,7 @@ fn watchEpoll(
                 self.last_change_time = now;
 
                 const sync_queue = @as(*SyncQueue, @ptrCast(@alignCast(queue)));
-                try sync_queue.mutex.lock(self.io);
+                sync_queue.mutex.lockUncancelable(self.io);
                 defer sync_queue.mutex.unlock(self.io);
 
                 if (!sync_queue.paused) {
@@ -414,7 +414,7 @@ fn watchEpoll(
 }
 
 pub fn recheckMissingFiles(self: *Watcher) !void {
-    try self.mutex.lock(self.io);
+    self.mutex.lockUncancelable(self.io);
     defer self.mutex.unlock(self.io);
 
     if (comptime KQUEUE) {
@@ -521,7 +521,7 @@ fn watchPoll(
                     self.last_change_time = now;
 
                     const sync_queue = @as(*SyncQueue, @ptrCast(@alignCast(queue)));
-                    try sync_queue.mutex.lock(self.io);
+                    sync_queue.mutex.lockUncancelable(self.io);
                     defer sync_queue.mutex.unlock(self.io);
 
                     if (!sync_queue.paused) {
@@ -542,7 +542,7 @@ fn watchPoll(
 }
 
 fn checkForChanges(self: *Watcher) !bool {
-    try self.mutex.lock(self.io);
+    self.mutex.lockUncancelable(self.io);
     defer self.mutex.unlock(self.io);
 
     var has_changes = false;
@@ -828,7 +828,7 @@ test "kqueue" {
     active = false;
     thread.join();
 
-    try queue.mutex.lock(io);
+    queue.mutex.lockUncancelable(io);
     defer queue.mutex.unlock(io);
     try testing.expect(queue.should_sync);
 }
@@ -919,7 +919,7 @@ test "epoll" {
     active = false;
     thread.join();
 
-    try queue.mutex.lock(core.io);
+    queue.mutex.lockUncancelable(core.io);
     defer queue.mutex.unlock(core.io);
     try testing.expect(queue.should_sync);
 }
@@ -1009,7 +1009,7 @@ test "polling" {
     active = false;
     thread.join();
 
-    try queue.mutex.lock(io);
+    queue.mutex.lockUncancelable(io);
     defer queue.mutex.unlock(io);
     try testing.expect(queue.should_sync);
 }

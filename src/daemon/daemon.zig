@@ -77,7 +77,7 @@ pub fn start(
     core.io.sleep(.fromMilliseconds(500), .boot) catch {};
 
     while (active) {
-        try queue.mutex.lock(core.io);
+        queue.mutex.lockUncancelable(core.io);
 
         while (!queue.should_sync and !queue.config_call and !queue.stopping) {
             try queue.cond.wait(core.io, &queue.mutex);
@@ -102,7 +102,7 @@ pub fn start(
             try core.scan();
 
             core.sync() catch {
-                queue.mutex.lock(core.io) catch return;
+                queue.mutex.lockUncancelable(core.io);
                 queue.syncing = false;
                 queue.sync_state_changed = true;
                 queue.mutex.unlock(core.io);
@@ -116,7 +116,7 @@ pub fn start(
 
             try core.stdout.flush();
 
-            queue.mutex.lock(core.io) catch return;
+            queue.mutex.lockUncancelable(core.io);
             try queue.updateSyncTime(core.allocator);
             queue.syncing = false;
             queue.sync_state_changed = true;
@@ -205,7 +205,7 @@ fn spawnTray(
     }
 
     while (!queue.stopping) {
-        try queue.mutex.lock(core.io);
+        queue.mutex.lockUncancelable(core.io);
 
         if (queue.sync_time_updated) {
             queue.sync_time_updated = false;
@@ -229,7 +229,7 @@ fn onSync(menu_id: i32, queue_data: ?*anyopaque) void {
     _ = menu_id;
     if (queue_data) |ptr| {
         const queue = @as(*SyncQueue, @ptrCast(@alignCast(ptr)));
-        queue.mutex.lock(queue.io) catch return;
+        queue.mutex.lockUncancelable(queue.io);
         queue.*.should_sync = true;
         queue.cond.signal(queue.io);
         queue.mutex.unlock(queue.io);
@@ -241,7 +241,7 @@ fn onConfig(menu_id: i32, queue_data: ?*anyopaque) void {
 
     if (queue_data) |ptr| {
         const queue = @as(*SyncQueue, @ptrCast(@alignCast(ptr)));
-        queue.mutex.lock(queue.io) catch return;
+        queue.mutex.lockUncancelable(queue.io);
         queue.*.config_call = true;
         queue.mutex.unlock(queue.io);
     }
@@ -252,7 +252,7 @@ fn onPause(menu_id: i32, queue_data: ?*anyopaque) void {
 
     if (queue_data) |ptr| {
         const ctx = @as(*Context, @ptrCast(@alignCast(ptr)));
-        ctx.queue.mutex.lock(ctx.queue.io) catch return;
+        ctx.queue.mutex.lockUncancelable(ctx.queue.io);
         ctx.queue.paused = !ctx.queue.paused;
         ctx.queue.mutex.unlock(ctx.queue.io);
 
@@ -272,7 +272,7 @@ fn onQuit(menu_id: i32, user_data: ?*anyopaque) void {
     _ = menu_id;
     if (user_data) |ptr| {
         const queue = @as(*SyncQueue, @ptrCast(@alignCast(ptr)));
-        queue.mutex.lock(queue.io) catch return;
+        queue.mutex.lockUncancelable(queue.io);
         queue.stopping = true;
         queue.cond.signal(queue.io);
         queue.mutex.unlock(queue.io);
