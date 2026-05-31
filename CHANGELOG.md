@@ -2,6 +2,58 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-05-31
+
+### Bug Fixes
+
+- Deprecate `Tray.menu_icons`
+- Drop `.help_category_order`
+- Use `environ`/`io`
+- Update daemon
+- Update writers
+- Correct allocations
+- Update epoll
+- Readd `.help_category_order`
+- Correct text file memory release
+
+### Documentation
+
+- Update inline man section
+
+### Features
+
+- Add `Pause` item
+
+### Miscellaneous tasks
+
+- Ignore `zig-pkg`
+
+### Operations
+
+- Bump actions/deploy-pages from 4.0.5 to 5.0.0
+- Bump actions/configure-pages from 5.0.0 to 6.0.0
+- Bump codecov/codecov-action from 5 to 6
+- Bump actions/upload-pages-artifact from 4.0.0 to 5.0.0
+- Bump zig to 0.16
+
+### Styling
+
+- Fix formatting
+- Fix newlines
+
+### Testing
+
+- Update util cases
+- Update integration infra
+- Decrease `sync-back` delay
+
+### Build
+
+- Drop `clean`
+- Update dependencies
+- Bump MSZV to 0.16
+- Switch to tar archives
+
 ## [0.7.2] - 2026-03-20
 
 ### Bug Fixes
