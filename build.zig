@@ -145,7 +145,7 @@ pub fn build(b: *std.Build) void {
     const build_docs = b.addInstallDirectory(.{
         .source_dir = lib.getEmittedDocs(),
         .install_dir = .prefix,
-        .install_subdir = "../docs",
+        .install_subdir = "doc",
     });
 
     const build_docs_step = b.step("docs", "Build library documentation");
