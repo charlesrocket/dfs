@@ -43,4 +43,6 @@ val="Zoot"
 {> endif <}
 ```
 
-## [Roadmap](https://github.com/users/charlesrocket/projects/8)
+## Contributing
+
+Patches are accepted via [Codeberg](https://codeberg.org/charlesrocket/dfs) or e-mail.
