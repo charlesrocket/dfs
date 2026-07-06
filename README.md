@@ -1,5 +1,6 @@
 # `dfs`
-[![CI](https://github.com/charlesrocket/dfs/actions/workflows/ci.yml/badge.svg?branch=trunk)](https://github.com/charlesrocket/dfs/actions/workflows/ci.yml)
+[![CI](https://codeberg.org/charlesrocket/dfs/badges/workflows/ci.yml/badge.svg?branch=trunk)](https://codeberg.org/charlesrocket/dfs/actions)
+[![Coverage](https://github.com/charlesrocket/dfs/actions/workflows/coverage.yml/badge.svg?branch=trunk)](https://github.com/charlesrocket/dfs/actions/workflows/coverage.yml)
 [![codecov](https://codecov.io/gh/charlesrocket/dfs/branch/trunk/graph/badge.svg)](https://codecov.io/gh/charlesrocket/dfs)
 
 This is a configuration (dotfiles) manager with a template engine and a true 2-way synchronization. It uses a `git` repository as a configuration source and mirrors its content into a destination directory (usually `$HOME`). Any changes in the rendered file are translated back into the template.
