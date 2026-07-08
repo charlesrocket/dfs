@@ -14,8 +14,8 @@
             .hash = "libstray-0.4.1-KHBc_3hOAQBdOxlmVfwy2Fl3CS7MJVM27ztQH3trn3-z",
         },
         .ghext = .{
-            .url = "https://github.com/charlesrocket/ghext/archive/refs/tags/0.7.6.tar.gz",
-            .hash = "ghext-0.7.6-dKaQN9dmAACgJ4zco-7XJIoJzHk9rJ36uKtv2u7t-XQa",
+            .url = "https://codeberg.org/charlesrocket/ghext/archive/0.7.7.tar.gz",
+            .hash = "ghext-0.7.7-dKaQN5ppAADIXDAgOvVXocflUFqS4w8cYmZXfj-qZTlf",
         },
     },
 
