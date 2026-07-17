@@ -14,6 +14,7 @@ pub const Counter = struct {
     template: usize,
     render: usize,
     binary: usize,
+    link: usize,
     errors: usize,
     dry_run: bool,
 
@@ -24,6 +25,7 @@ pub const Counter = struct {
             .template = 0,
             .render = 0,
             .binary = 0,
+            .link = 0,
             .errors = 0,
             .dry_run = dry,
         };

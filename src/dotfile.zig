@@ -238,6 +238,73 @@ pub fn lastMod(
     return @intCast(stat.mtime.toMilliseconds());
 }
 
+fn forwardSyncSymlink(
+    self: Dotfile,
+    allocator: std.mem.Allocator,
+    counter: *Util.Counter,
+    link_target: []const u8,
+    core: *Core,
+) !void {
+    counter.link += 1;
+
+    if (!core.dry) {
+        var existing_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const already_correct = if (std.Io.Dir.cwd().readLink(
+            core.io,
+            self.dest,
+            &existing_buf,
+        )) |existing_len|
+            std.mem.eql(u8, existing_buf[0..existing_len], link_target)
+        else |_|
+            false;
+
+        if (!already_correct) {
+            std.Io.Dir.cwd().deleteFile(core.io, self.dest) catch {};
+
+            const dir_name = std.fs.path.dirname(self.dest) orelse
+                return error.InvalidPath;
+
+            try Util.createDirRecursively(allocator, core.io, dir_name);
+
+            try std.Io.Dir.cwd().symLink(
+                core.io,
+                link_target,
+                self.dest,
+                .{},
+            );
+
+            counter.updated += 1;
+        }
+
+        try self.recordLastSync(allocator, core.io, core.environ_map);
+    }
+
+    if (!core.json and (core.dry or core.verbose)) {
+        try core.stdout.print("{s}{s}LINK | {s} -> {s}{s}\n", .{
+            Cli.blue,
+            Cli.bold,
+            self.dest,
+            link_target,
+            Cli.reset,
+        });
+
+        if (core.dry) {
+            try core.stdout.print(
+                "{s}{s}DATA | symlink target: {s}{s}\n{s}",
+                .{
+                    Cli.yellow,
+                    Cli.bold,
+                    link_target,
+                    Cli.reset,
+                    assets.separator,
+                },
+            );
+        }
+
+        try core.stdout.flush();
+    }
+}
+
 fn forwardSync(
     self: Dotfile,
     allocator: std.mem.Allocator,
@@ -503,6 +570,14 @@ pub fn processFile(
     core: *Core,
 ) !void {
     counter.total += 1;
+
+    if (core.direction != .back) {
+        var src_link_buf: [std.fs.max_path_bytes]u8 = undefined;
+        if (std.Io.Dir.cwd().readLink(core.io, self.src, &src_link_buf)) |len| {
+            return self.forwardSyncSymlink(allocator, counter, src_link_buf[0..len], core);
+        } else |_| {}
+    }
+
     const template_file = std.Io.Dir.cwd().openFile(core.io, self.src, .{}) catch {
         counter.errors += 1;
         try core.stderr.print(

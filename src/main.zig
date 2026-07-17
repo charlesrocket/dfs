@@ -357,6 +357,12 @@ pub fn main(init: std.process.Init) !void {
                 Cli.reset,
             });
 
+            try core.stdout.print("LINKS: {s}{d}{s}\n", .{
+                Cli.underline,
+                core.counter.link,
+                Cli.reset,
+            });
+
             try core.stdout.print("ERRORS: {s}{d}{s}\n", .{
                 Cli.underline,
                 core.counter.errors,
@@ -366,13 +372,14 @@ pub fn main(init: std.process.Init) !void {
             if (config.notifications) {
                 const stats = try std.fmt.allocPrint(
                     allocator,
-                    "Summary: total {d}, updated {d}, templates {d}, renders {d}, binaries {d}, errors {d}",
+                    "Summary: total {d}, updated {d}, templates {d}, renders {d}, binaries {d}, links {d}, errors {d}",
                     .{
                         core.counter.total,
                         core.counter.updated,
                         core.counter.template,
                         core.counter.render,
                         core.counter.binary,
+                        core.counter.link,
                         core.counter.errors,
                     },
                 );
@@ -391,13 +398,14 @@ pub fn main(init: std.process.Init) !void {
     if (core.logs and (!daemon_cmd and !validate_cmd)) Util.log(
         core.io,
         INFO,
-        "Finished: total {d}, updated {d}, templates {d}, renders {d}, binaries {d}, errors {d}",
+        "Finished: total {d}, updated {d}, templates {d}, renders {d}, binaries {d}, links {d}, errors {d}",
         .{
             core.counter.total,
             core.counter.updated,
             core.counter.template,
             core.counter.render,
             core.counter.binary,
+            core.counter.link,
             core.counter.errors,
         },
     );

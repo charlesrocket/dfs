@@ -156,7 +156,7 @@ pub fn scan(
         if (self.progress != null) scan_node.?.completeOne();
 
         switch (entry.kind) {
-            .file => {
+            .file, .sym_link => {
                 const src_path = try std.fs.path.join(
                     self.allocator,
                     &.{ self.source, entry.path },
