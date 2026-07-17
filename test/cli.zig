@@ -107,6 +107,7 @@ test "sync" {
         \\TEMPLATES: 0
         \\RENDERS: 2
         \\BINARIES: 1
+        \\LINKS: 0
         \\ERRORS: 1
         \\DONE
         \\
@@ -193,6 +194,7 @@ test "sync-dry" {
         \\TEMPLATES: 0
         \\RENDERS: 1
         \\BINARIES: 0
+        \\LINKS: 0
         \\ERRORS: 0
         \\DONE
         \\
