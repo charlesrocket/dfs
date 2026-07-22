@@ -191,12 +191,12 @@ pub fn build(b: *std.Build) void {
 
     // ICONS
 
-    const install_icon = b.addInstallFile(
+    const install_icon_symbolic = b.addInstallFile(
         b.path("assets/icon-symbolic.svg"),
-        "share/icons/hicolor/scalable/apps/dfs-symbolic.svg",
+        "share/icons/hicolor/symbolic/apps/dfs-symbolic.svg",
     );
 
-    b.getInstallStep().dependOn(&install_icon.step);
+    b.getInstallStep().dependOn(&install_icon_symbolic.step);
 }
 
 fn version(b: *std.Build) []const u8 {
