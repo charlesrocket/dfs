@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-07-22
+
+### Bug Fixes
+
+- Do not ignore symlink sources
+- Use symbolic icon
+
+### Documentation
+
+- Add `Contributing`
+- Update ci badges
+- Update config example
+
+### Operations
+
+- Bump codecov/codecov-action from 6 to 7
+- Bump actions/checkout from 6 to 7
+- Update actions
+- Fix `lint` conditional
+- Fix coverage directory
+- Add `docs` conditional
+
+### Performance
+
+- Use uncancelable mutex lock
+
+### Testing
+
+- Update `cli` cases
+
+### Build
+
+- Move docs output directory
+- Bump `ghext` to 0.7.7
+
 ## [0.8.0] - 2026-05-31
 
 ### Bug Fixes
