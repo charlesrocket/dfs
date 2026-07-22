@@ -36,7 +36,7 @@ pub fn start(
     core: *Core,
     config: *Config,
 ) !void {
-    const tray_enabled = config.tray.enabled;
+    const tray_enabled = config.tray;
     var active = true;
     var queue = SyncQueue{ .io = core.io };
     defer if (queue.sync_time) |v| core.allocator.free(v);
@@ -68,7 +68,7 @@ pub fn start(
         const tray_thread = try Thread.spawn(
             .{},
             spawnTray,
-            .{ core, config, &queue },
+            .{ core, &queue },
         );
 
         tray_thread.detach();
@@ -135,16 +135,12 @@ pub fn start(
 
 fn spawnTray(
     core: *Core,
-    config: *Config,
     queue: *SyncQueue,
 ) !void {
     var icon = try Icon.create(
         core.allocator,
         "org.hellbyte.dfs",
-        switch (config.tray.icon) {
-            .bright => "dfs-bright",
-            .dark => "dfs-dark",
-        },
+        "dfs-symbolic",
         "DFS",
     );
 

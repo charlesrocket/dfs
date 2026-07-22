@@ -491,10 +491,10 @@ test "config bad" {
         \\    .source = "$HOME/src/dotfiles",
         \\    .target = "/tmp/test",
         \\    .logging = false,
+        \\    .tray = true,
         \\    .notifications = false,
         \\    .watcher = .auto,
         \\    .ignore_list = .{},
-        \\    .tray = .{ .enabled = true, .icon = .bright },
         \\}
         \\
     ;

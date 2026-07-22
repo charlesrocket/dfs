@@ -121,23 +121,39 @@ pub fn build(b: *std.Build) void {
     merge_step.addDirectoryArg(b.path("kcov-exe-unit"));
     merge_step.addDirectoryArg(b.path("kcov-int"));
 
-    const kcov_unit = b.addSystemCommand(&.{ "kcov", "--include-path=src,test" });
+    const kcov_unit = b.addSystemCommand(&.{
+        "kcov",
+        "--include-path=src,test",
+    });
+
     kcov_unit.addDirectoryArg(b.path("kcov-unit"));
     kcov_unit.addArtifactArg(lib_unit_tests);
     merge_step.step.dependOn(&kcov_unit.step);
 
-    const kcov_exe_unit = b.addSystemCommand(&.{ "kcov", "--include-path=src,test" });
+    const kcov_exe_unit = b.addSystemCommand(&.{
+        "kcov",
+        "--include-path=src,test",
+    });
+
     kcov_exe_unit.addDirectoryArg(b.path("kcov-exe-unit"));
     kcov_exe_unit.addArtifactArg(exe_unit_tests);
     merge_step.step.dependOn(&kcov_exe_unit.step);
 
-    const kcov_int = b.addSystemCommand(&.{ "kcov", "--include-path=src,test" });
+    const kcov_int = b.addSystemCommand(&.{
+        "kcov",
+        "--include-path=src,test",
+    });
+
     kcov_int.addDirectoryArg(b.path("kcov-int"));
     kcov_int.addArtifactArg(integration_tests);
 
     merge_step.step.dependOn(&kcov_int.step);
 
-    const coverage_step = b.step("coverage", "Generate test coverage (kcov)");
+    const coverage_step = b.step(
+        "coverage",
+        "Generate test coverage (kcov)",
+    );
+
     coverage_step.dependOn(&merge_step.step);
 
     // DOCS
@@ -165,23 +181,22 @@ pub fn build(b: *std.Build) void {
             },
         });
 
-        const meta_doc_gen = b.step("docs-meta", "Generate meta documentation");
+        const meta_doc_gen = b.step(
+            "docs-meta",
+            "Generate meta documentation",
+        );
+
         meta_doc_gen.dependOn(&cova_gen.step);
     }
 
     // ICONS
 
-    const install_icons = b.addInstallFile(
-        b.path("assets/icon-bright.png"),
-        "share/icons/dfs-bright.png",
+    const install_icon = b.addInstallFile(
+        b.path("assets/icon-symbolic.svg"),
+        "share/icons/hicolor/scalable/apps/dfs-symbolic.svg",
     );
 
-    install_icons.step.dependOn(&b.addInstallFile(
-        b.path("assets/icon-dark.png"),
-        "share/icons/dfs-dark.png",
-    ).step);
-
-    b.getInstallStep().dependOn(&install_icons.step);
+    b.getInstallStep().dependOn(&install_icon.step);
 }
 
 fn version(b: *std.Build) []const u8 {
@@ -205,9 +220,9 @@ const manifest: struct {
     paths: []const []const u8,
     minimum_zig_version: []const u8,
     dependencies: struct {
+        ghext: Dependency,
         cova: Dependency,
         libstray: Dependency,
-        ghext: Dependency,
     },
 } = @import("build.zig.zon");
 

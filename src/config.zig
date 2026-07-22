@@ -12,29 +12,19 @@ pub const WatcherMode = enum {
     auto,
 };
 
-const Icon = enum {
-    bright,
-    dark,
-};
-
 pub const ConfigResult = union(enum) {
     ok: Config,
     parse_error: [:0]const u8,
-};
-
-const Tray = struct {
-    enabled: bool,
-    icon: Icon,
 };
 
 repository: []const u8,
 source: []const u8,
 target: []const u8,
 logging: bool,
+tray: bool,
 notifications: bool,
 watcher: WatcherMode,
 ignore_list: [][]const u8,
-tray: Tray,
 
 pub fn new(
     repository: []const u8,
@@ -54,13 +44,10 @@ pub fn new(
         .source = source,
         .target = path.?,
         .logging = false,
+        .tray = true,
         .notifications = false,
         .watcher = WatcherMode.auto,
         .ignore_list = &[_][]u8{},
-        .tray = .{
-            .enabled = true,
-            .icon = .bright,
-        },
     };
 }
 
@@ -318,13 +305,7 @@ pub fn migrateConfig(
         .notifications = if (old_config.notifications) |v| v else false,
         .watcher = if (old_config.watcher) |v| v else WatcherMode.auto,
         .ignore_list = ignore_list,
-        .tray = if (old_config.tray) |v| .{
-            .enabled = v.enabled orelse true,
-            .icon = v.icon orelse .bright,
-        } else .{
-            .enabled = true,
-            .icon = .bright,
-        },
+        .tray = if (old_config.tray) |v| v else true,
     };
     try new_config.write(allocator, io, config_path);
     for (ignore_list) |item| {
@@ -576,10 +557,10 @@ test migrateConfig {
         \\    .source = "test/root-back",
         \\    .target = "/tmp/test",
         \\    .logging = false,
+        \\    .tray = true,
         \\    .notifications = false,
         \\    .watcher = .auto,
         \\    .ignore_list = .{ "foo", "bar" },
-        \\    .tray = .{ .enabled = true, .icon = .bright },
         \\}
         \\
     ;
