@@ -3,8 +3,6 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const build_options = b.addOptions();
 
-    // MODULES
-
     const lib_mod = b.addModule("libdfs", .{
         .root_source_file = b.path("src/lib/root.zig"),
         .target = target,
@@ -64,7 +62,7 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    const run_step = b.step("run", "Run the app");
+    const run_step = b.step("run", "Run application");
     run_step.dependOn(&run_cmd.step);
 
     // TEST
@@ -110,7 +108,7 @@ pub fn build(b: *std.Build) void {
     exe_unit_tests.filters = filter_option;
     integration_tests.filters = filter_option;
 
-    const test_step = b.step("test", "Run all tests");
+    const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
     test_step.dependOn(&run_integration_tests.step);
