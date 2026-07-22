@@ -23,10 +23,10 @@ zig build --release=fast
     .source = "$HOME/src/dotfiles",
     .target = "$HOME",
     .logging = false,
+    .tray = true,
     .notifications = false,
     .watcher = .auto,
     .ignore_list = .{},
-    .tray = .{ .enabled = true, .icon = .bright },
 }
 ```
 
